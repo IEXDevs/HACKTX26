@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useState, useRef } from 'react';
+import { AgentTreeWorkspace, TreeExecutionView } from './components/agent-trees';
 import {
   Activity,
   ArrowDown,
@@ -41,9 +42,10 @@ import {
   Zap,
 } from 'lucide-react';
 
-type Tab = 'Agents' | 'Runs' | 'Connections' | 'API' | 'Usage';
+type Tab = 'Agents' | 'Trees' | 'Runs' | 'Connections' | 'API' | 'Usage';
 const nav = [
   { name: 'Agents', icon: Blocks },
+  { name: 'Trees', icon: Network },
   { name: 'Runs', icon: GitBranch },
   { name: 'Connections', icon: Network },
   { name: 'API', icon: Code2 },
@@ -111,6 +113,7 @@ export default function Dashboard() {
   const [agent, setAgent] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState('');
+  const [treeAgentId, setTreeAgentId] = useState<string | null>(null);
   const load = useCallback(async () => {
     try {
       const d = await api('dashboard');
@@ -132,6 +135,7 @@ export default function Dashboard() {
     if (nav.some((n) => n.name.toLowerCase() === q.get('view')))
       setTab((q.get('view')![0].toUpperCase() + q.get('view')!.slice(1)) as Tab);
     if (q.get('run')) setSelected(q.get('run'));
+    if (q.get('tree')) setTreeAgentId(q.get('tree'));
     void load();
   }, [load]);
   useEffect(() => {
@@ -176,9 +180,17 @@ export default function Dashboard() {
     }
   }
   function navigate(next: Tab) {
+    const current = new URLSearchParams(window.location.search);
+    const currentTree = current.get('tree');
+    if (currentTree) setTreeAgentId(currentTree);
     setTab(next);
     const q = new URLSearchParams({ view: next.toLowerCase() });
     if (next === 'Runs' && selected) q.set('run', selected);
+    if (next === 'Trees') {
+      if (currentTree || treeAgentId) q.set('tree', currentTree || treeAgentId!);
+      if (current.get('view') === 'trees' && current.get('treeRun'))
+        q.set('treeRun', current.get('treeRun')!);
+    }
     history.replaceState(null, '', '?' + q);
   }
   function selectRun(id: string) {
@@ -190,6 +202,16 @@ export default function Dashboard() {
   function newRun(a?: any) {
     setAgent(a || data?.agents[0]);
     setModal('run');
+  }
+  function configureAgent(a: any) {
+    if (a.draft.tree) {
+      setTreeAgentId(a.id);
+      navigate('Trees');
+      history.replaceState(null, '', '?view=trees&tree=' + a.id);
+    } else {
+      setAgent(a);
+      setModal('config');
+    }
   }
   if (!data)
     return (
@@ -229,6 +251,7 @@ export default function Dashboard() {
             <button
               key={n.name}
               className={tab === n.name ? 'active' : ''}
+              aria-label={n.name}
               onClick={() => navigate(n.name)}
             >
               <n.icon size={18} />
@@ -382,7 +405,10 @@ export default function Dashboard() {
                       <p>{a.description}</p>
                       <div className="agent-tags">
                         <span>
-                          <Sparkles size={12} /> {a.draft.coordinatorModel}
+                          <Sparkles size={12} />{' '}
+                          {a.draft.tree
+                            ? a.draft.tree.nodes.length + ' agents'
+                            : a.draft.coordinatorModel}
                         </span>
                         <span>
                           <Network size={12} />
@@ -405,12 +431,7 @@ export default function Dashboard() {
                         >
                           <Play size={13} /> Run agent
                         </button>
-                        <button
-                          onClick={() => {
-                            setAgent(a);
-                            setModal('config');
-                          }}
-                        >
+                        <button onClick={() => configureAgent(a)}>
                           <Settings2 size={14} /> Configure
                         </button>
                         <button
@@ -423,9 +444,8 @@ export default function Dashboard() {
                                 method: 'POST',
                               });
                               const d = await api('dashboard');
-                              setAgent(d.agents.find((a: any) => a.id === copy.id));
                               setData(d);
-                              setModal('config');
+                              configureAgent(d.agents.find((a: any) => a.id === copy.id));
                             })
                           }
                         >
@@ -590,7 +610,19 @@ export default function Dashboard() {
                   )}
                 </section>
                 {run ? (
-                  <RunWorkspace run={run} busy={busy} action={action} onRefresh={loadRun} />
+                  run.config.tree ? (
+                    <TreeExecutionView
+                      run={run}
+                      busy={busy}
+                      onCancel={() =>
+                        void action(async () => {
+                          await api('runs/' + run.id + '/cancel', { method: 'POST' });
+                        })
+                      }
+                    />
+                  ) : (
+                    <RunWorkspace run={run} busy={busy} action={action} onRefresh={loadRun} />
+                  )
                 ) : (
                   <section className="panel run-empty">
                     <Empty
@@ -613,6 +645,15 @@ export default function Dashboard() {
                 )}
               </div>
             </>
+          )}
+          {tab === 'Trees' && (
+            <AgentTreeWorkspace
+              agents={data.agents}
+              mode={data.mode}
+              initialAgentId={treeAgentId}
+              onChanged={load}
+              onOpenRun={selectRun}
+            />
           )}
           {tab === 'Connections' && (
             <>
@@ -793,7 +834,7 @@ function Graph({
       </button>
     );
   };
-  if (run?.output?.content)
+  if (run?.output?.content || run?.config.workflowKind === 'tree_planner')
     return (
       <div className="execution-tree">
         <div className="graph-lane">
@@ -1301,6 +1342,21 @@ function RequirementsReview({
   );
 }
 function PlanOutput({ plan, run }: { plan: any; run: any }) {
+  if (plan.tree)
+    return (
+      <>
+        <div className="eyebrow">
+          {run.mode === 'fixture' ? 'FIXTURE COMPLEXITY PLANNER' : 'MODEL-PLANNED AGENT TREE'}
+        </div>
+        <h2>Proposed specialist team</h2>
+        <p>{plan.tree.rationale}</p>
+        <p>
+          {plan.tree.nodes.length} agents · {plan.tree.complexity} complexity. This is a proposal,
+          not an executed agent tree.
+        </p>
+        <Json value={plan} />
+      </>
+    );
   if (plan.content)
     return (
       <>
@@ -1523,7 +1579,7 @@ function RunModal({
 }) {
   const [a, setA] = useState(agent);
   const [v, setV] = useState(agent.versions[0]?.id || '');
-  const [brief, setBrief] = useState(demoBrief);
+  const [brief, setBrief] = useState(agent.draft.treeTask || demoBrief);
   const [file, setFile] = useState<any>(null);
   const [uploadError, setUploadError] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -1547,6 +1603,7 @@ function RunModal({
               const next = agents.find((a) => a.id === e.target.value);
               setA(next);
               setV(next.versions[0]?.id || '');
+              setBrief(next.draft.treeTask || demoBrief);
             }}
           >
             {agents
@@ -1569,7 +1626,7 @@ function RunModal({
           </select>
         </label>
         <label>
-          Your event brief
+          {a.draft.tree ? 'Your task brief' : 'Your event brief'}
           <textarea
             className="brief-input"
             required
@@ -1592,7 +1649,7 @@ function RunModal({
           <input
             type="file"
             accept="application/pdf,image/png,image/jpeg"
-            disabled={uploading || mode === 'fixture'}
+            disabled={uploading || mode === 'fixture' || !!a.draft.tree}
             onChange={async (e) => {
               const f = e.target.files?.[0];
               if (!f) return;

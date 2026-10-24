@@ -30,6 +30,8 @@ If port 5432 is busy, set a different port in `DATABASE_URL`. To use existing Po
 
 ## Try the main workflow
 
+For manual and adaptive multi-agent workflows, open **Trees**. Build branches, choose each agent's model and mode, preview moving handoffs, then publish and execute the saved tree. Open the root for team activity or a child for its observed result. See the [agent tree guide](docs/AGENT_TREES.md).
+
 1. Open **Agents**. Inspect Community Event Operations. Configure or duplicate it. Publishing creates a new immutable version.
 2. Run the published version with the supplied meetup brief. Each accepted run reserves one **test credit**.
 3. Review extracted requirements. Change the attendee count, budget, location, or outdoor preference. Confirm to start research.

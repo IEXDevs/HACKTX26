@@ -25,6 +25,7 @@ import {
 import { callConnector } from '@/lib/mcp-client';
 import { createInvoice, creditPayment } from '@/lib/payments';
 import { connections } from '@/lib/connections';
+import { saveTree, plannerVersion } from '@/lib/tree-store';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 type Context = { params: Promise<{ path: string[] }> };
@@ -95,9 +96,16 @@ async function route(
   const auth = await authorize(
     req,
     scope,
-    ['dashboard', 'keys', 'agents', 'connections', 'uploads', 'usage', 'requests'].includes(
-      resource,
-    ),
+    [
+      'dashboard',
+      'keys',
+      'agents',
+      'connections',
+      'uploads',
+      'usage',
+      'requests',
+      'trees',
+    ].includes(resource),
   );
   const ws = auth.workspace;
   if (auth.kind === 'api') tracking.workspace = ws;
@@ -113,7 +121,7 @@ async function route(
   if (resource === 'dashboard' && method === 'GET') {
     const [agents, runs, stats, workspace] = await Promise.all([
       pool.query(
-        "SELECT a.*,COALESCE((SELECT jsonb_agg(v ORDER BY v.version DESC) FROM agent_versions v WHERE v.agent_id=a.id),'[]'::jsonb) AS versions FROM agents a WHERE a.workspace_id=$1 ORDER BY a.created_at",
+        "SELECT a.*,COALESCE((SELECT jsonb_agg(v ORDER BY v.version DESC) FROM agent_versions v WHERE v.agent_id=a.id),'[]'::jsonb) AS versions FROM agents a WHERE a.workspace_id=$1 AND COALESCE(a.draft->>'workflowKind','')<>'tree_planner' ORDER BY a.created_at",
         [ws],
       ),
       pool.query(
@@ -131,6 +139,33 @@ async function route(
       mode: mode(),
       connections: connections(),
     });
+  }
+  if (resource === 'trees' && method === 'POST') {
+    if (resourceId === 'plan') {
+      const b = z
+        .object({
+          task: z.string().min(10).max(15000),
+          complexity: z.enum(['auto', 'simple', 'standard', 'complex']),
+          provider: z.enum(['muse', 'gemini']),
+          model: z.string().min(1).max(100),
+        })
+        .strict()
+        .parse(await body(req));
+      const versionId = await plannerVersion(ws, b.complexity, b.provider, b.model);
+      return json(
+        await startRun(
+          ws,
+          { versionId, input: { brief: b.task }, mode: mode() },
+          req.headers.get('idempotency-key') || '',
+        ),
+        202,
+      );
+    }
+    if (!resourceId)
+      return json(
+        await saveTree(ws, await body(req), req.headers.get('idempotency-key') || ''),
+        201,
+      );
   }
   if (resource === 'agents') {
     if (method === 'GET')
@@ -369,7 +404,11 @@ async function route(
       .strict()
       .parse(await body(req));
     const v = await version(ws, b.model);
-    if (!v.config.readOnly)
+    if (
+      !v.config.readOnly ||
+      v.config.workflowKind === 'tree' ||
+      v.config.workflowKind === 'tree_planner'
+    )
       throw new HttpError(
         400,
         'This published agent needs the native runs API. Completion tasks must use a readOnly agent.',

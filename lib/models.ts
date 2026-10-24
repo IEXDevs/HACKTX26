@@ -1,6 +1,38 @@
 import { GoogleGenAI } from '@google/genai';
 import { z } from 'zod';
 import { requirementsSchema, type AgentConfig } from './config';
+import type { TreeNode } from './agent-tree';
+export async function generateAgentText(
+  config: AgentConfig,
+  node: Pick<TreeNode, 'provider' | 'model' | 'instructions'>,
+  context: string,
+) {
+  if (node.provider === 'gemini') {
+    if (!process.env.GEMINI_API_KEY)
+      throw new Error('Gemini unavailable: GEMINI_API_KEY is missing');
+    const ai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: { timeout: 20000 },
+    });
+    const response = await ai.models.generateContent({
+      model: node.model,
+      contents: context,
+      config: { systemInstruction: node.instructions, maxOutputTokens: config.maxOutputTokens },
+    });
+    if (!response.text) throw new Error('Gemini returned no visible text');
+    return { content: response.text, tokens: response.usageMetadata?.totalTokenCount || 0 };
+  }
+  const response = await coordinate(
+    { ...config, coordinatorModel: node.model },
+    [
+      { role: 'system', content: node.instructions },
+      { role: 'user', content: context },
+    ],
+    true,
+  );
+  if (!response.message.content) throw new Error('Muse Spark returned no visible text');
+  return { content: response.message.content, tokens: response.tokens };
+}
 export async function extractRequirements(
   config: AgentConfig,
   brief: string,

@@ -54,8 +54,8 @@ Only completed observed steps insert `execution_metrics` records. There are no s
 ## Known limits
 
 - Live sponsor calls, a real devnet transfer, Tiger Data, GCS, and Vultr deployment need user credentials and infrastructure. They have not been verified in this build.
-- The three-option output is an event-plan schema. Instructions, models, tools, limits, and permissions are reusable, but this foundation does not yet support arbitrary graph definitions or arbitrary output schemas.
-- The graph shows the bounded workflow and observed steps. It is not a drag-and-drop editor.
+- The event template uses a three-option event-plan schema. The Trees workspace supports bounded manual/adaptive trees with per-node model, mode, and read-tool choices. Arbitrary output schemas and cyclic graphs remain unsupported.
+- Tree execution is sequential and read-only. Branches can be added, removed, and reconnected through the inspector. The canvas is not a drag-and-drop editor. See AGENT_TREES.md.
 - Text-only completion tasks make one model call and do not use tools. They are deliberately narrower than the native runs API.
 - The Snowflake SQL API adapter expects a synchronous result within 15 seconds and fails visibly on queued/asynchronous results. OAuth refresh, pagination, and very large histories need a later adapter layer.
 - Live snippets are source evidence, not proof of venue price, capacity, accessibility or availability. The server forces these operational facts to remain unconfirmed. Recommendations and invitation drafts still need human review.

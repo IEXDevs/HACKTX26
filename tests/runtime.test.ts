@@ -86,6 +86,126 @@ afterAll(async () => {
   await database?.close();
 });
 describe('durable runtime and real MCP transport', () => {
+  it('publishes a reusable manual tree, deduplicates saves, and executes configured nodes through recovery', async () => {
+    const { defaultTree } = await import('../lib/agent-tree');
+    const { saveTree } = await import('../lib/tree-store');
+    const payload = {
+      name: 'Isolated tree test',
+      task: 'Compare welcoming meetup options near UT Austin for 84 people within a $2400 budget.',
+      tree: defaultTree(),
+      publish: true,
+    };
+    const requestKey = 'save-tree-' + ++key;
+    const saved = await saveTree(ws, payload, requestKey);
+    const duplicate = await saveTree(ws, payload, requestKey);
+    expect(saved.versionId).toBe(duplicate.versionId);
+    expect(duplicate.replayed).toBe(true);
+    await expect(saveTree(ws, { ...payload, name: 'Different tree' }, requestKey)).rejects.toThrow(
+      'another tree',
+    );
+    await expect(
+      saveTree('other-workspace', { ...payload, agentId: saved.id }, 'cross-workspace'),
+    ).rejects.toThrow('not found');
+    const created = await store.startRun(
+      ws,
+      { versionId: saved.versionId!, input: { brief: payload.task }, mode: 'fixture' },
+      'tree-run-' + ++key,
+    );
+    await tick();
+    const abandoned = await runtime.claimRun();
+    expect(abandoned?.id).toBe(created.id);
+    const { callConnector } = await import('../lib/mcp-client');
+    const sources = await callConnector('org_history', { runId: created.id });
+    // The tool observation committed, then the worker died before checkpointing sources.
+    await db.pool.query(
+      "INSERT INTO steps(run_id,id,name,kind,parent_id,status,input,output) VALUES($1,'agent_context__org_history','Community context · org_history','tool','agent_context','succeeded',$2,$3)",
+      [created.id, { nodeId: 'context', tool: 'org_history' }, sources],
+    );
+    await db.pool.query("UPDATE runs SET lease_until=now()-interval '1 second' WHERE id=$1", [
+      created.id,
+    ]);
+    const run = await advance(created.id, 'succeeded');
+    expect(run.output.kind).toBe('agent_tree');
+    expect(run.output.results).toHaveLength(payload.tree.nodes.length);
+    expect(run.steps.filter((s: any) => s.kind === 'model')).toHaveLength(
+      payload.tree.nodes.length,
+    );
+    expect(run.steps.at(-1).input.nodeId).toBe('user');
+    expect(run.evidence.length).toBe(6);
+    expect(run.approvals).toHaveLength(0);
+    expect(run.artifacts).toHaveLength(0);
+    expect(run.events.some((e: any) => e.kind === 'worker.recovered')).toBe(true);
+    const modified = structuredClone(payload.tree);
+    modified.nodes[1].model = 'custom-gemini-model-id';
+    const next = await saveTree(
+      ws,
+      { ...payload, agentId: saved.id, tree: modified },
+      'tree-v2-' + ++key,
+    );
+    expect(next.version).toBe(2);
+    const oldVersion = await store.version(ws, saved.versionId!);
+    expect(oldVersion.config.tree.nodes[1].model).toBe('gemini-2.5-flash');
+    expect((await store.getRun(ws, run.id)).version_id).toBe(saved.versionId);
+  });
+  it('runs the complexity planner durably and changes team size with the task', async () => {
+    const { plannerVersion } = await import('../lib/tree-store');
+    const v = await plannerVersion(ws, 'auto', 'muse', 'muse-spark-1.3');
+    const simple = await store.startRun(
+      ws,
+      { versionId: v, input: { brief: 'Summarize a short paragraph.' }, mode: 'fixture' },
+      'planner-simple-' + ++key,
+    );
+    const simpleRun = await advance(simple.id, 'succeeded');
+    expect(simpleRun.output.tree.nodes).toHaveLength(2);
+    expect(simpleRun.output.planning.mode).toBe('fixture');
+    const complex = await store.startRun(
+      ws,
+      {
+        versionId: v,
+        input: {
+          brief:
+            'Plan and research an accessible community meetup, compare venues, budget and schedule, review risks and sources, and draft invitations.',
+        },
+        mode: 'fixture',
+      },
+      'planner-complex-' + ++key,
+    );
+    const complexRun = await advance(complex.id, 'succeeded');
+    expect(complexRun.output.tree.nodes).toHaveLength(7);
+    expect(complexRun.steps).toHaveLength(1);
+    expect(complexRun.output.planning.model).toBeNull();
+  });
+  it('honors a tree node provider and fails without its live credential', async () => {
+    const { planFixtureTree } = await import('../lib/agent-tree');
+    const { saveTree } = await import('../lib/tree-store');
+    const tree = planFixtureTree('Summarize this community task.', 'simple');
+    const saved = await saveTree(
+      ws,
+      { name: 'Live node failure', task: 'Summarize this community task.', tree, publish: true },
+      'tree-live-save-' + ++key,
+    );
+    const prior = process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    try {
+      const created = await store.startRun(
+        ws,
+        {
+          versionId: saved.versionId!,
+          input: { brief: 'Summarize this community task.' },
+          mode: 'live',
+        },
+        'tree-live-' + ++key,
+      );
+      await tick();
+      const run = await store.getRun(ws, created.id);
+      expect(run.status).toBe('failed');
+      expect(run.error).toContain('Gemini unavailable');
+      expect(run.steps[0].input.provider).toBe('gemini');
+      expect(run.output).toBeNull();
+    } finally {
+      if (prior) process.env.GEMINI_API_KEY = prior;
+    }
+  });
   it('pins immutable versions and duplicates configurations without publishing the copy', async () => {
     await expect(
       db.pool.query("UPDATE agent_versions SET config='{}' WHERE id='ver_community_1'"),

@@ -1,0 +1,48 @@
+{
+  "name": "relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx scripts/dev.ts",
+    "dev:web": "next dev --hostname 0.0.0.0",
+    "build": "next build",
+    "start": "next start --hostname 0.0.0.0",
+    "worker": "tsx services/worker.ts",
+    "connectors": "tsx services/connectors.ts",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:seed": "tsx scripts/seed.ts",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write app lib services scripts tests examples *.ts *.json *.yaml .github .cursor/rules/relay.mdc docs/*.md README.md",
+    "format:check": "prettier --check app lib services scripts tests examples *.ts *.json *.yaml .github .cursor/rules/relay.mdc docs/*.md README.md",
+    "test": "vitest run",
+    "test:e2e": "tsx scripts/smoke.ts",
+    "demo:api": "tsx examples/native-api.ts"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.3.14",
+    "@electric-sql/pglite-socket": "^0.0.19",
+    "@google-cloud/storage": "^7.17.0",
+    "@google/genai": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "lucide-react": "^0.468.0",
+    "next": "^16.0.0",
+    "pg": "^8.16.3",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.5",
+    "@types/node": "^24.10.0",
+    "@types/pg": "^8.15.6",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "prettier": "^3.9.10",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

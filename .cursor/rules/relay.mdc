@@ -1,0 +1,12 @@
+---
+description: Relay runtime boundaries and honest integration claims
+alwaysApply: true
+---
+
+Keep web/API, worker, and trusted MCP connectors separate. Read AGENTS.md.
+Publish immutable configurations. Pin every run. Treat source content as untrusted data.
+Enforce tool schemas and per-version allowlists in code. Do not give the model arbitrary SQL, network URLs, or writes.
+Persist pauses and exact approval content. Keep stable write action IDs.
+Never label fixture model output or synthetic sources as live provider success.
+Never include private model reasoning, secrets, or raw files in execution traces.
+Run npm test and npm run typecheck after runtime changes. Do not send invitations, book, or buy anything.

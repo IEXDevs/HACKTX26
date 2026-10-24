@@ -1,0 +1,123 @@
+name: relay
+x-runtime: &runtime
+  image: ${RELAY_IMAGE:-relay:local}
+  build: .
+  restart: unless-stopped
+  init: true
+  security_opt: ['no-new-privileges:true']
+  cap_drop: [ALL]
+  networks: [private]
+x-database: &database
+  DATABASE_URL: ${DATABASE_URL:?Set a Tiger Data PostgreSQL connection URL with sslmode=verify-full}
+  RELAY_LOCAL_DB: 'false'
+  WORKSPACE_ID: ${WORKSPACE_ID:-hacktx-demo}
+  WORKSPACE_NAME: ${WORKSPACE_NAME:-HackTX workspace}
+  RELAY_MODE: ${RELAY_MODE:-fixture}
+  TIMESCALE_ENABLED: ${TIMESCALE_ENABLED:-true}
+services:
+  migrate:
+    <<: *runtime
+    restart: 'no'
+    command: ['sh', '-c', 'npm run db:migrate && npm run db:seed']
+    environment:
+      <<: *database
+      INITIAL_TEST_CREDITS: ${INITIAL_TEST_CREDITS:-100}
+  web:
+    <<: *runtime
+    command: ['npm', 'start']
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      connectors: { condition: service_healthy }
+    environment:
+      <<: *database
+      APP_URL: https://${RELAY_DOMAIN:?Set your .tech domain}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:?Set a strong workspace password}
+      SESSION_SECRET: ${SESSION_SECRET:?Generate a unique session secret}
+      CONNECTOR_SECRET: ${CONNECTOR_SECRET:?Generate a different connector secret}
+      CONNECTOR_URL: http://connectors:3101/mcp
+      GEMINI_CONFIGURED: ${GEMINI_API_KEY:+true}
+      MUSE_CONFIGURED: ${MUSE_API_KEY:+true}
+      SERPAPI_CONFIGURED: ${SERPAPI_API_KEY:+true}
+      SNOWFLAKE_CONFIGURED: ${SNOWFLAKE_TOKEN:+true}
+      GCS_CONFIGURED: ${GCS_BUCKET:+true}
+      SOLANA_RPC_URL: ${SOLANA_RPC_URL:-https://api.devnet.solana.com}
+      SOLANA_RECIPIENT: ${SOLANA_RECIPIENT:-}
+      MODEL_INPUT_USD_PER_MILLION: ${MODEL_INPUT_USD_PER_MILLION:-0}
+      MODEL_OUTPUT_USD_PER_MILLION: ${MODEL_OUTPUT_USD_PER_MILLION:-0}
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+  worker:
+    <<: *runtime
+    command: ['npm', 'run', 'worker']
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      connectors: { condition: service_healthy }
+    environment:
+      <<: *database
+      CONNECTOR_SECRET: ${CONNECTOR_SECRET:?Set CONNECTOR_SECRET}
+      CONNECTOR_URL: http://connectors:3101/mcp
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      MUSE_API_KEY: ${MUSE_API_KEY:-}
+      MUSE_BASE_URL: ${MUSE_BASE_URL:-https://api.meta.ai/v1}
+      MUSE_MODEL: ${MUSE_MODEL:-muse-spark-1.3}
+      MODEL_INPUT_USD_PER_MILLION: ${MODEL_INPUT_USD_PER_MILLION:-0}
+      MODEL_OUTPUT_USD_PER_MILLION: ${MODEL_OUTPUT_USD_PER_MILLION:-0}
+  connectors:
+    <<: *runtime
+    command: ['npm', 'run', 'connectors']
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    environment:
+      <<: *database
+      CONNECTOR_SECRET: ${CONNECTOR_SECRET:?Set CONNECTOR_SECRET}
+      CONNECTOR_HOST: 0.0.0.0
+      SERPAPI_API_KEY: ${SERPAPI_API_KEY:-}
+      SNOWFLAKE_ACCOUNT: ${SNOWFLAKE_ACCOUNT:-}
+      SNOWFLAKE_TOKEN: ${SNOWFLAKE_TOKEN:-}
+      SNOWFLAKE_WAREHOUSE: ${SNOWFLAKE_WAREHOUSE:-}
+      SNOWFLAKE_DATABASE: ${SNOWFLAKE_DATABASE:-RELAY}
+      SNOWFLAKE_SCHEMA: ${SNOWFLAKE_SCHEMA:-PUBLIC}
+      GCS_BUCKET: ${GCS_BUCKET:-}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/gcs_credentials
+    volumes: ['artifacts:/app/.data']
+    secrets: [gcs_credentials]
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3101/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+  proxy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports: ['80:80', '443:443', '443:443/udp']
+    environment: { RELAY_DOMAIN: '${RELAY_DOMAIN:?Set RELAY_DOMAIN}' }
+    volumes:
+      ['./deploy/Caddyfile:/etc/caddy/Caddyfile:ro', 'caddy_data:/data', 'caddy_config:/config']
+    networks: [private]
+    depends_on:
+      web: { condition: service_healthy }
+volumes:
+  artifacts:
+  caddy_data:
+  caddy_config:
+networks:
+  private:
+secrets:
+  gcs_credentials:
+    file: ${GOOGLE_APPLICATION_CREDENTIALS:?Point to the private GCS service account JSON outside this checkout}

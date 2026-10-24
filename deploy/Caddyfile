@@ -1,0 +1,15 @@
+{$RELAY_DOMAIN} {
+ encode zstd gzip
+ header {
+  Strict-Transport-Security "max-age=31536000; includeSubDomains"
+  X-Content-Type-Options nosniff
+  X-Frame-Options DENY
+  Referrer-Policy same-origin
+ }
+ request_body {
+  max_size 8MB
+ }
+ reverse_proxy web:3000 {
+  flush_interval -1
+ }
+}

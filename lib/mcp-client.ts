@@ -1,5 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { connectorFailureMessage } from './connector-errors';
 export async function callConnector<T = unknown>(
   name: string,
   args: Record<string, unknown>,
@@ -14,8 +15,9 @@ export async function callConnector<T = unknown>(
     );
     await client.connect(transport);
     const result = await client.callTool({ name, arguments: args }, undefined, { timeout: 25000 });
-    if (result.isError) throw new Error('MCP tool failed: ' + name);
     const content = result.content as { type: string; text?: string }[];
+    if (result.isError)
+      throw new Error('MCP tool failed: ' + name + '. ' + connectorFailureMessage(content));
     return JSON.parse(content.find((c) => c.type === 'text')?.text || 'null') as T;
   } finally {
     await client.close();

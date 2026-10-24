@@ -28,6 +28,8 @@ Open [Relay locally](http://127.0.0.1:3000). The development supervisor starts:
 
 No environment file is required for fixture development. Local secrets are generated in ignored `.data/dev-secrets.json`. Data persists in `.data/postgres`; artifacts stay in `.data/artifacts`. The local database serializes clients and is for development only. Production Compose uses ordinary PostgreSQL on a Google Compute Engine VM.
 
+Local development uses Next's Webpack server. This avoids a Turbopack file-watcher refresh loop observed in the Windows workspace after a standalone build. Production builds use the default bundler.
+
 If port 5432 is busy, set a different port in `DATABASE_URL`. To use existing PostgreSQL, copy `.env.example` to `.env`, set `DATABASE_URL`, and set `RELAY_LOCAL_DB=false`. Do not run two development supervisors against the same embedded database.
 
 ## Try the main workflow

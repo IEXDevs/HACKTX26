@@ -67,4 +67,6 @@ process.on('SIGINT', () => void close());
 process.on('SIGTERM', () => void close());
 start(['--import', 'tsx', 'services/connectors.ts']);
 start(['--import', 'tsx', 'services/worker.ts']);
-start(['node_modules/next/dist/bin/next', 'dev', '--hostname', '127.0.0.1']);
+// Turbopack's watcher loops on generated/runtime files in this Windows workspace.
+// Use Next's supported Webpack dev server; production builds keep their default bundler.
+start(['node_modules/next/dist/bin/next', 'dev', '--webpack', '--hostname', '127.0.0.1']);

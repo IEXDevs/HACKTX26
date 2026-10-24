@@ -1,0 +1,3 @@
+# 0001. Declarative Agent Blueprints Over Manual Multi-Agent Node Wiring
+
+Instead of requiring users to manually drag and wire multi-agent flowcharts like Langflow, users configure a single declarative **Agent Blueprint** (auto-populated from an Enterprise Template or a one-sentence intent) while the visual node graph (`@xyflow/react`) is generated automatically as an interactive execution and observability view (`UIUIUIUI`). This directly satisfies NMC2's core goal of abstracting away setup boilerplate while giving enterprise operators visual interpretability into every Step, model choice, budget decision, and failure.

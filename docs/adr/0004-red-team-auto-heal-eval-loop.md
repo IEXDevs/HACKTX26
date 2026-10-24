@@ -1,0 +1,3 @@
+# 0004. Integrated Red-Team Attack and Deterministic Auto-Heal Loop
+
+Rather than treating Evaluations and Guardrails as separate, passive reporting tools, clicking **"Evaluate & Auto-Heal"** runs both standard policy tasks and adversarial **Red-Team Attacks** (`ARGUS` pattern) in a dry-run sandbox. When an attack succeeds (for example, tricking the agent into approving an over-budget transfer), the platform automatically synthesizes a deterministic **Auto-Heal Patch** (`ChainBreak` pattern—a hard pre-condition rule on the Connector) and re-runs the suite to prove that Tool Call Accuracy and Success Rate reach 100% while Intervention Rate drops.

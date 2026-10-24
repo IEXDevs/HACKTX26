@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx scripts/dev.ts",
-    "dev:web": "next dev --hostname 0.0.0.0",
+    "dev:web": "next dev --webpack --hostname 0.0.0.0",
     "build": "next build",
     "start": "next start --hostname 0.0.0.0",
     "worker": "tsx services/worker.ts",

@@ -152,8 +152,8 @@ export function defaultTree(
         name: 'Requirements analyst',
         instructions:
           'Identify the task requirements, constraints, budget, audience, and unanswered questions. Do not invent details.',
-        provider: 'gemini',
-        model: models.gemini,
+        provider: 'muse',
+        model: models.muse,
         mode: 'reason',
         tools: [],
       },
@@ -171,13 +171,13 @@ export function defaultTree(
       {
         id: 'context',
         parentId: 'evidence_lead',
-        name: 'Community context',
+        name: 'Constraints analyst',
         instructions:
-          'Read organization history and opted-in community preferences. Summarize the evidence relevant to this task.',
+          'Analyze the brief, audience, budget, accessibility preferences, and unresolved details. Do not invent organization history.',
         provider: 'muse',
         model: models.muse,
-        mode: 'research',
-        tools: ['org_history'],
+        mode: 'reason',
+        tools: [],
       },
       {
         id: 'venues',
@@ -185,8 +185,8 @@ export function defaultTree(
         name: 'Venue researcher',
         instructions:
           'Research venue options for the exact task. Keep prices, availability, capacity and accessibility unconfirmed unless verified.',
-        provider: 'gemini',
-        model: models.gemini,
+        provider: 'muse',
+        model: models.muse,
         mode: 'research',
         tools: ['venue_search'],
       },
@@ -276,3 +276,10 @@ export function planFixtureTree(
     );
   return treeDefinitionSchema.parse(base);
 }
+
+// Keep the base schema for historical versions. New trees use only active providers.
+export const currentTreeDefinitionSchema = treeDefinitionSchema.refine(
+  (tree) =>
+    tree.nodes.every((n) => n.provider === 'muse' && n.tools.every((t) => t === 'venue_search')),
+  'New trees support Meta models and SerpAPI web search only.',
+);

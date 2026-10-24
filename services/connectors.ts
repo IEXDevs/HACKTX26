@@ -2,20 +2,12 @@ import 'dotenv/config';
 import express from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { Storage } from '@google-cloud/storage';
 import { z } from 'zod';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import path from 'node:path';
 import { pool, tx } from '../lib/db';
 import { equal, hash, id, canonical } from '../lib/security';
 import { fixtureHistory, fixtureVenues } from '../lib/fixtures';
-import { emit } from '../lib/store';
+import { putObject, getObject } from '../lib/artifact-storage';
 
-const storage = new Storage({
-  timeout: 20000,
-  retryOptions: { autoRetry: false, totalTimeout: 20 },
-});
-const root = path.resolve('.data/artifacts');
 const secret = process.env.CONNECTOR_SECRET;
 if (!secret || secret.length < 24)
   throw new Error('Set a private CONNECTOR_SECRET of at least 24 characters');
@@ -29,49 +21,6 @@ async function runContext(runId: string, tool: string) {
   if (!run || !['running', 'queued'].includes(run.status)) throw new Error('Run is not active');
   if (!run.config.tools.includes(tool)) throw new Error('Tool permission denied');
   return run;
-}
-async function putObject(key: string, bytes: Buffer, mime: string, fixture: boolean) {
-  if (fixture) {
-    await mkdir(root, { recursive: true });
-    const target = path.join(root, key.replaceAll('/', '_'));
-    try {
-      await writeFile(target, bytes, { flag: 'wx' });
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
-      if (!equal(hash(await readFile(target)), hash(bytes)))
-        throw new Error('Stable artifact key has different content');
-    }
-    return 'fixture://' + path.basename(target);
-  }
-  if (!process.env.GCS_BUCKET) throw new Error('Google Cloud Storage is unavailable');
-  const file = storage.bucket(process.env.GCS_BUCKET).file(key);
-  try {
-    await file.save(bytes, {
-      contentType: mime,
-      resumable: false,
-      timeout: 20000,
-      preconditionOpts: { ifGenerationMatch: 0 },
-      metadata: { cacheControl: 'private, no-store' },
-    });
-  } catch (e) {
-    if ((e as { code?: number }).code !== 412) throw e;
-    const [prior] = await file.download();
-    if (!equal(hash(prior), hash(bytes)))
-      throw new Error('Stable artifact key has different content');
-  }
-  return `gs://${process.env.GCS_BUCKET}/${key}`;
-}
-async function getObject(uri: string) {
-  if (uri.startsWith('fixture://')) {
-    const name = uri.slice(10);
-    if (path.basename(name) !== name) throw new Error('Invalid artifact path');
-    return readFile(path.join(root, name));
-  }
-  const prefix = `gs://${process.env.GCS_BUCKET}/`;
-  if (!uri.startsWith(prefix)) throw new Error('Storage scope denied');
-  return (
-    await storage.bucket(process.env.GCS_BUCKET!).file(uri.slice(prefix.length)).download()
-  )[0];
 }
 function createServer() {
   const server = new McpServer({ name: 'relay-trusted-connectors', version: '0.1.0' });
@@ -115,43 +64,9 @@ function createServer() {
           })),
           summary: 'Explicit synthetic organization history and opted-in preferences.',
         };
-      const { SNOWFLAKE_ACCOUNT: account, SNOWFLAKE_TOKEN: token } = process.env;
-      if (!account || !token) throw new Error('Snowflake unavailable');
-      if (!/^[a-zA-Z0-9_.-]+$/.test(account)) throw new Error('Invalid Snowflake account');
-      const response = await fetch(`https://${account}.snowflakecomputing.com/api/v2/statements`, {
-        method: 'POST',
-        signal: AbortSignal.timeout(18000),
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'X-Snowflake-Authorization-Token-Type': 'OAUTH',
-        },
-        body: JSON.stringify({
-          statement:
-            "SELECT ENTRY_ID, KIND, TITLE, DETAIL, SOURCE_URL FROM RELAY_ORG_CONTEXT WHERE WORKSPACE_ID = ? AND (KIND = 'history' OR (KIND = 'preference' AND OPTED_IN = TRUE)) ORDER BY ENTRY_ID LIMIT 20",
-          timeout: 15,
-          database: process.env.SNOWFLAKE_DATABASE || 'RELAY',
-          schema: process.env.SNOWFLAKE_SCHEMA || 'PUBLIC',
-          warehouse: process.env.SNOWFLAKE_WAREHOUSE,
-          bindings: { '1': { type: 'TEXT', value: run.workspace_id } },
-        }),
-      });
-      if (response.status !== 200) throw new Error('Snowflake SQL did not complete synchronously');
-      const data = await response.json();
-      if (!Array.isArray(data.data)) throw new Error('Snowflake returned no usable data');
-      return {
-        evidence: data.data.map((row: string[]) => ({
-          id: 'snowflake:' + row[0],
-          source: 'Snowflake',
-          title: row[2],
-          excerpt: row[3],
-          ...(row[4] ? { url: row[4] } : {}),
-          fixture: false,
-          retrievedAt: now,
-        })),
-        summary: 'Workspace history and opted-in aggregate preferences.',
-        statementHandle: data.statementHandle,
-      };
+      throw new Error(
+        'Organization history is deferred. Publish a version with SerpAPI search only.',
+      );
     },
   );
   register(
@@ -178,7 +93,6 @@ function createServer() {
       url.search = new URLSearchParams({
         engine: 'google',
         q: query,
-        location: 'Austin, Texas, United States',
         num: '6',
         api_key: process.env.SERPAPI_API_KEY,
       }).toString();
@@ -281,7 +195,7 @@ function createServer() {
   );
   register(
     'get_input',
-    'Load the private input attached to an active run for Gemini. Never included in traces.',
+    'Load the private input attached to an active run for Meta extraction. Never included in traces.',
     { runId: z.string() },
     async ({ runId }) => {
       const r = (

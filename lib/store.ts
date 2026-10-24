@@ -25,73 +25,125 @@ export async function version(workspace: string, versionId: string) {
 }
 export async function startRun(
   workspace: string,
-  body: { versionId: string; input: { brief: string; fileId?: string }; mode: 'fixture' | 'live' },
+  body: {
+    versionId: string;
+    input: { brief: string; fileId?: string };
+    mode: 'fixture' | 'live';
+    workflowId?: string;
+  },
+  key: string,
+  kind: 'workflow' | 'completion' = 'workflow',
+) {
+  return tx((db) => startRunInTx(db, workspace, body, key, kind));
+}
+export async function startRunInTx(
+  db: Db,
+  workspace: string,
+  body: {
+    versionId: string;
+    input: { brief: string; fileId?: string };
+    mode: 'fixture' | 'live';
+    workflowId?: string;
+  },
   key: string,
   kind: 'workflow' | 'completion' = 'workflow',
 ) {
   if (!key || key.length > 200)
     throw new HttpError(400, 'An Idempotency-Key of 1–200 characters is required');
   const requestHash = hash({ body, kind });
-  return tx(async (db) => {
-    await db.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE', [workspace]);
-    const prior = await db.query(
-      "SELECT * FROM idempotency WHERE workspace_id=$1 AND scope='runs' AND key=$2",
-      [workspace, key],
-    );
-    if (prior.rows[0]) {
-      if (prior.rows[0].request_hash !== requestHash)
-        throw new HttpError(409, 'Idempotency key was already used for different content');
-      return { id: prior.rows[0].resource_id as string, replayed: true };
-    }
-    const v = await db.query('SELECT * FROM agent_versions WHERE id=$1 AND workspace_id=$2', [
-      body.versionId,
-      workspace,
-    ]);
-    if (!v.rows[0]) throw new HttpError(404, 'Published agent version not found');
-    if (
-      body.input.fileId &&
-      !(
-        await db.query('SELECT 1 FROM input_files WHERE id=$1 AND workspace_id=$2', [
-          body.input.fileId,
-          workspace,
-        ])
-      ).rowCount
-    )
-      throw new HttpError(404, 'Input file not found');
-    const balance = await db.query(
-      'SELECT COALESCE(sum(delta),0)::int AS balance FROM credit_ledger WHERE workspace_id=$1',
-      [workspace],
-    );
-    if (balance.rows[0].balance < 1) throw new HttpError(402, 'Insufficient test credits');
-    const runId = id('run');
-    await db.query(
-      'INSERT INTO runs(id,workspace_id,version_id,status,mode,input,checkpoint) VALUES($1,$2,$3,$4,$5,$6,$7)',
-      [
-        runId,
+  await db.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE', [workspace]);
+  const prior = await db.query(
+    "SELECT * FROM idempotency WHERE workspace_id=$1 AND scope='runs' AND key=$2",
+    [workspace, key],
+  );
+  if (prior.rows[0]) {
+    if (prior.rows[0].request_hash !== requestHash)
+      throw new HttpError(409, 'Idempotency key was already used for different content');
+    return { id: prior.rows[0].resource_id as string, replayed: true };
+  }
+  const v = await db.query('SELECT * FROM agent_versions WHERE id=$1 AND workspace_id=$2', [
+    body.versionId,
+    workspace,
+  ]);
+  if (!v.rows[0]) throw new HttpError(404, 'Published agent version not found');
+  if (
+    body.input.fileId &&
+    !(
+      await db.query('SELECT 1 FROM input_files WHERE id=$1 AND workspace_id=$2', [
+        body.input.fileId,
         workspace,
+      ])
+    ).rowCount
+  )
+    throw new HttpError(404, 'Input file not found');
+  let workflowId = body.workflowId || null;
+  if (workflowId) {
+    const page = (
+      await db.query('SELECT * FROM workflow_pages WHERE id=$1 AND workspace_id=$2 FOR UPDATE', [
+        workflowId,
+        workspace,
+      ])
+    ).rows[0];
+    if (!page) throw new HttpError(404, 'Workflow page not found');
+    if (page.archived_at)
+      throw new HttpError(409, 'Restore the archived workflow before running it');
+  } else if (v.rows[0].config.workflowKind !== 'tree_planner') {
+    workflowId = 'wf_' + v.rows[0].agent_id;
+    await db.query(
+      'INSERT INTO workflow_pages(id,workspace_id,name,kind,task,tree,agent_id,version_id) SELECT $1,$2,a.name,$3,$4,$5,a.id,$6 FROM agents a WHERE a.id=$7 AND a.workspace_id=$2 ON CONFLICT DO NOTHING',
+      [
+        workflowId,
+        workspace,
+        v.rows[0].config.tree ? 'tree' : 'agent',
+        body.input.brief,
+        v.rows[0].config.tree || null,
         body.versionId,
-        'queued',
-        body.mode,
-        body.input,
-        { phase: 'extract', completion: kind === 'completion' },
+        v.rows[0].agent_id,
       ],
     );
-    await db.query(
-      'INSERT INTO credit_ledger(id,workspace_id,delta,reason,reference) VALUES($1,$2,-1,$3,$4)',
-      [id('ledger'), workspace, 'Run reservation: one test credit', 'run:' + runId],
-    );
-    await db.query(
-      "INSERT INTO idempotency(workspace_id,scope,key,request_hash,resource_id) VALUES($1,'runs',$2,$3,$4)",
-      [workspace, key, requestHash, runId],
-    );
-    await emit(db, runId, workspace, 'run.queued', 'user', {
-      summary: 'Run accepted. Published version pinned.',
-      versionId: body.versionId,
-      mode: body.mode,
-      input: body.input,
-    });
-    return { id: runId, replayed: false };
+    const page = (
+      await db.query(
+        'SELECT archived_at FROM workflow_pages WHERE id=$1 AND workspace_id=$2 FOR UPDATE',
+        [workflowId, workspace],
+      )
+    ).rows[0];
+    if (page?.archived_at)
+      throw new HttpError(409, 'Restore the archived workflow before running it');
+  }
+  const balance = await db.query(
+    'SELECT COALESCE(sum(delta),0)::int AS balance FROM credit_ledger WHERE workspace_id=$1',
+    [workspace],
+  );
+  if (balance.rows[0].balance < 1) throw new HttpError(402, 'Insufficient test credits');
+  const runId = id('run');
+  await db.query(
+    'INSERT INTO runs(id,workspace_id,version_id,status,mode,input,checkpoint,workflow_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+    [
+      runId,
+      workspace,
+      body.versionId,
+      'queued',
+      body.mode,
+      body.input,
+      { phase: 'extract', completion: kind === 'completion' },
+      workflowId,
+    ],
+  );
+  await db.query(
+    'INSERT INTO credit_ledger(id,workspace_id,delta,reason,reference) VALUES($1,$2,-1,$3,$4)',
+    [id('ledger'), workspace, 'Run reservation: one test credit', 'run:' + runId],
+  );
+  await db.query(
+    "INSERT INTO idempotency(workspace_id,scope,key,request_hash,resource_id) VALUES($1,'runs',$2,$3,$4)",
+    [workspace, key, requestHash, runId],
+  );
+  await emit(db, runId, workspace, 'run.queued', 'user', {
+    summary: 'Run accepted. Published version pinned.',
+    versionId: body.versionId,
+    mode: body.mode,
+    input: body.input,
   });
+  return { id: runId, replayed: false };
 }
 export async function getRun(workspace: string, runId: string) {
   const result = await pool.query(
@@ -243,6 +295,15 @@ export async function saveAgent(
   publish: boolean,
 ) {
   const parsed = agentConfigSchema.parse(config);
+  if (
+    parsed.tools.includes('org_history') ||
+    (parsed.tree && parsed.tree.nodes.some((n) => n.provider !== 'muse')) ||
+    (!parsed.tree && parsed.extractionProvider !== 'muse')
+  )
+    throw new HttpError(
+      400,
+      'Publish a Meta-only configuration with SerpAPI search. Legacy providers are deferred.',
+    );
   return tx(async (db) => {
     const a = (
       await db.query('SELECT * FROM agents WHERE id=$1 AND workspace_id=$2 FOR UPDATE', [

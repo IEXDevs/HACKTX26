@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { agentConfigSchema, defaultConfig, HttpError } from './config';
-import { treeDefinitionSchema } from './agent-tree';
+import { currentTreeDefinitionSchema } from './agent-tree';
 import { hash, id } from './security';
 import { tx } from './db';
 
@@ -8,7 +8,7 @@ export const saveTreeSchema = z
   .object({
     name: z.string().min(1).max(150),
     task: z.string().min(10).max(15000),
-    tree: treeDefinitionSchema,
+    tree: currentTreeDefinitionSchema,
     agentId: z.string().optional(),
     publish: z.boolean(),
   })
@@ -97,7 +97,11 @@ export async function plannerVersion(
   provider: 'muse' | 'gemini',
   model: string,
 ) {
-  const suffix = hash({ workspace, complexity, provider, model }).slice(0, 20);
+  if (provider !== 'muse') throw new HttpError(400, 'Only Meta models are active.');
+  const suffix = hash({ workspace, complexity, provider, model, profile: 'meta-serp-v1' }).slice(
+    0,
+    20,
+  );
   const agentId = 'agt_architect_' + suffix,
     versionId = 'ver_architect_' + suffix;
   const config = agentConfigSchema.parse({
@@ -105,9 +109,9 @@ export async function plannerVersion(
     workflowKind: 'tree_planner',
     treeComplexity: complexity,
     instructions:
-      'Design a small specialist agent tree for the user task. Adapt the size and depth to difficulty and uncertainty. The user/orchestrator root must own the task. Use no more than nine nodes, five levels, or twelve read-tool calls. Nodes can only generate text or use approved organization/search read tools. Do not claim execution, file changes, purchases, or other writes.',
-    coordinatorModel: provider === 'muse' ? model : defaultConfig.coordinatorModel,
-    extractionModel: provider === 'gemini' ? model : defaultConfig.extractionModel,
+      'Design a small specialist agent tree for the user task. Adapt the size and depth to difficulty and uncertainty. The user/orchestrator root must own the task. Use no more than nine nodes, five levels, or twelve read-tool calls. Every node must use provider muse and the selected Meta model. Nodes can only generate text or use the approved SerpAPI venue_search read tool. Do not claim execution, file changes, purchases, or other writes.',
+    coordinatorModel: model,
+    extractionModel: model,
     outputFormat: 'agent_tree_json',
     readOnly: true,
     tools: [],

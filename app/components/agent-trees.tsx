@@ -36,6 +36,7 @@ import {
   modeDescriptions,
   modeLabels,
   treeDefinitionSchema,
+  currentTreeDefinitionSchema,
   type AgentTree,
   type TreeNode,
 } from '@/lib/agent-tree';
@@ -141,8 +142,16 @@ export function AgentTreeWorkspace({
   initialAgentId,
   onChanged,
   onOpenRun,
+  page,
+  initialRunId,
+  onPageSaved,
+  onPageRun,
 }: {
   agents: any[];
+  page?: any;
+  initialRunId?: string | null;
+  onPageSaved?: (value: any) => Promise<void>;
+  onPageRun?: (id: string) => void;
   mode: string;
   initialAgentId?: string | null;
   onChanged: () => Promise<void>;
@@ -151,12 +160,13 @@ export function AgentTreeWorkspace({
   const models = useMemo(
     () => ({
       muse: agents[0]?.draft.coordinatorModel || 'muse-spark-1.3',
-      gemini: agents[0]?.draft.extractionModel || 'gemini-2.5-flash',
+      gemini: 'retired-provider',
     }),
     [agents],
   );
   const [tree, setTree] = useState<AgentTree>(() => defaultTree(models));
   const [selected, setSelected] = useState('user');
+  const [inspectorOpen, setInspectorOpen] = useState(!page);
   const [name, setName] = useState('Community operations team');
   const [task, setTask] = useState(exampleTask);
   const [agentId, setAgentId] = useState<string | null>(null);
@@ -176,6 +186,20 @@ export function AgentTreeWorkspace({
   const planning = useRun(planId);
   const execution = useRun(runId);
   useEffect(() => {
+    if (!page) return;
+    setTree(structuredClone(page.tree || defaultTree(models)));
+    setName(page.name);
+    setTask(page.task);
+    setAgentId(page.agent_id);
+    setDirty(false);
+    setPreview(false);
+    setRunId(initialRunId || null);
+  }, [page?.id]);
+  useEffect(() => {
+    if (page) setRunId(initialRunId || null);
+  }, [initialRunId, page?.id]);
+  useEffect(() => {
+    if (page) return;
     if (!initialAgentId || appliedInitial.current === initialAgentId) return;
     const agent = agents.find((a) => a.id === initialAgentId && a.draft.tree);
     if (!agent) return;
@@ -288,6 +312,29 @@ export function AgentTreeWorkspace({
     setError('');
     setMessage('');
     try {
+      if (page) {
+        const saved = await request('workflows/' + page.id, {
+          method: 'PATCH',
+          body: JSON.stringify({ revision: page.revision, name, task, tree }),
+        });
+        await onPageSaved?.(saved);
+        setDirty(false);
+        setMessage('Workflow draft saved.');
+        if (start) {
+          const key = publishKey.current || crypto.randomUUID();
+          publishKey.current = key;
+          const created = await request('workflows/' + page.id + '/runs', {
+            method: 'POST',
+            headers: { 'Idempotency-Key': key },
+            body: JSON.stringify({ revision: saved.revision }),
+          });
+          publishKey.current = null;
+          setRunId(created.id);
+          setPreview(false);
+          onPageRun?.(created.id);
+        }
+        return;
+      }
       const payload = { name, task, tree, ...(agentId ? { agentId } : {}), publish };
       const key = publishKey.current || crypto.randomUUID();
       publishKey.current = key;
@@ -330,11 +377,11 @@ export function AgentTreeWorkspace({
   const displayedTree: AgentTree = execution.run?.config.tree || tree;
   const displayedTask = execution.run?.input.brief || task;
   const selectedNode = displayedTree.nodes.find((n) => n.id === selected) || displayedTree.nodes[0];
-  const valid = treeDefinitionSchema.safeParse(tree);
+  const valid = currentTreeDefinitionSchema.safeParse(tree);
   const running = !!execution.run && !terminalStates.includes(execution.run.status);
   const treeAgents = agents.filter((a) => a.draft.tree);
   return (
-    <div className="at-workspace">
+    <div className={'at-workspace' + (page ? ' at-embedded' : '')}>
       <div className="page-heading at-page-heading">
         <div>
           <div className="eyebrow">
@@ -344,6 +391,56 @@ export function AgentTreeWorkspace({
           <p>Build the team. Follow the handoffs. Open any agent to see what it knows.</p>
         </div>
         <div className="at-page-actions">
+          {!runId &&
+            tree.nodes.some((n) => n.provider !== 'muse' || n.tools.includes('org_history')) && (
+              <button
+                disabled={busy}
+                onClick={() =>
+                  changeTree({
+                    ...tree,
+                    nodes: tree.nodes.map((n) => ({
+                      ...n,
+                      provider: 'muse',
+                      model: models.muse,
+                      tools: n.tools.filter((t) => t === 'venue_search'),
+                      mode:
+                        n.mode === 'research' && !n.tools.includes('venue_search')
+                          ? 'reason'
+                          : n.mode,
+                    })),
+                  })
+                }
+              >
+                Use current stack
+              </button>
+            )}
+          <select
+            aria-label="Add a library agent to this tree"
+            className="at-library-add"
+            value=""
+            disabled={busy || !!runId || tree.nodes.length >= 9}
+            onChange={(e) => {
+              const a = agents.find((a) => a.id === e.target.value);
+              const source = a?.draft.tree?.nodes.find((n: any) => n.id !== 'user');
+              if (!source) return;
+              const nodeId = 'agent_' + crypto.randomUUID().slice(0, 8);
+              changeTree({
+                ...tree,
+                nodes: [...tree.nodes, { ...source, id: nodeId, parentId: selected }],
+              });
+              setSelected(nodeId);
+              setInspectorOpen(true);
+            }}
+          >
+            <option value="">+ Add library agent</option>
+            {agents
+              .filter((a) => a.draft.tree?.nodes.length === 2)
+              .map((a) => (
+                <option value={a.id} key={a.id}>
+                  {a.name}
+                </option>
+              ))}
+          </select>
           <span className="at-guard">
             <ShieldCheck size={14} /> Read tools only
           </span>
@@ -377,7 +474,7 @@ export function AgentTreeWorkspace({
             Let an agent plan
           </button>
           <span className="at-command-spacer" />
-          <label className="at-saved-select">
+          <label className="at-saved-select" hidden={!!page}>
             <Layers size={13} />
             <select
               aria-label="Saved agent tree"
@@ -519,30 +616,42 @@ export function AgentTreeWorkspace({
             </button>
           )}
           <button onClick={() => onOpenRun(runId)}>
-            Open in Runs <ArrowUpRight size={13} />
+            Inspect run <ArrowUpRight size={13} />
           </button>
           <button
             onClick={() => {
               setRunId(null);
               setPreview(false);
-              history.replaceState(null, '', '?view=trees' + (agentId ? '&tree=' + agentId : ''));
+              if (page) onPageRun?.('');
+              else
+                history.replaceState(null, '', '?view=trees' + (agentId ? '&tree=' + agentId : ''));
             }}
           >
-            Back to builder
+            Back to draft
           </button>
         </div>
       )}
-      <div className="at-board">
+      <div className={'at-board' + (inspectorOpen ? '' : ' inspector-closed')}>
         <TreeCanvas
           tree={displayedTree}
           selected={selected}
-          onSelect={setSelected}
+          onSelect={(id) => {
+            setSelected(id);
+            setInspectorOpen(true);
+          }}
           onAdd={!runId && !busy ? addChild : undefined}
           preview={!runId && preview}
           run={execution.run}
           onPreview={!runId ? () => setPreview(!preview) : undefined}
         />
-        <aside className="at-inspector">
+        <aside className="at-inspector" hidden={!inspectorOpen}>
+          <button
+            className="at-close-inspector"
+            aria-label="Close agent inspector"
+            onClick={() => setInspectorOpen(false)}
+          >
+            <X size={15} />
+          </button>
           {runId ? (
             <AgentInspector
               node={selectedNode}
@@ -914,7 +1023,11 @@ function NodeEditor({
             }}
           >
             <option value="muse">Muse Spark</option>
-            <option value="gemini">Gemini</option>
+            {node.provider === 'gemini' && (
+              <option value="gemini" disabled>
+                Gemini (retired)
+              </option>
+            )}
           </select>
         </label>
         <label>
@@ -980,13 +1093,8 @@ function NodeEditor({
           <legend>Approved read tools</legend>
           {[
             {
-              id: 'org_history',
-              label: 'Organization context',
-              description: 'Snowflake · opted-in preferences',
-            },
-            {
               id: 'venue_search',
-              label: 'Venue research',
+              label: 'Web search',
               description: 'SerpAPI · source evidence',
             },
           ].map((tool) => (
@@ -1212,6 +1320,7 @@ export function TreeExecutionView({
   onCancel: () => void;
 }) {
   const [selected, setSelected] = useState('user');
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const tree = run.config.tree as AgentTree;
   const node = tree.nodes.find((n) => n.id === selected) || tree.nodes[0];
   return (
@@ -1234,15 +1343,25 @@ export function TreeExecutionView({
         )}
       </div>
       {run.error && <div className="alert error">{run.error}</div>}
-      <div className="at-board">
+      <div className={'at-board' + (inspectorOpen ? '' : ' inspector-closed')}>
         <TreeCanvas
           tree={tree}
           selected={selected}
-          onSelect={setSelected}
+          onSelect={(id) => {
+            setSelected(id);
+            setInspectorOpen(true);
+          }}
           preview={false}
           run={run}
         />
-        <aside className="at-inspector">
+        <aside className="at-inspector" hidden={!inspectorOpen}>
+          <button
+            className="at-close-inspector"
+            aria-label="Close agent inspector"
+            onClick={() => setInspectorOpen(false)}
+          >
+            <X size={15} />
+          </button>
           <AgentInspector node={node} tree={tree} task={run.input.brief} run={run} />
         </aside>
       </div>

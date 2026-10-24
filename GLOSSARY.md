@@ -45,8 +45,28 @@ The estimated compute intensity of a Step (Light, Medium, or Heavy), used by the
 _Avoid_: Complexity, weight, size
 
 **Guardrail Gate**:
-The deterministic boundary enforcer that intercepts every Connector invocation to inject Vault Secrets, block hard boundary violations, or pause the Agent Run for Permission Escalation.
+The deterministic boundary enforcer that intercepts every Connector invocation to inject Vault Secrets, enforce Trajectory Invariants and Taint State locks, or pause the Agent Run for Permission Escalation.
 _Avoid_: Firewall, filter, moderator
+
+**Taint State**:
+A security label applied to an Agent Run the moment it ingests untrusted external input (such as an external invoice, email, or web scrape), preventing downstream write or exfiltration Connectors from executing without explicit human declassification.
+_Avoid_: Dirty flag, untrusted mode
+
+**Trajectory Invariant**:
+A deterministic multi-step rule enforcing valid tool call sequences and value constraints across an entire Agent Run (for example, requiring `verify_market_price` and `check_policy_kb` to succeed before `create_transfer` can be invoked).
+_Avoid_: Prompt rule, soft guardrail
+
+**Source Discrepancy**:
+An automatically detected conflict between two or more Connectors or documents (such as a submitted receipt price contradicting a live SerpApi market lookup), surfaced with side-by-side citations.
+_Avoid_: Hallucination check, mismatch warning
+
+**Checkpoint Fork**:
+The ability to scrub back to any completed Step in an Agent Run's timeline, modify the prompt, model, or Guardrail rule, and replay execution from that exact Step without restarting the run from scratch.
+_Avoid_: Rerun, retry
+
+**Visual Evidence Card**:
+An interactive inspection view attached to a Step that renders highlighted document excerpts, receipt regions, and live market cards alongside raw tool JSON.
+_Avoid_: Log payload, raw output
 
 **Permission Escalation**:
 A runtime pause triggered when an Agent Run attempts an action beyond its default least-privilege (read-only) permissions, requiring explicit human approval to proceed.

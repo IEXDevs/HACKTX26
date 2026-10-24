@@ -36,7 +36,7 @@ If port 5432 is busy, set a different port in `DATABASE_URL`. To use existing Po
 
 ## Try the main workflow
 
-Open **Agents** for the searchable specialist library and creation form. Open **Workflows** for saved pages, run history, archives, and full-canvas execution. **Usage** groups observations by workflow, agent, and model. **Billing** is an explicit placeholder. API access is in the top bar; provider scopes are in Workspace settings. See [workspace layout and page API](docs/UI_WORKSPACE.md).
+Open **Agents** for the searchable specialist library. Use the first tile to create an agent or select a card to configure one. Open **Workflows** for saved pages, run history, archives, and full-canvas execution. **Usage** groups observations by workflow, agent, and model. **Billing** is an explicit placeholder. API access is in the top bar; provider scopes are in Workspace settings. See [workspace layout and page API](docs/UI_WORKSPACE.md).
 
 For manual and adaptive multi-agent workflows, create an agent-tree page in **Workflows**. Build branches, choose each agent's model and mode, preview moving handoffs, then publish and execute the saved tree. Open the root for team activity or a child for its observed result. See the [agent tree guide](docs/AGENT_TREES.md).
 

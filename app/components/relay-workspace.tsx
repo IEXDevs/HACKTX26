@@ -6,7 +6,6 @@ import {
   Activity,
   Archive,
   ArrowLeft,
-  ArrowRight,
   ArrowUpRight,
   Bot,
   Check,
@@ -23,7 +22,6 @@ import {
   Search,
   Settings2,
   ShieldCheck,
-  Sparkles,
   X,
   Zap,
 } from 'lucide-react';
@@ -210,8 +208,7 @@ export default function RelayWorkspace({
         {error && <button onClick={() => void load()}>Retry</button>}
       </div>
     );
-  const activePages = pages.filter((p) => !p.archived_at),
-    activeRuns = data.runs.filter((r: any) => !stopped.includes(r.status)).length;
+  const activeRuns = data.runs.filter((r: any) => !stopped.includes(r.status)).length;
   return (
     <div className="studio-shell">
       <aside className="studio-sidebar">
@@ -245,28 +242,6 @@ export default function RelayWorkspace({
             </Link>
           ))}
         </nav>
-        <div className="studio-pages-heading">
-          <span>WORKFLOW PAGES</span>
-          <button aria-label="Create workflow page" onClick={() => setCreate({})}>
-            <Plus size={15} />
-          </button>
-        </div>
-        <div className="studio-page-links">
-          {activePages.slice(0, 7).map((w) => (
-            <Link
-              href={'/workflows/' + w.id}
-              key={w.id}
-              className={workflowId === w.id ? 'selected' : ''}
-            >
-              <span className={'page-dot ' + (w.active_count ? 'running' : '')} />
-              <span>{w.name}</span>
-            </Link>
-          ))}
-          {!activePages.length && <p>Your workflow pages live here.</p>}
-          <Link className="studio-view-all" href="/workflows">
-            All workflow pages <ArrowRight size={12} />
-          </Link>
-        </div>
         <div className="studio-sidebar-bottom">
           <div className="studio-environment">
             <i />
@@ -540,6 +515,7 @@ function AgentLibrary({
 }) {
   const [search, setSearch] = useState(''),
     [filter, setFilter] = useState('All agents'),
+    [editorOpen, setEditorOpen] = useState(false),
     [selected, setSelected] = useState<any>(null),
     [name, setName] = useState(''),
     [description, setDescription] = useState(''),
@@ -581,15 +557,18 @@ function AgentLibrary({
     setRole(node?.mode === 'research' ? 'research' : node?.mode === 'review' ? 'review' : 'reason');
     setWeb(node?.tools.includes('venue_search') || false);
     key.current = null;
+    setEditorOpen(true);
   }
-  function reset() {
+  function createAgent() {
     setSelected(null);
     setName('');
     setDescription('');
     setInstructions('');
+    setModel(agents[0]?.draft.coordinatorModel || 'muse-spark-1.3');
     setRole('reason');
     setWeb(false);
     key.current = null;
+    setEditorOpen(true);
   }
   function config() {
     const base = agents.find((a) => a.id === 'agt_community_meta')?.draft || agents[0].draft;
@@ -626,34 +605,12 @@ function AgentLibrary({
     setSelected({ ...selected, id: result.id, name, description, draft: body.config });
     key.current = null;
     onSaved();
+    setEditorOpen(false);
   }
   const fullTemplate = selected && (!selected.draft.tree || selected.draft.tree.nodes.length > 2);
   return (
-    <div className="studio-library-split">
+    <>
       <section className="studio-library">
-        <div className="studio-eyebrow">
-          YOUR AGENT LIBRARY <span>{agents.length} agents</span>
-        </div>
-        <div className="studio-library-heading">
-          <div>
-            <h1>
-              Good agents.
-              <br />
-              <span>Great possibilities.</span>
-            </h1>
-            <p>
-              A specialist for every piece of the work.
-              <br />
-              Choose one, make it yours, and put it to work.
-            </p>
-          </div>
-          <span className="studio-library-art">
-            <Bot size={35} />
-            <i>
-              <Sparkles size={14} />
-            </i>
-          </span>
-        </div>
         <div className="studio-search">
           <Search size={17} />
           <input
@@ -673,14 +630,17 @@ function AgentLibrary({
           ))}
         </div>
         <div className="studio-library-section">
-          <b>{search ? 'SEARCH RESULTS' : 'READY TO WORK'}</b>
+          {search && <b>SEARCH RESULTS</b>}
           <small>{visible.length} agents</small>
         </div>
-        <a className="studio-mobile-create" href="#agent-creation">
-          <Plus size={14} />
-          Create an agent
-        </a>
         <div className="studio-agent-grid">
+          <button className="studio-new-page studio-new-agent" onClick={createAgent}>
+            <span>
+              <Plus size={24} />
+            </span>
+            <h3>Create an agent</h3>
+            <p>Build a specialist for your workflows.</p>
+          </button>
           {visible.map((a, i) => {
             const node = a.draft.tree?.nodes.find((n: any) => n.id !== 'user'),
               published = a.versions?.[0],
@@ -746,134 +706,147 @@ function AgentLibrary({
           <span>Tools stay within your permissions. Every execution leaves a trace.</span>
         </div>
       </section>
-      <aside className="studio-agent-editor" id="agent-creation">
-        <div className="studio-editor-heading">
-          <span className="studio-editor-icon">
-            <Plus size={19} />
-          </span>
-          <div>
-            <small>MAKE IT YOURS</small>
-            <h2>{selected ? 'Configure agent' : 'Create an agent'}</h2>
-          </div>
-          {selected && (
-            <button onClick={reset} aria-label="Create a new agent">
-              <Plus size={16} />
-            </button>
-          )}
-        </div>
-        <p>Give your agent a purpose. You can add it to any workflow.</p>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void action(() => save(true));
-          }}
-        >
-          <label>
-            Agent name
-            <input
-              required
-              maxLength={150}
-              placeholder="e.g. Community researcher"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </label>
-          <label>
-            Short description
-            <input
-              maxLength={500}
-              placeholder="What does this agent do?"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </label>
-          <div className="studio-label-row">
-            <label htmlFor="agent-instructions">Instructions</label>
-            <span>Be specific.</span>
-          </div>
-          <textarea
-            id="agent-instructions"
-            required
-            minLength={20}
-            maxLength={3000}
-            placeholder="You are a thoughtful research assistant. Find useful sources, compare the options, and flag what still needs confirmation…"
-            value={instructions}
-            onChange={(e) => setInstructions(e.target.value)}
-          />
-          <div className="studio-editor-two">
-            <label>
-              Model
-              <input
-                required
-                value={model}
-                maxLength={100}
-                onChange={(e) => setModel(e.target.value)}
-              />
-              <small>Meta Model API</small>
-            </label>
-            <label>
-              Agent role
-              <select
-                value={role}
-                onChange={(e) => {
-                  setRole(e.target.value as typeof role);
-                  setWeb(e.target.value === 'research');
-                }}
-              >
-                <option value="reason">Reason & write</option>
-                <option value="research">Research</option>
-                <option value="review">Review</option>
-              </select>
-            </label>
-          </div>
-          <div className="studio-permission">
-            <span>
-              <Network size={17} />
-              <b>Web search</b>
-              <small>SerpAPI · read only</small>
-            </span>
-            <input
-              aria-label="Allow web search"
-              type="checkbox"
-              checked={web && role === 'research'}
-              onChange={(e) => {
-                setWeb(e.target.checked);
-                setRole(e.target.checked ? 'research' : 'reason');
+      {editorOpen && (
+        <div className="studio-modal-backdrop" onClick={() => setEditorOpen(false)}>
+          <aside
+            className="studio-agent-editor studio-agent-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label={selected ? 'Configure agent' : 'Create an agent'}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="studio-editor-heading">
+              <span className="studio-editor-icon">
+                <Plus size={19} />
+              </span>
+              <div>
+                <h2>{selected ? 'Configure agent' : 'Create an agent'}</h2>
+              </div>
+              <button onClick={() => setEditorOpen(false)} aria-label="Close agent editor">
+                <X size={18} />
+              </button>
+            </div>
+            <p>Give your agent a purpose. You can add it to any workflow.</p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void action(() => save(true));
               }}
-            />
-          </div>
-          {fullTemplate && (
-            <div className="studio-alert">
-              This template has a complete workflow. Use it to create a page and inspect its
-              configuration there.
-            </div>
-          )}
-          <div className="studio-editor-footer">
-            <span>
-              <ShieldCheck size={13} />
-              Versioned & reusable
-            </span>
-            <div>
-              <button
-                type="button"
-                disabled={
-                  busy || fullTemplate || name.trim().length < 1 || instructions.trim().length < 20
-                }
-                onClick={() => void action(() => save(false))}
-              >
-                Save draft
-              </button>
-              <button
-                className="primary"
-                disabled={busy || fullTemplate || !name.trim() || instructions.trim().length < 20}
-              >
-                {busy ? <Loader2 className="spin" size={14} /> : <Plus size={14} />}Publish agent
-              </button>
-            </div>
-          </div>
-        </form>
-      </aside>
-    </div>
+            >
+              <label>
+                Agent name
+                <input
+                  required
+                  maxLength={150}
+                  placeholder="e.g. Community researcher"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </label>
+              <label>
+                Short description
+                <input
+                  maxLength={500}
+                  placeholder="What does this agent do?"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+              </label>
+              <div className="studio-label-row">
+                <label htmlFor="agent-instructions">Instructions</label>
+                <span>Be specific.</span>
+              </div>
+              <textarea
+                id="agent-instructions"
+                required
+                minLength={20}
+                maxLength={3000}
+                placeholder="You are a thoughtful research assistant. Find useful sources, compare the options, and flag what still needs confirmation…"
+                value={instructions}
+                onChange={(e) => setInstructions(e.target.value)}
+              />
+              <div className="studio-editor-two">
+                <label>
+                  Model
+                  <input
+                    required
+                    value={model}
+                    maxLength={100}
+                    onChange={(e) => setModel(e.target.value)}
+                  />
+                  <small>Meta Model API</small>
+                </label>
+                <label>
+                  Agent role
+                  <select
+                    value={role}
+                    onChange={(e) => {
+                      setRole(e.target.value as typeof role);
+                      setWeb(e.target.value === 'research');
+                    }}
+                  >
+                    <option value="reason">Reason & write</option>
+                    <option value="research">Research</option>
+                    <option value="review">Review</option>
+                  </select>
+                </label>
+              </div>
+              <div className="studio-permission">
+                <span>
+                  <Network size={17} />
+                  <b>Web search</b>
+                  <small>SerpAPI · read only</small>
+                </span>
+                <input
+                  aria-label="Allow web search"
+                  type="checkbox"
+                  checked={web && role === 'research'}
+                  onChange={(e) => {
+                    setWeb(e.target.checked);
+                    setRole(e.target.checked ? 'research' : 'reason');
+                  }}
+                />
+              </div>
+              {fullTemplate && (
+                <div className="studio-alert">
+                  This template has a complete workflow. Use it to create a page and inspect its
+                  configuration there.
+                </div>
+              )}
+              <div className="studio-editor-footer">
+                <span>
+                  <ShieldCheck size={13} />
+                  Versioned & reusable
+                </span>
+                <div>
+                  <button
+                    type="button"
+                    disabled={
+                      busy ||
+                      fullTemplate ||
+                      name.trim().length < 1 ||
+                      instructions.trim().length < 20
+                    }
+                    onClick={() => void action(() => save(false))}
+                  >
+                    Save draft
+                  </button>
+                  <button
+                    className="primary"
+                    disabled={
+                      busy || fullTemplate || !name.trim() || instructions.trim().length < 20
+                    }
+                  >
+                    {busy ? <Loader2 className="spin" size={14} /> : <Plus size={14} />}Publish
+                    agent
+                  </button>
+                </div>
+              </div>
+            </form>
+          </aside>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -898,9 +871,7 @@ function WorkflowIndex({
     <div className="studio-content">
       <div className="studio-section-heading">
         <div>
-          <div className="studio-eyebrow">YOUR WORK IN MOTION</div>
           <h1>Workflows</h1>
-          <p>A page for every task. A clear view of every agent.</p>
         </div>
         <button className="primary" onClick={onCreate}>
           <Plus size={16} />
@@ -1324,9 +1295,7 @@ function UsageDiagnostics({
     <div className="studio-content">
       <div className="studio-section-heading">
         <div>
-          <div className="studio-eyebrow">MEASURED, NOT GUESSED</div>
           <h1>Usage & diagnostics</h1>
-          <p>See where your agents spend their time and tokens.</p>
         </div>
         <div className="studio-usage-filters">
           <select
@@ -1499,9 +1468,7 @@ function UsageDiagnostics({
 function Billing({ usage }: { usage: any }) {
   return (
     <div className="studio-content studio-billing">
-      <div className="studio-eyebrow">WORKSPACE BILLING</div>
-      <h1>Room to build.</h1>
-      <p>Billing is not configured yet. Your workspace currently uses a local test allowance.</p>
+      <h1>ACCOUNT BILLING</h1>
       <div className="studio-billing-card">
         <div className="studio-billing-graphic">
           <CreditCard size={34} />

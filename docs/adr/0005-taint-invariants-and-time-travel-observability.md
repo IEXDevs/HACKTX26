@@ -1,0 +1,3 @@
+# 0005. Multi-Step Taint Invariants, Source Conflict Callouts, and Time-Travel Forking
+
+To elevate enterprise safety and observability (`UIUIUIUI`) beyond single-step parameter checks and static logs, the runtime enforces **Multi-Step Trajectory Invariants and Taint Tracking** (`ChainBreak` pattern: tainting the run when untrusted external input enters and blocking downstream write/transfer tools unless declassified), surfaces **Automatic Source Discrepancy Callouts** (`Signal` pattern: highlighting contradictions between submitted claims, Company Policy KB, and live SerpApi market data), and records step-level state snapshots so operators can **Time-Travel Scrub and Fork** any Agent Run from an intermediate Step (`Guido`/`LapSynk` telemetry pattern).

@@ -1,0 +1,3 @@
+# 0003. Split Next.js 15 Frontend and Python FastAPI Backend
+
+We structure the repository as a two-service monorepo: a **Next.js 15 (TypeScript)** frontend for the 3-pane workbench and live `@xyflow/react` pipeline visualization (`UIUIUIUI`), paired with a **Python 3.12 FastAPI** backend for agent execution, red-team evaluation, guardrail enforcement, and connector orchestration (Nessie MCP, SerpApi, Tiger Data `pgvector` + Hypertables, and CLI subprocesses). Python provides native SDK ergonomics for `google-genai`, `psycopg`/`asyncpg`, and sandboxed subprocess execution while streaming live step events to Next.js over Server-Sent Events (SSE).

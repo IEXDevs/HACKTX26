@@ -29,7 +29,7 @@ try {
   const created = await request(
     'runs',
     'POST',
-    { versionId: process.env.RELAY_VERSION_ID || 'ver_community_1', input: { brief } },
+    { versionId: process.env.RELAY_VERSION_ID || 'ver_community_meta_1', input: { brief } },
     process.env.RELAY_IDEMPOTENCY_KEY || 'api-demo-' + crypto.randomUUID(),
   );
   console.log('Accepted:', created.id);

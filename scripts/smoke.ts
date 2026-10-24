@@ -48,7 +48,7 @@ if (!key) {
 }
 const idem = 'smoke-' + crypto.randomUUID();
 const input = {
-  versionId: 'ver_community_1',
+  versionId: 'ver_community_meta_1',
   input: {
     brief:
       'Welcoming outdoor meetup near UT Austin for 96 people within a $2,400 budget. Include vegetarian food and accessible paths.',
@@ -64,7 +64,7 @@ assert.equal(run.requirements.budget, 2400);
 assert.equal((await request('runs/' + run.id)).status, 'awaiting_requirements');
 await request('runs/' + run.id + '/requirements', 'POST', { ...run.requirements, attendees: 80 });
 run = await waitFor(run.id, 'awaiting_approval');
-assert.equal(run.evidence.length, 6);
+assert.equal(run.evidence.length, 3);
 assert.ok(run.output.recommendation.name.includes('Garden'));
 assert.ok(run.steps.some((s: any) => s.input?.arguments?.query?.includes('80 people')));
 for (let i = 0; i < 2; i++) {
@@ -121,7 +121,7 @@ const completion = await request(
   'chat/completions',
   'POST',
   {
-    model: 'ver_research_1',
+    model: 'ver_research_meta_1',
     messages: [
       { role: 'user', content: 'Suggest a short checklist for a welcoming community meetup.' },
     ],
@@ -152,7 +152,7 @@ try {
   const delegated = await client.callTool({
     name: 'start_agent_run',
     arguments: {
-      versionId: 'ver_community_1',
+      versionId: 'ver_community_meta_1',
       brief: input.input.brief,
       idempotencyKey: 'delegation-' + idem,
     },

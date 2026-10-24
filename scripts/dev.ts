@@ -30,7 +30,7 @@ if (process.env.RELAY_LOCAL_DB !== 'false') {
   });
   await socket.start();
   console.log(
-    'Local PostgreSQL-compatible PGlite started. Fixture development only; production uses Tiger Data.',
+    'Local PostgreSQL-compatible PGlite started. Development only; production Compose uses PostgreSQL on Google Cloud.',
   );
 }
 const { migrate } = await import('./migrate');

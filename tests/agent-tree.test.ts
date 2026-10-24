@@ -6,10 +6,22 @@ import {
   layoutTree,
   planFixtureTree,
   treeDefinitionSchema,
+  currentTreeDefinitionSchema,
 } from '../lib/agent-tree';
 import { agentConfigSchema, defaultConfig } from '../lib/config';
 
 describe('bounded manual and adaptive agent trees', () => {
+  it('keeps historical trees readable but rejects retired providers and tools on new trees', () => {
+    const tree = defaultTree();
+    expect(tree.nodes.every((n) => n.provider === 'muse')).toBe(true);
+    expect(currentTreeDefinitionSchema.safeParse(tree).success).toBe(true);
+    tree.nodes[1].provider = 'gemini';
+    expect(treeDefinitionSchema.safeParse(tree).success).toBe(true);
+    expect(currentTreeDefinitionSchema.safeParse(tree).success).toBe(false);
+    tree.nodes[1].provider = 'muse';
+    tree.nodes[4].tools = ['org_history'];
+    expect(currentTreeDefinitionSchema.safeParse(tree).success).toBe(false);
+  });
   it('adapts the fixture proposal to task complexity without claiming a model call', () => {
     const simple = planFixtureTree('Summarize a short paragraph.', 'auto');
     const complex = planFixtureTree(
@@ -44,10 +56,10 @@ describe('bounded manual and adaptive agent trees', () => {
       workflowKind: 'tree',
       tree,
       outputFormat: 'agent_tree_json',
-      tools: ['org_history', 'venue_search'],
+      tools: ['venue_search'],
     };
     expect(agentConfigSchema.safeParse(config).success).toBe(true);
-    expect(agentConfigSchema.safeParse({ ...config, tools: ['venue_search'] }).success).toBe(false);
+    expect(agentConfigSchema.safeParse({ ...config, tools: [] }).success).toBe(false);
     expect(agentConfigSchema.safeParse({ ...config, maxModelCalls: 2 }).success).toBe(false);
     expect(
       agentConfigSchema.safeParse({ ...config, tools: [...config.tools, 'publish_page'] }).success,

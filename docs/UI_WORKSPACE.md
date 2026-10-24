@@ -1,10 +1,10 @@
 # Relay workspace
 
-The sidebar has four destinations, in this order: **Agents**, **Workflows**, **Usage**, and **Billing**. API access lives in the top bar. Provider availability and connection scopes live in Workspace settings.
+The sidebar has four destinations, in this order: **Agents**, **Workflows**, **Usage**, and **Billing**. Workflow pages are listed in the Workflows library, not repeated in the sidebar. API access lives in the top bar. Provider availability and connection scopes live in Workspace settings.
 
 ## Agents
 
-Open `/agents`. The left pane is a searchable library. Filter by research, writing, review, or your saved agents. The right pane creates and configures an individual specialist. It includes name, description, instructions, Meta model ID, execution role, and optional SerpAPI read permission.
+Open `/agents`. Search the library and filter by research, writing, review, or your saved agents. The first library tile opens the create-agent dialog. Select an agent card to configure it. The form includes name, description, instructions, Meta model ID, execution role, and optional SerpAPI read permission.
 
 The seeded library includes Research analyst, Thoughtful writer, Quality reviewer, Project planner, and Data analyst. These are real saved configurations with published versions, not fabricated executions. Existing templates and user agents remain available. Retired-provider templates are labeled Legacy and cannot start through the library shortcut.
 

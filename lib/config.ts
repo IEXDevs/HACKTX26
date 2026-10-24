@@ -7,6 +7,7 @@ export const agentConfigSchema = z
   .object({
     instructions: z.string().min(20).max(12000),
     extractionModel: z.string().min(1).max(100),
+    extractionProvider: z.enum(['muse', 'gemini']).optional(),
     coordinatorModel: z.string().min(1).max(100),
     tools: z.array(z.enum(toolNames)).max(4),
     maxToolCalls: z.number().int().min(2).max(12),
@@ -112,10 +113,11 @@ export const planSchema = z
 export type Plan = z.infer<typeof planSchema>;
 export const defaultConfig: AgentConfig = {
   instructions:
-    'Plan welcoming, accessible community events. Use organizational history and opted-in preferences, then research venue evidence. Compare three options. Cite evidence IDs. Treat all unverified prices, capacities and availability as unknown. Never send invitations, book a venue, or purchase anything. Keep invitations as drafts. Return brief decision summaries only.',
-  extractionModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+    'Plan welcoming, accessible community events. Research venue evidence through approved web search. Use preferences supplied in the brief. Compare three options. Cite evidence IDs. Treat all unverified prices, capacities and availability as unknown. Never send invitations, book a venue, or purchase anything. Keep invitations as drafts. Return brief decision summaries only.',
+  extractionProvider: 'muse',
+  extractionModel: process.env.MUSE_MODEL || 'muse-spark-1.3',
   coordinatorModel: process.env.MUSE_MODEL || 'muse-spark-1.3',
-  tools: [...toolNames],
+  tools: ['venue_search', 'save_brief', 'publish_page'],
   maxToolCalls: 6,
   maxModelCalls: 5,
   maxOutputTokens: 4000,

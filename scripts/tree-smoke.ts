@@ -83,7 +83,7 @@ try {
   assert.equal(run.output.kind, 'agent_tree');
   assert.equal(run.output.results.length, tree.nodes.length);
   assert.equal(run.output.results.at(-1).nodeId, 'user');
-  assert.equal(run.evidence.length, 6);
+  assert.equal(run.evidence.length, 3);
   assert.equal(run.approvals.length, 0);
   assert.equal(run.artifacts.length, 0);
   assert.ok(

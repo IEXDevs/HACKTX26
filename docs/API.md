@@ -12,7 +12,7 @@ Required scope: `runs:write`. Required header: `Idempotency-Key`, 1–200 charac
 
 ```json
 {
-  "versionId": "ver_community_1",
+  "versionId": "ver_community_meta_1",
   "input": {
     "brief": "Welcoming meetup near UT Austin for 80 people, $3,000 budget",
     "fileId": "optional-private-upload-id"
@@ -81,17 +81,17 @@ Required scope: `runs:write`. Stops pending work and rejects pending approvals. 
 
 ### GET /v1/artifacts/:actionId
 
-Required scope: `agents:read` in this prototype. Returns the workspace-owned approved JSON through the trusted connector. It does not expose a public GCS object URL.
+Required scope: `agents:read` in this prototype. Returns the workspace-owned approved JSON through the trusted connector. It reads private disk storage without exposing a public file URL.
 
 ## Read-only completion subset
 
 ### POST /v1/chat/completions
 
-Required scope: `runs:write`, plus an idempotency key. `model` is a **published Relay version identifier**, such as `ver_research_1`, with `readOnly:true`.
+Required scope: `runs:write`, plus an idempotency key. `model` is a **published Relay version identifier**, such as `ver_research_meta_1`, with `readOnly:true`.
 
 ```json
 {
-  "model": "ver_research_1",
+  "model": "ver_research_meta_1",
   "messages": [{ "role": "user", "content": "Give me a short checklist for a welcoming meetup." }],
   "stream": false
 }
@@ -124,8 +124,10 @@ Run the command from the Relay checkout, or use the absolute path to its `tsx` l
 
 The delegation server does not expose an approval tool. A human can inspect and decide in the dashboard or an explicitly authorized native API client. The private connector service has a different secret and remains unreachable from the public reverse proxy.
 
-## Devnet credits
+## Local allowance and deferred payments
 
-`POST /v1/credits/invoices` with `{"payer":"public-key"}` requires `credits:write`. It returns the devnet recipient, amount, expiry, and exact `relay:<invoice>:<workspace>` memo. A user signs the transfer in their own devnet wallet. Relay holds no wallet secret.
+Accepted runs reserve one internal test credit. Duplicate requests do not reserve twice. Credits have no monetary value. Authenticated `POST /v1/credits/invoices` and `POST /v1/credits/verify` requests return HTTP **410**; Solana payments are deferred. Missing authorization still fails before the retired endpoint is reached.
 
-`POST /v1/credits/verify` with `{"invoiceId":"…","signature":"…"}` requires the same scope. The server checks genesis hash, a finalized successful transaction, signer, destination, exact lamports, memo, invoice window, and workspace. An invoice or signature can credit once. All balances are test credits with no monetary value.
+## Workflow pages and diagnostics
+
+The new dashboard uses persistent `/workflows/:id` pages. See [UI_WORKSPACE.md](UI_WORKSPACE.md) for dashboard-authorized agent creation, workflow CRUD/archive, atomic page launch, revision conflicts, and scoped diagnostic aggregates. Native runs accept optional `workflowId`; existing clients can keep using only `versionId`.

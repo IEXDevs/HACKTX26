@@ -95,7 +95,7 @@ export function fixturePlan(
     .map((e) => e.id);
   const options = usable.slice(0, 3).map((e, i) => ({
     name: e.title,
-    rationale: `${i === 0 ? 'Best planning fit' : 'Alternative'} for ${req.attendees} people near ${req.location}. ${outdoor ? 'Outdoor preference affects the order.' : 'A quiet welcome and small-group introductions reflect opted-in fixture preferences.'} ${e.excerpt}`,
+    rationale: `${i === 0 ? 'Best planning fit' : 'Alternative'} for ${req.attendees} people near ${req.location}. ${outdoor ? 'Outdoor preference affects the order.' : 'A quiet welcome and small-group introductions are planning suggestions, not evidence about participants.'} ${e.excerpt}`,
     price: 'Unknown — request an all-in quote',
     capacity: `Unknown — confirm safe capacity for ${req.attendees}`,
     availability: 'Unknown — confirm date',
@@ -112,7 +112,7 @@ export function fixturePlan(
     });
   return {
     title: `Welcoming meetup near ${req.location}`,
-    summary: `FIXTURE PLAN. A proposed meetup for ${req.attendees} people with a $${req.budget.toLocaleString()} USD planning limit. The venue order responds to your requirements and synthetic preference evidence. No venue is confirmed.`,
+    summary: `FIXTURE PLAN. A proposed meetup for ${req.attendees} people with a $${req.budget.toLocaleString()} USD planning limit. The venue order responds to your requirements and synthetic search evidence. No venue is confirmed.`,
     options,
     recommendation: {
       name: options[0].name,

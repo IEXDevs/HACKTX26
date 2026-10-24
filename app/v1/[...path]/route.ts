@@ -1,4 +1,13 @@
 import { z } from 'zod';
+import {
+  listWorkflows,
+  getWorkflow,
+  createWorkflow,
+  editWorkflow,
+  launchWorkflow,
+  createLibraryAgent,
+} from '@/lib/workflows';
+import { diagnostics } from '@/lib/diagnostics';
 import { pool, tx } from '@/lib/db';
 import {
   authorize,
@@ -23,7 +32,6 @@ import {
   version,
 } from '@/lib/store';
 import { callConnector } from '@/lib/mcp-client';
-import { createInvoice, creditPayment } from '@/lib/payments';
 import { connections } from '@/lib/connections';
 import { saveTree, plannerVersion } from '@/lib/tree-store';
 export const runtime = 'nodejs';
@@ -105,6 +113,8 @@ async function route(
       'usage',
       'requests',
       'trees',
+      'workflows',
+      'diagnostics',
     ].includes(resource),
   );
   const ws = auth.workspace;
@@ -121,7 +131,7 @@ async function route(
   if (resource === 'dashboard' && method === 'GET') {
     const [agents, runs, stats, workspace] = await Promise.all([
       pool.query(
-        "SELECT a.*,COALESCE((SELECT jsonb_agg(v ORDER BY v.version DESC) FROM agent_versions v WHERE v.agent_id=a.id),'[]'::jsonb) AS versions FROM agents a WHERE a.workspace_id=$1 AND COALESCE(a.draft->>'workflowKind','')<>'tree_planner' ORDER BY a.created_at",
+        "SELECT a.*,COALESCE((SELECT jsonb_agg(v ORDER BY v.version DESC) FROM agent_versions v WHERE v.agent_id=a.id),'[]'::jsonb) AS versions FROM agents a WHERE a.workspace_id=$1 AND COALESCE(a.draft->>'workflowKind','')<>'tree_planner' AND NOT a.workflow_internal ORDER BY a.created_at",
         [ws],
       ),
       pool.query(
@@ -132,7 +142,11 @@ async function route(
       pool.query('SELECT * FROM workspaces WHERE id=$1', [ws]),
     ]);
     return json({
-      agents: agents.rows,
+      agents: [...agents.rows].sort((a, b) => {
+        const rank = (agent: any) =>
+          agent.id === 'agt_community_meta' ? 0 : agent.id === 'agt_research_meta' ? 1 : 2;
+        return rank(a) - rank(b);
+      }),
       runs: runs.rows,
       usage: stats,
       workspace: workspace.rows[0],
@@ -140,13 +154,40 @@ async function route(
       connections: connections(),
     });
   }
+  if (resource === 'diagnostics' && method === 'GET') {
+    const params = new URL(req.url).searchParams;
+    return json(await diagnostics(ws, params.get('range') || '7d', params.get('mode') || 'all'));
+  }
+  if (resource === 'workflows') {
+    if (method === 'GET')
+      return json(
+        resourceId ? await getWorkflow(ws, resourceId) : { data: await listWorkflows(ws) },
+      );
+    if (method === 'POST' && !resourceId)
+      return json(
+        await createWorkflow(ws, await body(req), req.headers.get('idempotency-key') || ''),
+        201,
+      );
+    if (method === 'PATCH' && resourceId)
+      return json(await editWorkflow(ws, resourceId, await body(req)));
+    if (method === 'POST' && action === 'runs')
+      return json(
+        await launchWorkflow(
+          ws,
+          resourceId,
+          await body(req),
+          req.headers.get('idempotency-key') || '',
+        ),
+        202,
+      );
+  }
   if (resource === 'trees' && method === 'POST') {
     if (resourceId === 'plan') {
       const b = z
         .object({
           task: z.string().min(10).max(15000),
           complexity: z.enum(['auto', 'simple', 'standard', 'complex']),
-          provider: z.enum(['muse', 'gemini']),
+          provider: z.literal('muse'),
           model: z.string().min(1).max(100),
         })
         .strict()
@@ -168,6 +209,11 @@ async function route(
       );
   }
   if (resource === 'agents') {
+    if (method === 'POST' && !resourceId)
+      return json(
+        await createLibraryAgent(ws, await body(req), req.headers.get('idempotency-key') || ''),
+        201,
+      );
     if (method === 'GET')
       return json({
         data: (
@@ -199,6 +245,7 @@ async function route(
             .object({ brief: z.string().min(10).max(15000), fileId: z.string().optional() })
             .strict(),
           mode: z.enum(['live', 'fixture']).optional(),
+          workflowId: z.string().optional(),
         })
         .strict()
         .parse(await body(req));
@@ -368,25 +415,8 @@ async function route(
   }
   if (resource === 'usage' && method === 'GET') return json(await usage(ws));
   if (resource === 'connections' && method === 'GET') return json({ data: connections() });
-  if (resource === 'credits' && method === 'POST') {
-    if (resourceId === 'invoices') {
-      const b = z
-        .object({ payer: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/) })
-        .strict()
-        .parse(await body(req));
-      return json(await createInvoice(ws, b.payer), 201);
-    }
-    if (resourceId === 'verify') {
-      const b = z
-        .object({
-          invoiceId: z.string(),
-          signature: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{80,90}$/),
-        })
-        .strict()
-        .parse(await body(req));
-      return json(await creditPayment(ws, b.invoiceId, b.signature));
-    }
-  }
+  if (resource === 'credits' && method === 'POST')
+    throw new HttpError(410, 'Payments are deferred. Test credits are a local run allowance only.');
   if (resource === 'chat' && resourceId === 'completions' && method === 'POST') {
     const b = z
       .object({
@@ -475,4 +505,4 @@ async function handle(req: Request, ctx: Context) {
   }
   return response;
 }
-export { handle as GET, handle as POST, handle as PUT, handle as DELETE };
+export { handle as GET, handle as POST, handle as PUT, handle as PATCH, handle as DELETE };

@@ -22,8 +22,6 @@
   "dependencies": {
     "@electric-sql/pglite": "^0.3.14",
     "@electric-sql/pglite-socket": "^0.0.19",
-    "@google-cloud/storage": "^7.17.0",
-    "@google/genai": "^1.30.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",

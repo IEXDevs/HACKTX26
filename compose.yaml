@@ -1,3 +1,4 @@
+# One Google Compute Engine VM. Only Caddy publishes ports.
 name: relay
 x-runtime: &runtime
   image: ${RELAY_IMAGE:-relay:local}
@@ -8,17 +9,34 @@ x-runtime: &runtime
   cap_drop: [ALL]
   networks: [private]
 x-database: &database
-  DATABASE_URL: ${DATABASE_URL:?Set a Tiger Data PostgreSQL connection URL with sslmode=verify-full}
+  DATABASE_URL: postgres://relay:${POSTGRES_PASSWORD:?Set a random hex database password}@postgres:5432/relay
   RELAY_LOCAL_DB: 'false'
   WORKSPACE_ID: ${WORKSPACE_ID:-hacktx-demo}
   WORKSPACE_NAME: ${WORKSPACE_NAME:-HackTX workspace}
   RELAY_MODE: ${RELAY_MODE:-fixture}
-  TIMESCALE_ENABLED: ${TIMESCALE_ENABLED:-true}
+  MUSE_MODEL: ${MUSE_MODEL:-muse-spark-1.3}
+  TIMESCALE_ENABLED: 'false'
 services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: relay
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: relay
+    volumes: ['postgres_data:/var/lib/postgresql/data']
+    networks: [private]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U relay']
+      interval: 5s
+      timeout: 5s
+      retries: 20
   migrate:
     <<: *runtime
     restart: 'no'
     command: ['sh', '-c', 'npm run db:migrate && npm run db:seed']
+    depends_on:
+      postgres: { condition: service_healthy }
     environment:
       <<: *database
       INITIAL_TEST_CREDITS: ${INITIAL_TEST_CREDITS:-100}
@@ -30,18 +48,14 @@ services:
       connectors: { condition: service_healthy }
     environment:
       <<: *database
-      APP_URL: https://${RELAY_DOMAIN:?Set your .tech domain}
+      APP_URL: https://${RELAY_DOMAIN:?Set your domain}
+      RELAY_HOSTING: google-compute
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:?Set a strong workspace password}
       SESSION_SECRET: ${SESSION_SECRET:?Generate a unique session secret}
       CONNECTOR_SECRET: ${CONNECTOR_SECRET:?Generate a different connector secret}
       CONNECTOR_URL: http://connectors:3101/mcp
-      GEMINI_CONFIGURED: ${GEMINI_API_KEY:+true}
       MUSE_CONFIGURED: ${MUSE_API_KEY:+true}
       SERPAPI_CONFIGURED: ${SERPAPI_API_KEY:+true}
-      SNOWFLAKE_CONFIGURED: ${SNOWFLAKE_TOKEN:+true}
-      GCS_CONFIGURED: ${GCS_BUCKET:+true}
-      SOLANA_RPC_URL: ${SOLANA_RPC_URL:-https://api.devnet.solana.com}
-      SOLANA_RECIPIENT: ${SOLANA_RECIPIENT:-}
       MODEL_INPUT_USD_PER_MILLION: ${MODEL_INPUT_USD_PER_MILLION:-0}
       MODEL_OUTPUT_USD_PER_MILLION: ${MODEL_OUTPUT_USD_PER_MILLION:-0}
     healthcheck:
@@ -65,11 +79,8 @@ services:
       <<: *database
       CONNECTOR_SECRET: ${CONNECTOR_SECRET:?Set CONNECTOR_SECRET}
       CONNECTOR_URL: http://connectors:3101/mcp
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
       MUSE_API_KEY: ${MUSE_API_KEY:-}
       MUSE_BASE_URL: ${MUSE_BASE_URL:-https://api.meta.ai/v1}
-      MUSE_MODEL: ${MUSE_MODEL:-muse-spark-1.3}
       MODEL_INPUT_USD_PER_MILLION: ${MODEL_INPUT_USD_PER_MILLION:-0}
       MODEL_OUTPUT_USD_PER_MILLION: ${MODEL_OUTPUT_USD_PER_MILLION:-0}
   connectors:
@@ -81,16 +92,9 @@ services:
       <<: *database
       CONNECTOR_SECRET: ${CONNECTOR_SECRET:?Set CONNECTOR_SECRET}
       CONNECTOR_HOST: 0.0.0.0
+      RELAY_ARTIFACT_DIR: /app/.data/artifacts
       SERPAPI_API_KEY: ${SERPAPI_API_KEY:-}
-      SNOWFLAKE_ACCOUNT: ${SNOWFLAKE_ACCOUNT:-}
-      SNOWFLAKE_TOKEN: ${SNOWFLAKE_TOKEN:-}
-      SNOWFLAKE_WAREHOUSE: ${SNOWFLAKE_WAREHOUSE:-}
-      SNOWFLAKE_DATABASE: ${SNOWFLAKE_DATABASE:-RELAY}
-      SNOWFLAKE_SCHEMA: ${SNOWFLAKE_SCHEMA:-PUBLIC}
-      GCS_BUCKET: ${GCS_BUCKET:-}
-      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/gcs_credentials
     volumes: ['artifacts:/app/.data']
-    secrets: [gcs_credentials]
     healthcheck:
       test:
         [
@@ -113,11 +117,9 @@ services:
     depends_on:
       web: { condition: service_healthy }
 volumes:
+  postgres_data:
   artifacts:
   caddy_data:
   caddy_config:
 networks:
   private:
-secrets:
-  gcs_credentials:
-    file: ${GOOGLE_APPLICATION_CREDENTIALS:?Point to the private GCS service account JSON outside this checkout}

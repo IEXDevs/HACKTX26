@@ -1,3 +1,4 @@
+import { agentPresets, specialistTree } from '../lib/agent-presets';
 import { defaultConfig, workspaceId } from '../lib/config';
 import { pool, tx } from '../lib/db';
 export async function seed() {
@@ -10,32 +11,57 @@ export async function seed() {
     await db.query(
       'INSERT INTO agents(id,workspace_id,name,description,draft) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING',
       [
-        'agt_community',
+        'agt_community_meta',
         ws,
-        'Community Event Operations',
+        'Community Event Operations · Meta',
         'Turn a brief into an evidence-backed event plan. Keep every write under human control.',
         defaultConfig,
       ],
     );
     await db.query(
       'INSERT INTO agent_versions(id,agent_id,workspace_id,version,config) VALUES($1,$2,$3,1,$4) ON CONFLICT DO NOTHING',
-      ['ver_community_1', 'agt_community', ws, defaultConfig],
+      ['ver_community_meta_1', 'agt_community_meta', ws, defaultConfig],
     );
-    const readOnly = { ...defaultConfig, readOnly: true, tools: ['org_history', 'venue_search'] };
+    const readOnly = { ...defaultConfig, readOnly: true, tools: [] };
     await db.query(
       'INSERT INTO agents(id,workspace_id,name,description,draft) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING',
       [
-        'agt_research',
+        'agt_research_meta',
         ws,
-        'Community Research Assistant',
+        'Meta Text Assistant',
         'Short, read-only research tasks through the completion API.',
         readOnly,
       ],
     );
     await db.query(
       'INSERT INTO agent_versions(id,agent_id,workspace_id,version,config) VALUES($1,$2,$3,1,$4) ON CONFLICT DO NOTHING',
-      ['ver_research_1', 'agt_research', ws, readOnly],
+      ['ver_research_meta_1', 'agt_research_meta', ws, readOnly],
     );
+    for (const preset of agentPresets) {
+      const tree = specialistTree({
+        ...preset,
+        model: defaultConfig.coordinatorModel,
+        tools: [...preset.tools],
+      });
+      const config = {
+        ...defaultConfig,
+        workflowKind: 'tree',
+        tree,
+        outputFormat: 'agent_tree_json',
+        readOnly: true,
+        tools: [...preset.tools],
+      };
+      const agentId = 'agt_preset_' + preset.id,
+        versionId = 'ver_preset_' + preset.id + '_1';
+      await db.query(
+        'INSERT INTO agents(id,workspace_id,name,description,draft) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING',
+        [agentId, ws, preset.name, preset.description, config],
+      );
+      await db.query(
+        'INSERT INTO agent_versions(id,agent_id,workspace_id,version,config) VALUES($1,$2,$3,1,$4) ON CONFLICT DO NOTHING',
+        [versionId, agentId, ws, config],
+      );
+    }
     await db.query(
       'INSERT INTO credit_ledger(id,workspace_id,delta,reason,reference) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING',
       [

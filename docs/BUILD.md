@@ -1,3 +1,5 @@
+> Scope update, 2026-10-24: The active stack is now Meta, SerpAPI, PostgreSQL, private disk storage, and Google Compute Engine hosting. Gemini, Snowflake, Tiger Data, GCS, Solana payments, and Vultr are deferred. The journal below records the earlier build. Follow DEPLOYMENT.md and PLAN.md for the current direction.
+
 # Relay build journal and challenge evidence
 
 ## What was built

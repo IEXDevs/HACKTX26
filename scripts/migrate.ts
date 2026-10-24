@@ -9,6 +9,7 @@ export async function migrate() {
       '001_core.sql',
       ...(process.env.TIMESCALE_ENABLED === 'true' ? ['002_timescale.sql'] : []),
       '003_api_requests.sql',
+      '004_workflow_pages.sql',
     ]) {
       if ((await db.query('SELECT 1 FROM schema_migrations WHERE name=$1', [name])).rowCount)
         continue;

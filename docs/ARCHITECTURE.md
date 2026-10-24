@@ -1,67 +1,39 @@
-# Architecture and runtime guarantees
+# Relay architecture
 
-```mermaid
-flowchart TD
-  U[Organizer or API client] --> W[Next.js dashboard and API]
-  W --> DB[(Tiger Data PostgreSQL)]
-  DB --> J[Separate background worker]
-  J --> G[Gemini extraction]
-  G --> R[Organizer requirements review]
-  R --> J
-  J --> M[Muse Spark bounded loop]
-  M --> C[Private official-SDK MCP service]
-  C --> S[Snowflake organization context]
-  C --> V[SerpAPI venue evidence]
-  J --> A[Durable exact-content approval]
-  A --> U
-  U --> A
-  A --> C
-  C --> O[Private Google Cloud Storage artifact]
-  J --> P[Separately approved event page]
-  P --> I[Demonstration participant interest]
-```
+The active stack is TypeScript / Next.js, a separate worker, official-SDK MCP connectors, Meta models, SerpAPI, and PostgreSQL. Production targets one Google Compute Engine VM with Docker Compose. Private files stay on its persistent disk. See [deployment](DEPLOYMENT.md).
 
-## State and execution
+## Execution
 
-PostgreSQL stores agent drafts, immutable versions, run checkpoints, events, observed steps, approvals, artifacts, API key hashes, invoices, credits, and participant interest. Snowflake stores organization history and preference aggregates only. It is not used for application telemetry.
+PostgreSQL stores drafts, immutable published versions, runs, checkpoints, ordered events, observed steps, approvals, artifact references, platform key hashes, local allowance, and participant interest. Database triggers reject changes to published versions and approval content.
 
-Each run pins an immutable version. Database triggers reject edits to published versions and approval action content. A worker uses row locks and `SKIP LOCKED` to claim queued or expired-lease runs. Each phase persists a checkpoint. The worker releases its lease while waiting for requirements or approval. Waiting does not occupy the worker.
+Workers claim queued runs with row locks and `SKIP LOCKED`. Each phase commits a checkpoint. Approval and requirements pauses release the worker lease. Active-execution deadlines are separate from approval expiries. An expired execution lease recovers within 90 seconds and charges its lost time to the active budget.
 
-The current implementation processes one phase at a time. It uses bounded coordinator and tool counts. Each remote call has a timeout. Active execution time accumulates separately from approval expiry. A recovered expired lease charges up to its 90-second lost interval to the active budget. Live phases reserve a full remote timeout before starting; a run can stop slightly before its configured deadline. Remote read retries may repeat inference or searches after a crash, but cannot duplicate a run debit or approved write.
+Meta extracts structured requirements from text or inline PDF/image inputs. The organizer corrects them before research. Meta then selects approved SerpAPI reads in a bounded tool loop and returns a cited event plan. The server validates source IDs and budget allocations. Search snippets never confirm operational prices, capacity, or availability.
 
-Only observed model messages, tool-call envelopes, source results, and short decision summaries reach the inspector. Provider reasoning fields are discarded. The checkpoint has no private chain-of-thought. It is not returned by the API.
+Trees use Meta on each node. Descendants execute sequentially before parent synthesis. Each node can generate text or use its selected SerpAPI read tool. Nodes cannot save files or publish pages. Automatic planning makes a separate durable Meta call, and the user reviews the proposed tree before publication.
 
-## Tool and credential boundary
+## Tools and credentials
 
-The model can choose only `org_history` or `venue_search`. The worker validates argument schemas and checks the pinned version allowlist. The connector independently loads the run and its version before serving a read. Snowflake accepts a fixed parameterized SELECT, not model-written SQL. Search accepts query text, not an arbitrary endpoint URL.
+The model can request only `venue_search`. The worker validates arguments and the pinned version's allowlist. The connector checks the active run and permissions again. It accepts search text, not arbitrary endpoint URLs. No organization-history provider is required.
 
-Write tools accept a run ID and a stable approved action ID. They do not accept replacement content from the model. Private artifact writes read exact content from the approval record and use a stable GCS key with `ifGenerationMatch:0`. If a crash occurs after GCS creation, the retry reads and compares the existing object before recording the same artifact. A unique action primary key prevents duplicate artifact rows. Publishing an event page uses an atomic insert with the approval ID as its primary key.
+The production worker receives the Meta key. Only the connector receives the SerpAPI key and artifact disk. The web receives neither provider key. Platform API keys are hashed and scoped to one workspace. They are separate from the internal connector secret and provider credentials. Local development inherits `.env` for convenience; no provider secrets are sent to browser bundles or traces.
 
-Platform API keys are random and stored as SHA-256 hashes. They have workspace scopes. Model keys live in the worker; connector credentials live in the connector. The production web process has neither. The internal MCP secret is not a platform key. Dashboard mutation routes check the origin. Production sign-in uses a signed HTTP-only cookie, a shared workspace password, and an eight-hour session. This prototype does not implement enterprise identity.
+Visible telemetry includes model results, tool calls, source evidence, short decision summaries, errors, timing, and usage. Private reasoning fields are discarded. Internal conversation checkpoints are not returned by the run API.
 
-## Transactions and ordering
+## Approval and recovery
 
-Run creation locks the workspace row. It stores the idempotency record, run, event, and credit debit atomically. Repeating a key with different content conflicts. Approval decisions lock the run before the action. Repeating a decision returns its existing result. Rejection ends the run before a write can start.
+The event workflow pauses separately for `save_brief` and `publish_page`. Each approval pins exact content and a content hash. Write tools accept stable action IDs and load content from the approved record. They never accept replacement content from the model.
 
-Artifact writes hold the run row lock. Cancellation waits for an already-started approved write to finish; it then prevents further work. It does not undo an external write. This is an explicit serialization choice for the prototype. A production system could replace the long transaction with a fenced outbox and object-store result reconciliation.
+Disk storage writes a complete temporary file, syncs it, then publishes it with a create-only hard link. Retrying the same key returns the existing result only if the content matches. `local://` labels real disk artifacts; `fixture://` labels fixture artifacts. Only the authenticated artifact API reads them. A unique action key prevents duplicate artifact records. Public event pages use the approved action ID as their primary key.
 
-Run event IDs provide ordered replay. SSE clients reconnect with the last observed ID. A successful read step is reused after recovery. Model and search requests may still repeat if a crash occurred before their durable observation was stored. Usage estimates can undercount these ambiguous provider calls.
+Writes hold the run row lock. Cancellation waits for an already-started approved write, then prevents later work. It does not undo a completed write. Completed observed tool results are reused after recovery. An inference or search may repeat if a worker dies before recording its result; usage can undercount these ambiguous calls.
 
-## Time-series chart
+Run creation atomically stores the run, idempotency record, event, and one allowance debit. Duplicate requests do not debit twice. Duplicate approval decisions recover the existing result. Rejection prevents subsequent writes. Ordered event IDs support stream reconnection.
 
-Only completed observed steps insert `execution_metrics` records. There are no seeded metrics. Local development queries `date_trunc('hour', time)`. Tiger Data enables migration `002_timescale.sql` and queries `time_bucket('1 hour', time)`. The chart shows actual completed steps in the last 24 hours. Fixture executions are real local runtime events, but report zero provider tokens.
+## Telemetry and scope
 
-## Known limits
+The Usage chart queries actual completed steps with PostgreSQL `date_trunc`. No metrics are seeded. Fixture executions report zero model tokens. Model cost remains a rough configured estimate.
 
-- Live sponsor calls, a real devnet transfer, Tiger Data, GCS, and Vultr deployment need user credentials and infrastructure. They have not been verified in this build.
-- The event template uses a three-option event-plan schema. The Trees workspace supports bounded manual/adaptive trees with per-node model, mode, and read-tool choices. Arbitrary output schemas and cyclic graphs remain unsupported.
-- Tree execution is sequential and read-only. Branches can be added, removed, and reconnected through the inspector. The canvas is not a drag-and-drop editor. See AGENT_TREES.md.
-- Text-only completion tasks make one model call and do not use tools. They are deliberately narrower than the native runs API.
-- The Snowflake SQL API adapter expects a synchronous result within 15 seconds and fails visibly on queued/asynchronous results. OAuth refresh, pagination, and very large histories need a later adapter layer.
-- Live snippets are source evidence, not proof of venue price, capacity, accessibility or availability. The server forces these operational facts to remain unconfirmed. Recommendations and invitation drafts still need human review.
-- The local PGlite socket serializes connections. It is for a small demo, not production concurrency. Use real PostgreSQL/Tiger Data for parallel worker deployments.
-- Source retention, private data deletion, detailed audit identities, user roles, API rate limits, password throttling, email identity, per-user event consent, key expiry, and a production abuse budget need further work.
-- Test-credit balances have no monetary value. There is no mainnet support, automatic wallet signing, refund policy, token price feed, or wallet secret custody.
-- Cost uses a configured blended token estimate. It is not billing reconciliation. Raw inference retry costs can be unknown after a crash.
-- A worker blocked in an approved external artifact write can delay cancellation until that write returns or its connector timeout ends.
-- Public participant pages are only for demonstration use in this build. They contain no real participant list. The interest cookie deduplicates a browser action; it is not an identity system.
+Gemini, Snowflake, Tiger Data, GCS, Solana payments, and Vultr are deferred. Legacy schema and historical versions remain readable. New versions reject retired providers and tools. Payments are disabled; test credits have no monetary value.
+
+Known limits: tree execution is sequential; root interaction is an inspector, not chat; image input and live approved writes still need proof; production Compose has not been run; the VM is a single point of failure. The local embedded database serializes clients and does not prove production concurrency. Real user identity, roles, rate limits, password throttling, key expiry, retention, and abuse controls remain future work.

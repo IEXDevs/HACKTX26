@@ -7,6 +7,8 @@ import { pool, tx } from '../lib/db';
 import { equal, hash, id, canonical } from '../lib/security';
 import { fixtureHistory, fixtureVenues } from '../lib/fixtures';
 import { putObject, getObject } from '../lib/artifact-storage';
+import { connectorFailure } from '../lib/connector-errors';
+import { searchWeb } from '../lib/serpapi';
 
 const secret = process.env.CONNECTOR_SECRET;
 if (!secret || secret.length < 24)
@@ -34,13 +36,14 @@ function createServer() {
       try {
         return { content: [{ type: 'text' as const, text: JSON.stringify(await fn(args)) }] };
       } catch (e) {
-        console.error('Connector failed:', name, e instanceof Error ? e.name : 'unknown');
+        const failure = connectorFailure(e);
+        console.error('Connector failed:', name, failure.error.code);
         return {
           isError: true,
           content: [
             {
               type: 'text' as const,
-              text: 'Connector unavailable or permission denied. No fixture substitution occurred.',
+              text: JSON.stringify(failure),
             },
           ],
         };
@@ -88,34 +91,7 @@ function createServer() {
           })),
           summary: 'Fictional venue records. No live search was made.',
         };
-      if (!process.env.SERPAPI_API_KEY) throw new Error('SerpAPI unavailable');
-      const url = new URL('https://serpapi.com/search.json');
-      url.search = new URLSearchParams({
-        engine: 'google',
-        q: query,
-        num: '6',
-        api_key: process.env.SERPAPI_API_KEY,
-      }).toString();
-      const response = await fetch(url, { signal: AbortSignal.timeout(18000) });
-      if (!response.ok) throw new Error('SerpAPI request failed');
-      const data = await response.json();
-      if (data.error || !Array.isArray(data.organic_results))
-        throw new Error('SerpAPI returned no organic results');
-      return {
-        query,
-        evidence: data.organic_results
-          .slice(0, 6)
-          .map((e: { title: string; link: string; snippet?: string }, i: number) => ({
-            id: 'serp:' + hash(query).slice(0, 8) + ':' + i,
-            source: 'SerpAPI',
-            title: e.title,
-            url: e.link,
-            excerpt: e.snippet || 'No snippet supplied; details need confirmation.',
-            fixture: false,
-            retrievedAt: now,
-          })),
-        searchId: data.search_metadata?.id,
-      };
+      return searchWeb(query);
     },
   );
   register(

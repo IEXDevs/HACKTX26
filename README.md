@@ -30,6 +30,8 @@ No environment file is required for fixture development. Local secrets are gener
 
 Local development uses Next's Webpack server. This avoids a Turbopack file-watcher refresh loop observed in the Windows workspace after a standalone build. Production builds use the default bundler.
 
+Live mode needs outbound HTTPS from the worker and connector processes. If search reports `SEARCH_NETWORK_DENIED`, restart `npm run dev` from a terminal with network access. Keys remain in `.env`; do not put them in the browser.
+
 If port 5432 is busy, set a different port in `DATABASE_URL`. To use existing PostgreSQL, copy `.env.example` to `.env`, set `DATABASE_URL`, and set `RELAY_LOCAL_DB=false`. Do not run two development supervisors against the same embedded database.
 
 ## Try the main workflow

@@ -84,7 +84,7 @@ packages/core/            shared protocol, model router, budget ledger, event pr
   Meta Model API is hardcoded in `apps/web/src/lib/env.ts` (`OPENAI_BASE_URL` defaults
   to `https://api.meta.ai/v1`), so dispatching with mode `live` just works everywhere
   with no setup; set `OPENAI_API_KEY` / `OPENAI_BASE_URL` env vars to override.
-  The workspace model policy only allows `meta/*` models, so live runs route to Muse.
+  The workspace model policy only allows Meta models, so live runs route to Muse.
   Without a key it falls back to scripted (check the run's `mode`). Reasoning models
   burn completion tokens thinking, so live steps cost ~400-600 tokens each against
   the run budget ceiling.

@@ -86,6 +86,7 @@ export default async function GraphPage() {
             status: agent.status,
             dataClass: agent.dataClass,
             runBudgetUsd: policy?.limitUsd ?? null,
+            defaultGoal: agent.defaultGoal,
           };
         })}
       />

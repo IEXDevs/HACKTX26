@@ -545,6 +545,10 @@ class RunEngine {
         tools,
         temperature: 0.2,
         maxOutputTokens: 1_600,
+        // Muse models return empty completions on chat completions without an
+        // explicit reasoning effort; other providers ignore the field.
+        reasoningEffort:
+          MODEL_BY_ID.get(stepModel)?.provider === "meta" ? "medium" : undefined,
       })) {
         if (chunk.type === "text") text += chunk.text;
         if (chunk.type === "usage") usage = chunk;
@@ -578,6 +582,18 @@ class RunEngine {
           agent.id,
         );
         await this.#persistProgress();
+      } else if (this.#live) {
+        // The provider streamed no usage for a live call. Say so loudly:
+        // without usage the budget ledger stays blind for this step.
+        await this.logger.emit(
+          {
+            type: "log",
+            level: "warn",
+            message: `live gateway returned no usage for model ${stepModel}; cost not recorded`,
+            agentId: agent.id,
+          },
+          agent.id,
+        );
       }
 
       if (text.trim()) {

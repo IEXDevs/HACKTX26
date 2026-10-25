@@ -146,6 +146,11 @@ export const agents = sqliteTable(
     templateId: text("template_id"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+    /**
+     * First-run goal drafted from the builder use case. Empty for agents that
+     * were seeded or instantiated from a template. Dispatch prefills from this.
+     */
+    defaultGoal: text("default_goal").notNull().default(""),
   },
   (t) => [
     uniqueIndex("agents_workspace_slug_idx").on(t.workspaceId, t.slug),

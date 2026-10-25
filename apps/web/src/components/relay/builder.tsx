@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowUp, LoaderCircle, Users } from "@/components/icons";
 import type { BuilderDraft } from "@/lib/runtime/builder-parse";
+import { plainText } from "@/lib/plain-text";
+import { RichText } from "./rich-text";
 
 export interface BuilderTemplate {
   id: string;
@@ -138,20 +140,20 @@ export function Builder({ templates }: { templates: BuilderTemplate[] }) {
                 <div key={m.id} className="chat-builder">
                   <span className="chat-avatar" aria-hidden />
                   <div>
-                    <p>{m.text}</p>
+                    <RichText text={m.text} />
                     {m.draft && m.id === latest && (
                       <div className="draft-card">
                         <span className="draft-card-label">Agent draft</span>
                         <b>{m.draft.name}</b>
                         <span className="draft-card-role">{m.draft.summary}</span>
-                        <p>{m.draft.instructions}</p>
+                        <RichText text={m.draft.instructions} />
                         {m.draft.workers.length > 0 && (
                           <ul className="draft-team">
                             {m.draft.workers.map((w) => (
                               <li key={w.name}>
                                 <Users size={14} />
                                 <span>
-                                  <b>{w.name}</b> {w.instructions}
+                                  <b>{w.name}</b> {plainText(w.instructions)}
                                 </span>
                               </li>
                             ))}

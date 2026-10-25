@@ -5,8 +5,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Bot, Pause, Play, ShieldCheck, Terminal } from "@/components/icons";
 import { TemplateProposals, type ProposalView } from "@/components/agents/template-proposals";
+import { plainText } from "@/lib/plain-text";
 import type { RunTile } from "@/lib/views";
 import { AdvancedSwitch, useAdvanced } from "./advanced";
+import { RichText } from "./rich-text";
 import { StartRun } from "./start-run";
 
 export interface AgentDetailView {
@@ -113,7 +115,7 @@ export function AgentDetail({ agent }: { agent: AgentDetailView }) {
         <p className="composer-summary">
           {agent.rank}. Dynamic subagents {agent.canSpawnSubagents ? "on" : "off"}. Template proposals{" "}
           {agent.proposeTemplates ? "on" : "off"}.
-          {agent.summary ? ` ${agent.summary}` : ""}
+          {agent.summary ? ` ${plainText(agent.summary)}` : ""}
         </p>
         <div className="agent-actions">
           {agent.status !== "active" && <span className="tag warn">{statusWord[agent.status]}</span>}
@@ -154,7 +156,7 @@ export function AgentDetail({ agent }: { agent: AgentDetailView }) {
       <section className="section">
         <h2>Instructions</h2>
         <div className="card">
-          <p>{agent.instructions}</p>
+          <RichText text={agent.instructions} />
         </div>
       </section>
 

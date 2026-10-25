@@ -5,7 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "@/components/icons";
 import type { RunLive, StepState } from "@/lib/views";
+import { plainText } from "@/lib/plain-text";
 import { AdvancedSwitch, useAdvanced } from "./advanced";
+import { RichText } from "./rich-text";
 
 export interface RunViewData extends RunLive {
   id: string;
@@ -77,7 +79,7 @@ export function RunView({
     <>
       <span className="run-bar-title">
         <b>{run.label}</b>
-        <small>{run.active ? run.now : (run.result ?? run.label)}</small>
+        <small>{run.active ? run.now : plainText(run.result ?? run.label)}</small>
       </span>
       <span className="run-bar-meta">
         {pct}% · {run.elapsed}
@@ -154,7 +156,7 @@ export function RunView({
         <section className="section">
           <h2>Result</h2>
           <div className="card">
-            <p className={run.tone === "stopped" ? "stopped" : ""}>{run.result}</p>
+            <RichText text={run.result} className={run.tone === "stopped" ? "stopped" : ""} />
           </div>
         </section>
       )}
@@ -184,7 +186,7 @@ export function RunView({
                     <time>{o.at}</time>
                     <div>
                       <b>{o.who}</b>
-                      <p>{o.text}</p>
+                      <RichText text={o.text} />
                     </div>
                   </li>
                 ))}
@@ -193,10 +195,10 @@ export function RunView({
             {run.draft && (
               <div className="run-draft" aria-live="polite">
                 <span>{run.draft.who} is writing</span>
-                <p>
-                  {run.draft.text}
+                <div>
+                  <RichText text={run.draft.text} />
                   <i className="run-caret" aria-hidden="true" />
-                </p>
+                </div>
               </div>
             )}
           </div>

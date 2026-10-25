@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronDown } from "@/components/icons";
 import { AdvancedSwitch, useAdvanced } from "./advanced";
+import { RichText } from "./rich-text";
 import { StartRun, type RunnableAgent } from "./start-run";
 
 export interface SecurityApproval {
@@ -341,7 +342,7 @@ function IssueRow({
       </button>
       {open && (
         <div className="expand-body">
-          <p>{issue.detail}</p>
+          <RichText text={issue.detail} />
           {issue.remediation && (
             <p>
               <strong>How to fix: </strong>

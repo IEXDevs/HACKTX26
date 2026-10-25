@@ -16,6 +16,7 @@ import {
 import { getDb } from "./db/client";
 import { runEvents, runs, type AgentRow } from "./db/schema";
 import { duration, relativeTime } from "./format";
+import { plainText } from "./plain-text";
 import {
   getRun,
   getRunEvents,
@@ -97,7 +98,7 @@ export async function runLive(
     a.createdAt.localeCompare(b.createdAt),
   );
   const steps: Step[] = tasks.map((task) => ({
-    name: task.title,
+    name: plainText(task.title),
     state:
       task.status === "succeeded" || task.status === "skipped"
         ? "done"
@@ -129,10 +130,10 @@ export async function runLive(
     feed,
     draft,
     now: working
-      ? `${name(working.agentId)}: ${working.title}`
+      ? `${name(working.agentId)}: ${plainText(working.title)}`
       : status === "queued"
         ? "Getting ready"
-        : (said[said.length - 1]?.text ?? "Working"),
+        : short(said[said.length - 1]?.text ?? "Working", 160),
     progress,
   };
 }
@@ -170,7 +171,8 @@ export interface HomeView {
 }
 
 function short(text: string, max = 90): string {
-  const clean = text.replace(/\s+/g, " ").trim();
+  // Agent output is Markdown with LaTeX; one-line summaries show it plain.
+  const clean = plainText(text);
   return clean.length > max ? clean.slice(0, max - 1).trimEnd() + "…" : clean;
 }
 

@@ -42,7 +42,12 @@ export function ActionPolicy({
       if (value.effects) setEffects(value.effects);
       router.refresh();
     } catch (cause) {
-      setEffects((current) => ({ ...current, [resource]: previous }));
+      setEffects((current) => {
+        const next = { ...current };
+        if (previous) next[resource] = previous;
+        else delete next[resource];
+        return next;
+      });
       setError((cause as Error).message);
     } finally {
       setBusy(null);

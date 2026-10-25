@@ -17,14 +17,16 @@ function safeNext(value: unknown): string {
   return typeof value === "string" && value.startsWith("/") ? value : "/";
 }
 
+// 303, not the default 307: the button posts a form, and a 307 would make the
+// browser repeat that POST against Supabase's authorize URL, which only takes GET.
 async function startGoogleLogin(request: NextRequest) {
   const origin = authOrigin(request);
   if (!supabaseAuthEnabled()) {
-    return NextResponse.redirect(new URL("/login?error=Auth%20is%20not%20configured", origin));
+    return NextResponse.redirect(new URL("/login?error=Auth%20is%20not%20configured", origin), 303);
   }
   const client = createSupabaseRequestClient(request);
   if (!client) {
-    return NextResponse.redirect(new URL("/login?error=Auth%20is%20not%20configured", origin));
+    return NextResponse.redirect(new URL("/login?error=Auth%20is%20not%20configured", origin), 303);
   }
 
   const formNext =
@@ -56,10 +58,10 @@ async function startGoogleLogin(request: NextRequest) {
         : /redirect/i.test(message)
           ? `${message}. Add ${redirectTo} to Authentication > URL configuration.`
           : message;
-    return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(hint)}`, origin));
+    return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(hint)}`, origin), 303);
   }
 
-  const response = NextResponse.redirect(data.url);
+  const response = NextResponse.redirect(data.url, 303);
   response.cookies.set("auth-next", nextPath, {
     path: "/",
     maxAge: 600,

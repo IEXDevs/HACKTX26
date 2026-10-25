@@ -3,19 +3,22 @@
  *
  * Every write here leaves an audit entry. Nothing in this module lets an agent
  * change another agent: a fix lands only through applyFix(), which requires an
- * approval a person gave for that exact proposal.
+ * approval a person gave for that exact proposal. The blue team's roles sit
+ * on top of these steps in blue-team.ts.
  */
-import { and, asc, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import {
   agents,
   agentVersions,
+  budgetPolicies,
   findingCases,
   promptBlocks,
   runEvents,
   runs,
   securityFindings,
   users,
+  workspaces,
   type AgentRow,
   type CaseChange,
   type CaseHop,
@@ -33,10 +36,12 @@ import { lineDiff, proposalHash } from "./diff";
 import {
   afterRetestFailure,
   assertTransition,
+  CLEAN_REPRODUCTION_RUNS,
   DEFAULT_LOOP_BUDGET_USD,
   DEFAULT_MAX_ROUNDS,
   DEFAULT_RETEST_RUN_BUDGET_USD,
   roundFitsBudget,
+  swarmCapUsd,
   type FindingStatus,
 } from "./lifecycle";
 import {
@@ -62,9 +67,9 @@ function actorName(actor: Actor): string {
   return actor.kind === "person" ? actor.name : `agent:${actor.agentId}`;
 }
 
-/* ---------- Plumbing ---------- */
+/* ---------- Plumbing (shared with blue-team.ts) ---------- */
 
-async function audit(
+export async function audit(
   workspaceId: string,
   actor: string,
   action: string,
@@ -75,7 +80,7 @@ async function audit(
   await writeAudit({ workspaceId, actor, action, targetType, targetId, detail });
 }
 
-async function loadFinding(findingId: string): Promise<SecurityFindingRow> {
+export async function loadFinding(findingId: string): Promise<SecurityFindingRow> {
   const [row] = await getDb().select().from(securityFindings).where(eq(securityFindings.id, findingId)).limit(1);
   if (!row) throw new Error("Finding not found.");
   return row;
@@ -87,14 +92,14 @@ export async function loadCase(caseId: string): Promise<FindingCaseRow> {
   return row;
 }
 
-async function loadAgent(agentId: string): Promise<AgentRow> {
+export async function loadAgent(agentId: string): Promise<AgentRow> {
   const [row] = await getDb().select().from(agents).where(eq(agents.id, agentId)).limit(1);
   if (!row) throw new Error("Agent not found.");
   return row;
 }
 
 /** The only way a finding's status changes inside the loop. */
-async function moveFinding(
+export async function moveFinding(
   finding: SecurityFindingRow,
   to: FindingStatus,
   actor: string,
@@ -110,20 +115,27 @@ async function moveFinding(
   finding.status = to;
 }
 
-async function updateCase(id: string, patch: Partial<FindingCaseRow>) {
+export async function updateCase(id: string, patch: Partial<FindingCaseRow>) {
   await getDb()
     .update(findingCases)
     .set({ ...patch, updatedAt: new Date() })
     .where(eq(findingCases.id, id));
 }
 
-function say(from: CaseMessage["from"], text: string, proposalHash?: string): CaseMessage {
+export function say(from: CaseMessage["from"], text: string, proposalHash?: string): CaseMessage {
   return { from, text: redactSecrets(text), at: new Date().toISOString(), ...(proposalHash ? { proposalHash } : {}) };
 }
 
-function caseOpen(row: FindingCaseRow) {
+export function caseOpen(row: FindingCaseRow) {
   if (row.state === "closed") throw new Error("This case is closed.");
+  if (row.state === "verified") throw new Error("This case is already verified.");
   if (row.state === "escalated") throw new Error("This case is waiting on a person after escalation.");
+  if (row.state === "queued") throw new Error("This case is queued behind another case for the same agent.");
+}
+
+/** Red-team agents: the security role, or anything on the red team. Never blue. */
+export function isRedAgent(agent: Pick<AgentRow, "role" | "team">): boolean {
+  return agent.team === "red" || (agent.role === "security" && agent.team !== "blue");
 }
 
 /**
@@ -144,7 +156,9 @@ async function workspacePerson(workspaceId: string): Promise<string> {
 
 /**
  * Accepting is done by a person, or by the red-team lead that owns the probe
- * (the reporting security agent or its security parent).
+ * (the reporting security agent or its security parent). The lead accepts
+ * only an exact reproduction: the input, what the target did, and how to
+ * repeat it. A person may accept anything.
  */
 export async function acceptFinding(findingId: string, actor: Actor): Promise<SecurityFindingRow> {
   const finding = await loadFinding(findingId);
@@ -152,8 +166,13 @@ export async function acceptFinding(findingId: string, actor: Actor): Promise<Se
     const lead = await loadAgent(actor.agentId);
     const reporter = await loadAgent(finding.agentId);
     const owns = lead.id === reporter.id || lead.id === reporter.parentAgentId;
-    if (lead.role !== "security" || !owns) {
+    if (!isRedAgent(lead) || !owns) {
       throw new Error("Only a person or the red-team lead that ran the probe may accept a finding.");
+    }
+    if (!finding.evidence?.trim() || !finding.detail.trim()) {
+      throw new Error(
+        "The red-team lead accepts a finding only with an exact reproduction: the input, what the agent did, and how to repeat it.",
+      );
     }
   }
   if (finding.status === "open") await moveFinding(finding, "accepted", actorName(actor));
@@ -239,6 +258,9 @@ export async function openCase(
     appliedVersion: null,
     latestRetestRunId: null,
     retests: [],
+    crew: {},
+    triage: null,
+    mergedFindingIds: [],
     createdAt: now,
     updatedAt: now,
   };
@@ -381,13 +403,26 @@ function describe(target: AgentRow, change: CaseChange, after: Applied): { diff:
   };
 }
 
+/** Who drafts when no Fix Drafter is named: the target's creator (case-review.ts) or the built-in rules. */
+export const CREATOR = "agent-creator";
+
 export async function proposeFix(
   caseId: string,
-  input: { change: CaseChange; source: CaseProposal["source"]; reply?: string },
+  input: {
+    change: CaseChange;
+    source: CaseProposal["source"];
+    reply?: string;
+    /** The case's Fix Drafter, by agent id. Defaults to the creator. */
+    draftedBy?: string;
+  },
 ): Promise<FindingCaseRow> {
   const row = await loadCase(caseId);
   caseOpen(row);
   if (!row.deliveredTo) throw new Error("The case has not reached the creator yet.");
+  const draftedBy = input.draftedBy ?? CREATOR;
+  if ((row.crew.verifiers ?? []).some((v) => v.agentId === draftedBy)) {
+    throw new Error("A Verifier on this case cannot also draft its fix.");
+  }
   const finding = await loadFinding(row.findingId);
   const target = await loadAgent(row.targetAgentId);
   // Redact before hashing, so the approved hash matches what is stored.
@@ -410,20 +445,28 @@ export async function proposeFix(
     diff,
     summary,
     source: input.source,
+    draftedBy,
     at: new Date().toISOString(),
   };
-  await moveFinding(finding, "proposed_fix", "agent-creator", { caseId: row.id, round });
+  const author = draftedBy === CREATOR ? CREATOR : `agent:${draftedBy}`;
+  await moveFinding(finding, "proposed_fix", author, { caseId: row.id, round });
+  // A blue-team draft is posted into the creator conversation, where the person approves it.
   const conversation = [
     ...row.conversation,
-    say("creator", input.reply?.trim() || `${summary} Review the change below and approve it if it looks right.`, hash),
+    say(
+      draftedBy === CREATOR ? "creator" : "blue_team",
+      input.reply?.trim() || `${summary} Review the change below and approve it if it looks right.`,
+      hash,
+    ),
   ];
   // A new proposal voids any earlier approval.
   await updateCase(row.id, { proposal, approval: null, round, conversation });
-  await audit(row.workspaceId, "agent-creator", "case.fix_proposed", "finding_case", row.id, {
+  await audit(row.workspaceId, author, "case.fix_proposed", "finding_case", row.id, {
     findingId: row.findingId,
     round,
     kind: change.kind,
     source: input.source,
+    draftedBy,
     proposalHash: hash,
     diff,
   });
@@ -583,7 +626,7 @@ export const engineRunner: RetestRunner = {
   },
 };
 
-async function escalate(row: FindingCaseRow, reason: string) {
+export async function escalate(row: FindingCaseRow, reason: string) {
   await updateCase(row.id, {
     state: "escalated",
     escalationReason: reason,
@@ -595,22 +638,123 @@ async function escalate(row: FindingCaseRow, reason: string) {
     spentUsd: row.spentUsd,
     reason,
   });
+  // A person owns it now, so the next case for the same agent may go ahead.
+  await releaseTarget(row.workspaceId, row.targetAgentId);
+}
+
+/** Retire the case's blue-team grunts. The lead and the roster stay. */
+export async function retireCrew(row: FindingCaseRow) {
+  const ids = [row.crew.triageId, row.crew.drafterId, ...(row.crew.verifiers ?? []).map((v) => v.agentId)].filter(
+    (id): id is string => Boolean(id),
+  );
+  if (ids.length === 0) return;
+  await getDb()
+    .update(agents)
+    .set({ status: "archived", updatedAt: new Date() })
+    .where(and(inArray(agents.id, ids), eq(agents.rank, "grunt"), ne(agents.status, "archived")));
+  await audit(row.workspaceId, "platform", "case.crew_retired", "finding_case", row.id, { agentIds: ids });
 }
 
 /**
- * Re-run the exact reproduction against the new version, plus a regression
- * set: earlier findings against the same target and fresh synthetic probes.
+ * One active case per target. When the active one ends, the oldest queued
+ * case for the same target becomes active. Returns its id, if any.
+ */
+export async function releaseTarget(workspaceId: string, targetAgentId: string): Promise<string | null> {
+  const db = getDb();
+  const sameTarget = await db
+    .select()
+    .from(findingCases)
+    .where(and(eq(findingCases.workspaceId, workspaceId), eq(findingCases.targetAgentId, targetAgentId)))
+    .orderBy(asc(findingCases.createdAt));
+  if (sameTarget.some((c) => c.state === "open" && c.triage)) return null;
+  const next = sameTarget.find((c) => c.state === "queued");
+  if (!next) return null;
+  await updateCase(next.id, {
+    state: "open",
+    conversation: [...next.conversation, say("platform", "The case ahead of this one is done. This case is active now.")],
+  });
+  await audit(workspaceId, "platform", "case.activated", "finding_case", next.id, { findingId: next.findingId });
+  return next.id;
+}
+
+/**
+ * A person marked the case's finding not an issue: close the case, retire its
+ * grunts, and let the next case for the same agent go ahead.
+ */
+export async function closeDismissedCase(findingId: string, actor: string): Promise<FindingCaseRow | null> {
+  const [row] = await getDb().select().from(findingCases).where(eq(findingCases.findingId, findingId)).limit(1);
+  if (!row || row.state === "closed" || row.state === "verified") return null;
+  await updateCase(row.id, {
+    state: "closed",
+    conversation: [...row.conversation, say("platform", "A person marked this finding as not an issue, so the case is closed.")],
+  });
+  await audit(row.workspaceId, actor, "case.closed", "finding_case", row.id, { findingId, reason: "false_positive" });
+  await retireCrew(row);
+  await releaseTarget(row.workspaceId, row.targetAgentId);
+  return loadCase(row.id);
+}
+
+/** What the red and blue teams spent today against the swarm's cap. Never raised here. */
+export async function swarmBudget(workspaceId: string): Promise<{ capUsd: number; spentUsd: number }> {
+  const db = getDb();
+  const [workspace] = await db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
+  const [day] = await db
+    .select({ limitUsd: budgetPolicies.limitUsd })
+    .from(budgetPolicies)
+    .where(
+      and(eq(budgetPolicies.workspaceId, workspaceId), eq(budgetPolicies.period, "day"), isNull(budgetPolicies.agentId)),
+    )
+    .limit(1);
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+  const teamAgents = db
+    .select({ id: agents.id })
+    .from(agents)
+    .where(and(eq(agents.workspaceId, workspaceId), isNotNull(agents.team)));
+  const spent = await db
+    .select({ cost: runs.costUsd })
+    .from(runs)
+    .where(
+      and(
+        eq(runs.workspaceId, workspaceId),
+        gte(runs.startedAt, startOfDay),
+        or(eq(runs.purpose, "retest"), inArray(runs.agentId, teamAgents)),
+      ),
+    );
+  return {
+    capUsd: swarmCapUsd(day?.limitUsd ?? null, workspace?.defaultRunBudgetUsd ?? DEFAULT_LOOP_BUDGET_USD),
+    spentUsd: spent.reduce((sum, r) => sum + r.cost, 0),
+  };
+}
+
+/**
+ * Re-run the exact reproduction three times against the new version, then a
+ * regression set: earlier findings against the same target and fresh
+ * synthetic probes. A case the blue team works names its Verifier, who must
+ * not be the agent that drafted the fix.
  */
 export async function startRetest(
   caseId: string,
   runner: RetestRunner = engineRunner,
-  options: { runBudgetUsd?: number; syntheticCount?: number } = {},
+  options: { runBudgetUsd?: number; syntheticCount?: number; verifierId?: string; requestedBy?: string } = {},
 ): Promise<FindingCaseRow> {
   const db = getDb();
   const row = await loadCase(caseId);
   caseOpen(row);
   const finding = await loadFinding(row.findingId);
   if (finding.status !== "applied") throw new Error("Apply an approved fix before retesting.");
+  if (row.crew.leadId && !options.verifierId) {
+    throw new Error("The blue team must name a Verifier before this retest starts.");
+  }
+  if (options.verifierId) {
+    const verifier = await loadAgent(options.verifierId);
+    if (verifier.id === row.crew.drafterId || verifier.id === row.proposal?.draftedBy) {
+      throw new Error("The Verifier must be a different agent from the Fix Drafter for this case.");
+    }
+    if (verifier.team !== "blue" || isRedAgent(verifier)) {
+      throw new Error("Only a blue-team Verifier can verify a fix.");
+    }
+  }
   const target = await loadAgent(row.targetAgentId);
   const targetTask = target.defaultGoal || target.summary || target.name;
 
@@ -629,7 +773,8 @@ export async function startRetest(
     ? await db.select().from(findingCases).where(inArray(findingCases.findingId, others.map((f) => f.id)))
     : [];
   const probes: CaseProbe[] = [
-    row.reproduction.probe,
+    // Consecutive: the round stops at the first run that is not clean.
+    ...Array.from({ length: CLEAN_REPRODUCTION_RUNS }, () => row.reproduction.probe),
     ...others.map((other) => {
       const stored = otherCases.find((c) => c.findingId === other.id)?.reproduction.probe;
       return stored
@@ -648,6 +793,14 @@ export async function startRetest(
     );
     return loadCase(row.id);
   }
+  const swarm = await swarmBudget(row.workspaceId);
+  if (!roundFitsBudget(swarm.spentUsd, roundCost, swarm.capUsd)) {
+    await escalate(
+      row,
+      `The next retest needs up to $${roundCost.toFixed(2)}, which would pass the red and blue teams' $${swarm.capUsd.toFixed(2)} daily cap ($${swarm.spentUsd.toFixed(2)} already spent today).`,
+    );
+    return loadCase(row.id);
+  }
 
   await moveFinding(finding, "retesting", "platform", { caseId: row.id, round: row.round });
   const retest: CaseRetest = {
@@ -660,21 +813,27 @@ export async function startRetest(
     failures: [],
     fixture: false,
     costUsd: 0,
+    ...(options.verifierId ? { verifierId: options.verifierId } : {}),
+    ...(options.requestedBy ? { requestedBy: options.requestedBy } : {}),
     startedAt: new Date().toISOString(),
   };
   await updateCase(row.id, {
     retests: [...row.retests, retest],
     conversation: [
       ...row.conversation,
-      say("platform", `Retest started: ${probes.length} runs against version ${target.version}, one at a time.`),
+      say(
+        "platform",
+        `Retest started against version ${target.version}: the original problem ${CLEAN_REPRODUCTION_RUNS} times in a row, then ${probes.length - CLEAN_REPRODUCTION_RUNS} more checks, one run at a time.`,
+      ),
     ],
   });
-  await audit(row.workspaceId, "platform", "case.retest_started", "finding_case", row.id, {
+  await audit(row.workspaceId, options.requestedBy ?? "platform", "case.retest_started", "finding_case", row.id, {
     findingId: row.findingId,
     round: row.round,
     version: target.version,
     probes: probes.map((p) => p.kind),
     reservedUsd: roundCost,
+    verifierId: options.verifierId ?? null,
   });
   // Starts the first probe.
   return checkRetest(row.id, runner);
@@ -805,19 +964,30 @@ async function stepRetest(caseId: string, runner: RetestRunner): Promise<Finding
     await moveFinding(finding, "retest_passed", "platform", { caseId: row.id, runIds, fixture: result.fixture });
     await moveFinding(finding, "fixed", "platform", { caseId: row.id, runIds, version: retest.version });
     const label = result.fixture ? " These runs used the scripted planner, not a live model." : "";
+    const verifier = retest.verifierId ? ` The Verifier recorded runs ${runIds.join(", ")}.` : "";
     await updateCase(row.id, {
       retests,
       spentUsd,
-      state: "closed",
-      conversation: [...row.conversation, say("platform", `Retest passed on all ${runIds.length} runs. The finding is fixed.${label}`)],
+      state: "verified",
+      conversation: [
+        ...row.conversation,
+        say(
+          "platform",
+          `Retest passed: the original problem stayed fixed ${CLEAN_REPRODUCTION_RUNS} times in a row, and all ${runIds.length} runs were clean. The finding is fixed.${verifier}${label}`,
+        ),
+      ],
     });
     await audit(row.workspaceId, "platform", "case.retest_passed", "finding_case", row.id, {
       findingId: row.findingId,
       round: row.round,
       runIds,
+      verifierId: retest.verifierId ?? null,
       costUsd,
       fixture: result.fixture,
     });
+    const done = await loadCase(row.id);
+    await retireCrew(done);
+    await releaseTarget(row.workspaceId, row.targetAgentId);
     return loadCase(row.id);
   }
 

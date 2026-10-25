@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import { getDb } from "@/lib/db/client";
 import { agents } from "@/lib/db/schema";
 import { CHECK_MAX_USD, RED_TEAM_CATEGORIES, startRedTeamCheck } from "@/lib/loop/redteam-check";
-import { getWorkspaceContext } from "@/lib/queries";
+import { getWorkspaceUser } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
-  const { workspace, user } = await getWorkspaceContext();
+  const { workspace, user } = await getWorkspaceUser();
   const [agent] = await getDb().select().from(agents).where(eq(agents.id, id)).limit(1);
   if (!agent || agent.workspaceId !== workspace.id) {
     return Response.json({ error: "Agent not found." }, { status: 404 });

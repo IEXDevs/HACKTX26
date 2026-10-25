@@ -7,6 +7,7 @@ import { ArrowUpRight, ChevronDown } from "@/components/icons";
 import type { HomeRun, HomeView, StepState } from "@/lib/views";
 import { RichText } from "./rich-text";
 import { StartRun } from "./start-run";
+import { useAutoRefresh } from "./use-auto-refresh";
 
 // Checked-off finished items hide from Home an hour after checking. Run history is untouched.
 const checkedKey = "relay-home-checked";
@@ -60,11 +61,7 @@ export function Home({ data }: { data: HomeView }) {
   const crossedOff = finished.filter((f) => checked[f.id]).map((f) => f.id);
 
   // Live runs change quickly; re-read the page while any are active.
-  useEffect(() => {
-    if (!data.running.length) return;
-    const timer = setInterval(() => router.refresh(), 3000);
-    return () => clearInterval(timer);
-  }, [data.running.length, router]);
+  useAutoRefresh(data.running.length > 0, 3000);
 
   async function decide(id: string, decision: "approved" | "denied") {
     setDeciding(id);

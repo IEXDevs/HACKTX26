@@ -8,7 +8,6 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { resolveInside, SandboxViolation } from "@agent-os/core";
 
 export const CONTEXT_FILENAME = "CONTEXT.md";
 
@@ -153,16 +152,5 @@ export class WorkspaceContextFile {
       "The operator may tell you to include or remove facts from this file; honour that with context.write / context.read.",
       "Do not put secrets, credentials, or raw PII in CONTEXT.md.",
     ].join("\n");
-  }
-}
-
-/** Resolve a CONTEXT.md path against the workspace root, never an agent jail. */
-export function resolveContextFile(sandboxRoot: string, workspaceId: string): string {
-  const root = path.join(sandboxRoot, workspaceId);
-  try {
-    return resolveInside(root, CONTEXT_FILENAME);
-  } catch (error) {
-    if (error instanceof SandboxViolation) throw error;
-    throw error;
   }
 }

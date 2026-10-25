@@ -51,10 +51,6 @@ export function assertTransition(from: FindingStatus, to: FindingStatus): void {
   }
 }
 
-export function isFindingStatus(value: unknown): value is FindingStatus {
-  return typeof value === "string" && (FINDING_STATUSES as readonly string[]).includes(value);
-}
-
 /* ---------- Rounds and budget ---------- */
 
 export const DEFAULT_MAX_ROUNDS = 3;

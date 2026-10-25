@@ -6,10 +6,11 @@ import { runs } from "@/lib/db/schema";
 import { spendSince } from "@/lib/observability";
 import { getWorkspaceContext, listAgents, listBudgetPolicies } from "@/lib/queries";
 import { BillingSpend } from "@/components/relay/billing-spend";
+import { money } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
-const money = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
-const dateKey = (date: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+const chicagoDay = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" });
+const dateKey = (date: Date) => chicagoDay.format(date);
 
 export default async function BillingPage() {
   const { workspace, spendTodayUsd } = await getWorkspaceContext();

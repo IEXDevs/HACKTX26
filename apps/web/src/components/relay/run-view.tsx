@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Square } from "@/components/icons";
 import type { RunLive } from "@/lib/views";
 import { plainText } from "@/lib/plain-text";
 import { RichText } from "./rich-text";
+import { useAutoRefresh } from "./use-auto-refresh";
 
 export interface RunViewData extends RunLive {
   id: string;
@@ -39,11 +40,7 @@ export function RunView({
   const history = run.history ?? [];
   const live = run.active || waiting;
 
-  useEffect(() => {
-    if (!live) return;
-    const timer = setInterval(() => router.refresh(), 3000);
-    return () => clearInterval(timer);
-  }, [live, router]);
+  useAutoRefresh(live, 3000);
 
   async function stop() {
     setStopping(true);

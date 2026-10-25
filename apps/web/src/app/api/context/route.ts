@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getDb } from "@/lib/db/client";
 import { auditLog } from "@/lib/db/schema";
 import { env, newId } from "@/lib/env";
-import { getWorkspaceContext, requireWorkspace } from "@/lib/queries";
+import { getWorkspaceUser, requireWorkspace } from "@/lib/queries";
 import {
   isContextStub,
   WorkspaceContextFile,
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "Expected { content } or { include } or { remove }." }, { status: 400 });
   }
 
-  const { user } = await getWorkspaceContext();
+  const { user } = await getWorkspaceUser();
   await getDb().insert(auditLog).values({
     id: newId("aud"),
     workspaceId: workspace.id,

@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowUp, Check, LoaderCircle } from "@/components/icons";
 import type { CaseHop, CaseMessage, CaseProposal, CaseRetest } from "@/lib/db/schema";
 import { RichText } from "./rich-text";
+import { useAutoRefresh } from "./use-auto-refresh";
 
 export interface CaseView {
   id: string;
@@ -54,11 +55,7 @@ export function CaseReview({ view }: { view: CaseView }) {
   const canPropose = open && (view.status === "accepted" || view.status === "retest_failed");
   const canApprove = open && view.status === "proposed_fix" && !!view.proposal;
 
-  useEffect(() => {
-    if (!waitingRetest) return;
-    const timer = setInterval(() => router.refresh(), 4000);
-    return () => clearInterval(timer);
-  }, [waitingRetest, router]);
+  useAutoRefresh(waitingRetest, 4000);
 
   async function act(name: string, body: Record<string, unknown>) {
     setBusy(name);
@@ -173,18 +170,16 @@ export function CaseReview({ view }: { view: CaseView }) {
                 </span>
               ))}
             </pre>
-            {canApprove && (
-              <div className="dialog-actions" style={{ marginTop: 14 }}>
-                <button
-                  className="btn primary"
-                  disabled={!!busy}
-                  onClick={() => void act("approve", { action: "approve", proposalHash: view.proposal!.hash })}
-                >
-                  {busy === "approve" ? <LoaderCircle size={15} className="animate-spin" aria-hidden /> : <Check size={15} aria-hidden />}
-                  Approve and apply
-                </button>
-              </div>
-            )}
+            <div className="dialog-actions" style={{ marginTop: 14 }}>
+              <button
+                className="btn primary"
+                disabled={!!busy}
+                onClick={() => void act("approve", { action: "approve", proposalHash: view.proposal!.hash })}
+              >
+                {busy === "approve" ? <LoaderCircle size={15} className="animate-spin" aria-hidden /> : <Check size={15} aria-hidden />}
+                Approve and apply
+              </button>
+            </div>
           </div>
         </section>
       ) : null}

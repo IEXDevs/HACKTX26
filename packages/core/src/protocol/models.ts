@@ -393,6 +393,14 @@ export function routeModel(
 
   const candidates: RouteCandidate[] = [];
 
+  // Cost is scored relatively, so the cheapest plausible model scores 1.
+  const maxCost = Math.max(
+    ...catalog.map((m) =>
+      estimateCostUsd(m, request.estimatedInputTokens, request.estimatedOutputTokens),
+    ),
+    1e-9,
+  );
+
   for (const model of catalog) {
     const cost = estimateCostUsd(
       model,
@@ -418,13 +426,6 @@ export function routeModel(
       continue;
     }
 
-    // Cost is scored relatively, so the cheapest plausible model scores 1.
-    const maxCost = Math.max(
-      ...catalog.map((m) =>
-        estimateCostUsd(m, request.estimatedInputTokens, request.estimatedOutputTokens),
-      ),
-      1e-9,
-    );
     const costScore = 1 - Math.min(cost / maxCost, 1);
     const latencyScore = 1 - Math.min(model.latencyMs / 2000, 1);
     const capabilityScore = TIER_CAPABILITY[model.tier];

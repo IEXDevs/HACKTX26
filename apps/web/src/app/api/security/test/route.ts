@@ -10,7 +10,7 @@ import {
   probeCountForLimit,
   startRedTeamCheck,
 } from "@/lib/loop/redteam-check";
-import { getWorkspaceContext } from "@/lib/queries";
+import { getWorkspaceUser } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { workspace, user } = await getWorkspaceContext();
+  const { workspace, user } = await getWorkspaceUser();
   const [agent] = await getDb().select().from(agents).where(eq(agents.id, parsed.data.agentId)).limit(1);
   if (!agent || agent.workspaceId !== workspace.id) {
     return Response.json({ error: "Agent not found." }, { status: 404 });

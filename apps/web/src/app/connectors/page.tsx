@@ -1,7 +1,7 @@
 import { TOOL_MANIFEST } from "@agent-os/core";
 import { ConnectorsView } from "@/components/relay/connectors";
 import { relativeTime } from "@/lib/format";
-import { getWorkspaceContext, listConnectors } from "@/lib/queries";
+import { requireWorkspace, listConnectors } from "@/lib/queries";
 import { KB_DOCUMENTS, searchKnowledgeBase } from "@/lib/runtime/kb";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,7 @@ export default async function ConnectorsPage({
 }) {
   const { q } = await searchParams;
   const query = q?.trim() ?? "";
-  const { workspace } = await getWorkspaceContext();
+  const workspace = await requireWorkspace();
   const { connectors, credentials } = await listConnectors(workspace.id);
   const name = new Map(connectors.map((c) => [c.id, c.name]));
 

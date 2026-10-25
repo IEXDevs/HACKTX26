@@ -71,6 +71,7 @@ export class OpenAiGateway implements ModelGateway {
     };
 
     // Retry a busy provider (429, 502, 503) a few times with backoff before failing the step.
+    const payload = JSON.stringify(body);
     let response: Response;
     for (let attempt = 1; ; attempt++) {
       response = await fetch(`${this.baseUrl.replace(/\/$/, "")}/chat/completions`, {
@@ -79,7 +80,7 @@ export class OpenAiGateway implements ModelGateway {
           "content-type": "application/json",
           authorization: `Bearer ${this.apiKey}`,
         },
-        body: JSON.stringify(body),
+        body: payload,
         signal: AbortSignal.timeout(120_000),
       });
       if (attempt >= 3 || ![429, 502, 503].includes(response.status)) break;

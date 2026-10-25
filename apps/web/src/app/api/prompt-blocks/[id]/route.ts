@@ -4,7 +4,7 @@ import { z } from "zod";
 import { writeAudit } from "@/lib/audit";
 import { getDb } from "@/lib/db/client";
 import { promptBlocks } from "@/lib/db/schema";
-import { getWorkspaceContext, requireWorkspace } from "@/lib/queries";
+import { getWorkspaceUser, requireWorkspace } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +43,7 @@ export async function PATCH(
     .where(eq(promptBlocks.id, id))
     .returning();
 
-  const { user } = await getWorkspaceContext();
+  const { user } = await getWorkspaceUser();
   await writeAudit({
     workspaceId: workspace.id,
     actor: user?.email ?? "operator@local",

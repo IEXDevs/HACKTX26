@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LiveRefresh } from "@/components/relay/live-refresh";
 import { observabilityEnabled } from "@/lib/env";
 import { relativeTime } from "@/lib/format";
 import { listAuthEvents, listPromptLogs } from "@/lib/observability";
@@ -24,9 +25,11 @@ export default async function ObservabilityPage() {
       <div className="page-top">
         <h1>Observability</h1>
       </div>
+      <LiveRefresh intervalMs={4000} />
       <p className="lede">
-        Live prompts, completions, and Google sign-ins stored in Supabase. Secrets are redacted
-        before they leave the server.
+        Live prompts, thinking, completions, and Google sign-ins stored in Supabase as each
+        turn finishes. Secrets are redacted before they leave the server. This page refreshes
+        every few seconds.
       </p>
 
       {!configured ? (
@@ -64,6 +67,7 @@ export default async function ObservabilityPage() {
         {prompts?.length ? (
           <ul className="prompt-log">
             {prompts.map((row) => {
+              const thinking = row.messages.find((message) => message.role === "thinking")?.content;
               const preview =
                 row.completion?.slice(0, 180) ||
                 row.messages.find((message) => message.role === "user")?.content.slice(0, 180) ||
@@ -79,6 +83,7 @@ export default async function ObservabilityPage() {
                     <small>
                       {relativeTime(row.createdAt)}
                       {tokens ? ` · ${tokens.toLocaleString()} tokens` : ""}
+                      {thinking ? " · thinking" : ""}
                       {row.runId ? (
                         <>
                           {" · "}
@@ -86,6 +91,7 @@ export default async function ObservabilityPage() {
                         </>
                       ) : null}
                     </small>
+                    {thinking ? <small className="detail">Thinking: {thinking.slice(0, 180)}</small> : null}
                     <small className="detail">{preview}</small>
                   </div>
                 </li>

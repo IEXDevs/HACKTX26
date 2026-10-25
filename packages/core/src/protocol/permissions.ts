@@ -167,13 +167,21 @@ export type PermissionDecision =
   | { effect: "require_approval"; reason: string; matchedRuleId: string | null }
   | { effect: "deny"; reason: string; matchedRuleId: string | null };
 
+// Policy patterns are a small fixed set, checked on every tool call: compile each once.
+const globCache = new Map<string, RegExp>();
+
 function globMatches(pattern: string, value: string): boolean {
   if (pattern === "*" || pattern === value) return true;
   if (!pattern.includes("*")) return false;
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*/g, ".*");
-  return new RegExp(`^${escaped}$`).test(value);
+  let regex = globCache.get(pattern);
+  if (!regex) {
+    const escaped = pattern
+      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+      .replace(/\*/g, ".*");
+    regex = new RegExp(`^${escaped}$`);
+    globCache.set(pattern, regex);
+  }
+  return regex.test(value);
 }
 
 function grantCovers(

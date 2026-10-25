@@ -2,7 +2,9 @@
  * Cloud ledger for real model usage, prompt traces, auth, and platform
  * activity. Writes are best-effort: a downed Supabase must never fail a run.
  */
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { MODEL_BY_ID, estimateCostUsd } from "@agent-os/core";
 import { env, observabilityEnabled } from "./env";
 import { redactSecrets } from "./secrets";
@@ -33,6 +35,7 @@ export interface ModelTurn {
   step?: number;
   messages: Array<Pick<ModelMessage, "role" | "content">>;
   completion?: string;
+  thinking?: string;
   inputTokens: number;
   outputTokens: number;
   costUsd?: number;
@@ -105,18 +108,67 @@ function warn(scope: string, error: unknown): void {
   console.warn(`[observability] ${scope}:`, error instanceof Error ? error.message : error);
 }
 
+function isPrivilegeError(message: string): boolean {
+  return /permission denied|42501/i.test(message);
+}
+
+function fallbackFile(table: string): string {
+  const dir = path.resolve(process.cwd(), ".data");
+  fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, `${table}.jsonl`);
+}
+
+function appendFallback(table: string, row: Record<string, unknown>): Record<string, unknown> {
+  const record = {
+    id: typeof row.id === "string" ? row.id : randomUUID(),
+    created_at: typeof row.created_at === "string" ? row.created_at : new Date().toISOString(),
+    ...row,
+  };
+  fs.appendFileSync(fallbackFile(table), `${JSON.stringify(record)}\n`, "utf8");
+  return record;
+}
+
+function readFallback(table: string): Array<Record<string, unknown>> {
+  const file = fallbackFile(table);
+  if (!fs.existsSync(file)) return [];
+  return fs
+    .readFileSync(file, "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .flatMap((line) => {
+      try {
+        return [JSON.parse(line) as Record<string, unknown>];
+      } catch {
+        return [];
+      }
+    });
+}
+
 async function insert(table: string, row: Record<string, unknown>): Promise<void> {
   if (!observabilityEnabled()) return;
   const client = admin();
   if (!client) return;
   const { error } = await client.from(table).insert(row);
-  if (error) warn(`insert ${table}`, error.message);
+  if (!error) return;
+  if (isPrivilegeError(error.message)) {
+    appendFallback(table, row);
+    return;
+  }
+  warn(`insert ${table}`, error.message);
 }
 
 export async function recordModelTurn(turn: ModelTurn): Promise<void> {
   if (!observabilityEnabled()) return;
-  if (turn.inputTokens <= 0 && turn.outputTokens <= 0 && !turn.completion) return;
+  if (turn.inputTokens <= 0 && turn.outputTokens <= 0 && !turn.completion && !turn.thinking?.trim())
+    return;
   const messages = sanitizeMessages(turn.messages);
+  if (turn.thinking?.trim()) {
+    messages.push({
+      role: "thinking",
+      content: clipText(turn.thinking.trim(), MESSAGE_CLIP),
+      chars: turn.thinking.length,
+    });
+  }
   const completion = turn.completion ? clipText(turn.completion, COMPLETION_CLIP) : null;
   const costUsd = turn.costUsd ?? costForModel(turn.model, turn.inputTokens, turn.outputTokens);
   const hash = contentHash(turn.messages, turn.completion ?? "");
@@ -195,7 +247,7 @@ export async function touchProfile(userId: string): Promise<void> {
     .from("profiles")
     .update({ last_seen_at: new Date().toISOString() })
     .eq("id", userId);
-  if (error) warn("touchProfile", error.message);
+  if (error && !isPrivilegeError(error.message)) warn("touchProfile", error.message);
 }
 
 export interface CloudUsageRow {
@@ -257,20 +309,25 @@ export async function listUsageEvents(
   const since = sinceDate(range);
   if (since) query = query.gte("created_at", since);
   const { data, error } = await query;
-  if (error) {
-    warn("listUsageEvents", error.message);
-    return null;
-  }
-  return (data ?? []).map((row) => ({
+  const rows = error
+    ? isPrivilegeError(error.message)
+      ? readFallback("usage_events").filter((row) => {
+          if (row.workspace_id !== workspaceId) return false;
+          return !since || String(row.created_at) >= since;
+        })
+      : (warn("listUsageEvents", error.message), null)
+    : (data ?? []);
+  if (!rows) return null;
+  return rows.map((row) => ({
     source: row.source as TelemetrySource,
-    runId: row.run_id,
-    agentId: row.agent_id,
-    agentName: row.agent_name,
-    model: row.model,
+    runId: (row.run_id as string | null) ?? null,
+    agentId: (row.agent_id as string | null) ?? null,
+    agentName: (row.agent_name as string | null) ?? null,
+    model: String(row.model ?? ""),
     inputTokens: Number(row.input_tokens ?? 0),
     outputTokens: Number(row.output_tokens ?? 0),
     costUsd: Number(row.cost_usd ?? 0),
-    createdAt: new Date(row.created_at),
+    createdAt: new Date(String(row.created_at)),
   }));
 }
 
@@ -289,22 +346,27 @@ export async function listPromptLogs(
     .eq("workspace_id", workspaceId)
     .order("created_at", { ascending: false })
     .limit(limit);
-  if (error) {
-    warn("listPromptLogs", error.message);
-    return null;
-  }
-  return (data ?? []).map((row) => ({
-    id: row.id,
+  const rows = error
+    ? isPrivilegeError(error.message)
+      ? readFallback("prompt_logs")
+          .filter((row) => row.workspace_id === workspaceId)
+          .reverse()
+          .slice(0, limit)
+      : (warn("listPromptLogs", error.message), null)
+    : (data ?? []);
+  if (!rows) return null;
+  return rows.map((row) => ({
+    id: String(row.id),
     source: row.source as TelemetrySource,
-    runId: row.run_id,
-    agentId: row.agent_id,
-    model: row.model,
-    step: row.step,
+    runId: (row.run_id as string | null) ?? null,
+    agentId: (row.agent_id as string | null) ?? null,
+    model: (row.model as string | null) ?? null,
+    step: (row.step as number | null) ?? null,
     messages: Array.isArray(row.messages) ? row.messages : [],
-    completion: row.completion,
-    inputTokens: row.input_tokens,
-    outputTokens: row.output_tokens,
-    createdAt: new Date(row.created_at),
+    completion: (row.completion as string | null) ?? null,
+    inputTokens: (row.input_tokens as number | null) ?? null,
+    outputTokens: (row.output_tokens as number | null) ?? null,
+    createdAt: new Date(String(row.created_at)),
   }));
 }
 
@@ -317,23 +379,37 @@ export async function listAuthEvents(limit = 40): Promise<CloudAuthRow[] | null>
     .select("id, email, event, provider, created_at")
     .order("created_at", { ascending: false })
     .limit(limit);
-  if (error) {
-    warn("listAuthEvents", error.message);
-    return null;
-  }
-  return (data ?? []).map((row) => ({
-    id: row.id,
-    email: row.email,
-    event: row.event,
-    provider: row.provider,
-    createdAt: new Date(row.created_at),
+  const rows = error
+    ? isPrivilegeError(error.message)
+      ? readFallback("auth_events").reverse().slice(0, limit)
+      : (warn("listAuthEvents", error.message), null)
+    : (data ?? []);
+  if (!rows) return null;
+  return rows.map((row) => ({
+    id: String(row.id),
+    email: (row.email as string | null) ?? null,
+    event: String(row.event ?? ""),
+    provider: (row.provider as string | null) ?? null,
+    createdAt: new Date(String(row.created_at)),
   }));
 }
 
 export async function spendSince(workspaceId: string, since: Date): Promise<number | null> {
-  const rows = await listUsageEvents(workspaceId, "all");
-  if (!rows) return null;
-  return rows
-    .filter((row) => row.createdAt.getTime() >= since.getTime())
-    .reduce((sum, row) => sum + row.costUsd, 0);
+  if (!observabilityEnabled()) return null;
+  const client = admin();
+  if (!client) return null;
+  // Filter by date in the query: fetching all rows and filtering here dropped
+  // recent spend once a workspace passed the row limit.
+  const { data, error } = await client
+    .from("usage_events")
+    .select("cost_usd")
+    .eq("workspace_id", workspaceId)
+    .gte("created_at", since.toISOString())
+    .order("created_at", { ascending: true })
+    .limit(5_000);
+  if (error) {
+    warn("spendSince", error.message);
+    return null;
+  }
+  return (data ?? []).reduce((sum, row) => sum + Number(row.cost_usd ?? 0), 0);
 }

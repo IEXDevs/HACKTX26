@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getDb } from "@/lib/db/client";
 import { auditLog } from "@/lib/db/schema";
 import { env, newId } from "@/lib/env";
-import { getAgent, getWorkspaceContext, requireWorkspace } from "@/lib/queries";
+import { getAgent, getWorkspaceUser, requireWorkspace } from "@/lib/queries";
 import { AgentSandbox } from "@/lib/runtime/sandbox";
 
 export const dynamic = "force-dynamic";
@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = ctx.sandbox.write(parsed.data.path, parsed.data.content);
-    const { user } = await getWorkspaceContext();
+    const { user } = await getWorkspaceUser();
     await getDb().insert(auditLog).values({
       id: newId("aud"),
       workspaceId: ctx.workspace.id,
@@ -126,7 +126,7 @@ export async function DELETE(request: NextRequest) {
 
   try {
     ctx.sandbox.remove(relativePath);
-    const { user } = await getWorkspaceContext();
+    const { user } = await getWorkspaceUser();
     await getDb().insert(auditLog).values({
       id: newId("aud"),
       workspaceId: ctx.workspace.id,

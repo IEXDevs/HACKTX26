@@ -1,5 +1,3 @@
-"use client";
-
 import Link from "next/link";
 import { FileText, FolderOpen, Terminal, Wrench } from "@/components/icons";
 import { duration, relativeTime } from "@/lib/format";

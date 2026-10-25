@@ -2,12 +2,12 @@ import { SecurityView } from "@/components/relay/security";
 import { relativeTime } from "@/lib/format";
 import { listCheckReports, liveChecks } from "@/lib/loop/redteam-check";
 import { CHECK_MAX_USD, CHECK_RUN_BUDGET_USD } from "@/lib/loop/redteam-limits";
-import { getWorkspaceContext, listAgents } from "@/lib/queries";
+import { requireWorkspace, listAgents } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
 export default async function SecurityPage() {
-  const { workspace } = await getWorkspaceContext();
+  const workspace = await requireWorkspace();
   const [agents, reports] = await Promise.all([listAgents(workspace.id), listCheckReports(workspace.id, 20)]);
   const live = liveChecks().filter((check) => agents.some((agent) => agent.id === check.agentId));
   const published = agents

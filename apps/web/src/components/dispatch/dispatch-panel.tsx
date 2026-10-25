@@ -46,7 +46,7 @@ export function DispatchPanel({
   const [pending, startTransition] = useTransition();
   const [agentId, setAgentId] = useState(defaultAgentId ?? agents[0]?.id ?? "");
   const agent = agents.find((option) => option.id === agentId);
-  const [goal, setGoal] = useState(goalFor(agents.find((option) => option.id === agentId)));
+  const [goal, setGoal] = useState(() => goalFor(agent));
   const [budget, setBudget] = useState<string>(
     agent?.runBudgetUsd ? String(agent.runBudgetUsd) : "2.5",
   );

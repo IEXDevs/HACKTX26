@@ -1,17 +1,12 @@
 import { and, eq } from "drizzle-orm";
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import {
-  TOOL_BY_NAME,
-  type AgentRole,
-  type ModelPolicy,
-  type PermissionGrant,
-  type TaskComplexity,
-} from "@agent-os/core";
+import { TOOL_BY_NAME } from "@agent-os/core";
+import { grantsFor, policyFor, slugify } from "@/lib/agent-factory";
 import { getDb } from "@/lib/db/client";
 import { agents, auditLog, budgetPolicies, promptBlocks } from "@/lib/db/schema";
 import { newId } from "@/lib/env";
-import { getWorkspaceContext, requireWorkspace } from "@/lib/queries";
+import { getWorkspaceUser, requireWorkspace } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -30,45 +25,6 @@ const Body = z.object({
   canSpawnSubagents: z.boolean().optional(),
   rank: z.enum(["orchestrator", "intermediate", "intermediate_2", "grunt"]).optional(),
 });
-
-function slugify(value: string): string {
-  const slug = value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "")
-    .slice(0, 48);
-  return slug.length > 0 ? slug : "agent";
-}
-
-/** Standing grants only for low and medium risk. High and critical stay per-run. */
-function grantsFor(tools: readonly string[]): PermissionGrant[] {
-  const grants: PermissionGrant[] = [];
-  for (const tool of tools) {
-    const entry = TOOL_BY_NAME.get(tool);
-    if (!entry) continue;
-    if (entry.risk === "low" || entry.risk === "medium") {
-      grants.push({
-        resource: entry.name,
-        scopes: entry.scopes,
-        grantedBy: "builder",
-        note: `Derived from the use-case draft (${entry.risk} risk).`,
-      });
-    }
-  }
-  return grants;
-}
-
-function policyFor(complexity: TaskComplexity, role: AgentRole): ModelPolicy {
-  const costSensitivity = complexity === "critical" ? 0.15 : complexity === "complex" ? 0.4 : 0.7;
-  return {
-    mode: "auto",
-    pinnedModelId: null,
-    costSensitivity: role === "security" ? 0.15 : costSensitivity,
-    latencySensitivity: complexity === "trivial" ? 0.7 : 0.2,
-    floorComplexity: complexity,
-    deniedModelIds: [],
-  };
-}
 
 /**
  * Persists a reviewed builder draft as an active root orchestrator.
@@ -94,7 +50,7 @@ export async function POST(request: NextRequest) {
 
   const now = new Date();
   const id = newId("agt");
-  const baseSlug = slugify(data.name.trim());
+  const baseSlug = slugify(data.name.trim()) || "agent";
   const [slugTaken] = await db
     .select({ slug: agents.slug })
     .from(agents)
@@ -125,7 +81,7 @@ export async function POST(request: NextRequest) {
     defaultGoal: data.goal.trim(),
     inheritedPromptBlockIds: orgBlocks.map((block) => block.id),
     modelPolicy: policyFor(complexity, "orchestrator"),
-    grants: grantsFor(allowedTools),
+    grants: grantsFor(allowedTools, "the use-case draft"),
     allowedTools,
     complexity,
     maxSteps: complexity === "critical" ? 16 : complexity === "complex" ? 12 : 10,
@@ -148,7 +104,7 @@ export async function POST(request: NextRequest) {
     createdAt: now,
   });
 
-  const { user } = await getWorkspaceContext();
+  const { user } = await getWorkspaceUser();
   await db.insert(auditLog).values({
     id: newId("aud"),
     workspaceId: workspace.id,

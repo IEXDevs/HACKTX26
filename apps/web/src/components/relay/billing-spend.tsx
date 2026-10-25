@@ -2,8 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-
-const money = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
+import { money } from "@/lib/format";
 
 export function BillingSpend({ days, agents }: {
   days: Array<{ date: string; label: string; amount: number }>;

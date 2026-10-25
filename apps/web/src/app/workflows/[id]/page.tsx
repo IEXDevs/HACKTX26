@@ -3,7 +3,7 @@ import { RunPage } from "@/components/relay/run-page";
 import { Workflow } from "@/components/relay/workflow";
 import { env } from "@/lib/env";
 import { workflowGraph } from "@/lib/graph-data";
-import { getAgentDetail, requireWorkspace } from "@/lib/queries";
+import { getAgent, requireWorkspace } from "@/lib/queries";
 import { isContextStub, WorkspaceContextFile } from "@/lib/runtime/workspace-context";
 import { workflowView } from "@/lib/views";
 
@@ -21,7 +21,7 @@ export default async function WorkflowPage({
   const workflow = await workflowView(workspace.id, id);
   if (!workflow) {
     // Team members are not workflows of their own; show them as agents.
-    if (await getAgentDetail(id)) redirect(`/agents/${id}`);
+    if (await getAgent(id)) redirect(`/agents/${id}`);
     notFound();
   }
   const runId = run && workflow.runs.some((r) => r.id === run) ? run : null;

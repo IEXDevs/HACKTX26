@@ -4,7 +4,7 @@ import { z } from "zod";
 import { getDb } from "@/lib/db/client";
 import { agents, auditLog, templateProposals, templates } from "@/lib/db/schema";
 import { newId } from "@/lib/env";
-import { getWorkspaceContext, requireWorkspace } from "@/lib/queries";
+import { getWorkspaceUser, requireWorkspace } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +42,7 @@ export async function POST(
     return Response.json({ error: `Proposal is already ${proposal.status}.` }, { status: 409 });
   }
 
-  const { user } = await getWorkspaceContext();
+  const { user } = await getWorkspaceUser();
   const now = new Date();
 
   if (parsed.data.action === "dismiss") {

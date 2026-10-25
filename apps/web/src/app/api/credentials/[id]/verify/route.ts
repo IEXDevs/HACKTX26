@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { auditLog, credentials } from "@/lib/db/schema";
 import { newId } from "@/lib/env";
-import { getWorkspaceContext, requireWorkspace } from "@/lib/queries";
+import { getWorkspaceUser, requireWorkspace } from "@/lib/queries";
 import { openSecret } from "@/lib/secrets";
 
 export const dynamic = "force-dynamic";
@@ -44,7 +44,7 @@ export async function POST(
     ok = false;
   }
 
-  const { user } = await getWorkspaceContext();
+  const { user } = await getWorkspaceUser();
   await db.insert(auditLog).values({
     id: newId("aud"),
     workspaceId: workspace.id,

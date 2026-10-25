@@ -10,6 +10,7 @@ dist/
 *.db
 *.db-shm
 *.db-wal
+**/.data/*.jsonl
 
 .DS_Store
 Thumbs.db

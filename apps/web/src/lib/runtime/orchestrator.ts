@@ -31,7 +31,7 @@ import {
   type Scope,
   type TaskComplexity,
 } from "@agent-os/core";
-import { eq } from "drizzle-orm";
+import { and, eq, gte } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import {
   agents,
@@ -70,7 +70,6 @@ import {
   SEVERITY_RUBRIC,
   shouldSpawnAdversarialSwarm,
   wantsDeploy,
-  type RedTeamSpecialist,
   type Scenario,
   type TeamSpecialist,
 } from "./scripts";
@@ -79,7 +78,7 @@ import { AgentLifecycle, type AgentOutcome } from "./lifecycle";
 import { cancelledRuns, HEARTBEAT_MS, liveRuns } from "./reaper";
 import { AgentSandbox } from "./sandbox";
 import { fileChildTemplateProposal } from "./template-proposals";
-import { ENGINE_TOOLS, executeTool, type ToolContext } from "./tools";
+import { executeTool, type ToolContext } from "./tools";
 import { parseContextDirectives, WorkspaceContextFile } from "./workspace-context";
 import type { ModelGateway, ModelMessage, ToolSpec } from "./types";
 
@@ -166,12 +165,10 @@ export async function createRun(options: RunnerOptions): Promise<string> {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
     const today = await db
-      .select({ cost: runs.costUsd, at: runs.startedAt })
+      .select({ cost: runs.costUsd })
       .from(runs)
-      .where(eq(runs.workspaceId, options.workspaceId));
-    const spentToday = today
-      .filter((row) => row.at.getTime() >= startOfDay.getTime())
-      .reduce((sum, row) => sum + row.cost, 0);
+      .where(and(eq(runs.workspaceId, options.workspaceId), gte(runs.startedAt, startOfDay)));
+    const spentToday = today.reduce((sum, row) => sum + row.cost, 0);
     if (spentToday + budgetUsd > dayPolicy.limitUsd) {
       throw new Error(
         `Workspace daily budget exhausted: $${spentToday.toFixed(2)} spent of $${dayPolicy.limitUsd.toFixed(2)}.`,
@@ -552,6 +549,22 @@ class RunEngine {
     const tools = this.#toolSpecs(agent);
     let lastText = "";
 
+    const baseModel =
+      MODEL_BY_ID.get(model) ?? {
+        id: model,
+        label: model,
+        provider: "unknown",
+        tier: "balanced" as const,
+        contextWindow: 200_000,
+        inputPerMTok: 3,
+        outputPerMTok: 15,
+        allowedDataClasses: ["public", "internal"] as const,
+        capabilities: ["tool_calling"] as const,
+        latencyMs: 500,
+        selfHosted: false,
+      };
+    const baseProjected = estimateCostUsd(baseModel, 3_000, 900);
+
     await this.logger.emit(
       { type: "agent.status", agentId: agent.id, status: "thinking" },
       agent.id,
@@ -565,22 +578,6 @@ class RunEngine {
       if (this.#isHalted()) {
         return { status: "halted", summary: "Budget ceiling reached mid-task." };
       }
-
-      const baseModel =
-        MODEL_BY_ID.get(model) ?? {
-          id: model,
-          label: model,
-          provider: "unknown",
-          tier: "balanced" as const,
-          contextWindow: 200_000,
-          inputPerMTok: 3,
-          outputPerMTok: 15,
-          allowedDataClasses: ["public", "internal"] as const,
-          capabilities: ["tool_calling"] as const,
-          latencyMs: 500,
-          selfHosted: false,
-        };
-      const baseProjected = estimateCostUsd(baseModel, 3_000, 900);
 
       // Budget-aware routing is a mid-run decision, not just a pre-flight one.
       // At 75% of the run ceiling the router tries a cheaper viable model for
@@ -728,6 +725,7 @@ class RunEngine {
             step,
             messages,
             completion: text,
+            thinking,
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
             costUsd: Number(cost.toFixed(6)),
@@ -1183,7 +1181,8 @@ class RunEngine {
       child = await this.#spawnSpecialist(agent, spec);
     }
 
-    if (!child && mayDelegate(agent)) {
+    // Grunts returned above, so every agent here may delegate.
+    if (!child) {
       const existing = this.agentRows.find(nameMatch);
       if (existing) {
         child = existing;
@@ -1198,17 +1197,6 @@ class RunEngine {
       }
     }
 
-    if (!child) {
-      child = this.agentRows.find(nameMatch);
-    }
-
-    if (!child) {
-      return {
-        ok: false,
-        preview: "",
-        error: `No agent named "${requested}" is reachable from ${agent.name}.`,
-      };
-    }
     if (child.id === agent.id) {
       return { ok: false, preview: "", error: "An agent cannot delegate to itself." };
     }
@@ -1545,6 +1533,11 @@ class RunEngine {
 
     const findingId = newId("fnd");
     const targetAgentId = agent.parentAgentId;
+    const safeDetail = redactSecrets(detail);
+    const rawEvidence = argsString(call.args, "evidence");
+    const evidence = rawEvidence ? redactSecrets(rawEvidence) : undefined;
+    const rawRemediation = argsString(call.args, "remediation");
+    const remediation = rawRemediation ? redactSecrets(rawRemediation) : undefined;
 
     await getDb().insert(securityFindings).values({
       id: findingId,
@@ -1555,13 +1548,9 @@ class RunEngine {
       category,
       severity,
       title,
-      detail: redactSecrets(detail),
-      evidence: argsString(call.args, "evidence")
-        ? redactSecrets(argsString(call.args, "evidence") as string)
-        : null,
-      remediation: argsString(call.args, "remediation")
-        ? redactSecrets(argsString(call.args, "remediation") as string)
-        : null,
+      detail: safeDetail,
+      evidence: evidence ?? null,
+      remediation: remediation ?? null,
       status: "open",
       createdAt: new Date(),
     });
@@ -1575,13 +1564,9 @@ class RunEngine {
         category,
         severity,
         title,
-        detail: redactSecrets(detail),
-        evidence: argsString(call.args, "evidence")
-          ? redactSecrets(argsString(call.args, "evidence") as string)
-          : undefined,
-        remediation: argsString(call.args, "remediation")
-          ? redactSecrets(argsString(call.args, "remediation") as string)
-          : undefined,
+        detail: safeDetail,
+        evidence,
+        remediation,
       },
       agent.id,
     );

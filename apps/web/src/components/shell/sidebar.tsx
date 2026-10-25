@@ -12,16 +12,15 @@ import {
   Logo,
   Link2,
   ListTree,
+  Lock,
   LogOut,
-  Moon,
-  Scale,
   ScrollText,
   Settings,
   ShieldHalf,
-  Sun,
 } from "@/components/icons";
-import { useEffect, useState, type ComponentType } from "react";
+import { type ComponentType } from "react";
 import { usd } from "@/lib/format";
+import { ThemeSwitch } from "./theme-switch";
 
 interface NavItem {
   href: string;
@@ -66,7 +65,7 @@ export function Sidebar({
     { href: "/observability", label: "Observability", icon: ScrollText },
     { href: "/evals", label: "Evaluations", icon: FlaskConical },
     { href: "/connectors", label: "Connectors", icon: Link2 },
-    { href: "/policy", label: "Policy", icon: Scale },
+    { href: "/policy", label: "Privacy", icon: Lock },
     { href: "/settings", label: "Settings", icon: Settings },
   ];
   const isActive = (item: NavItem) =>
@@ -138,26 +137,5 @@ export function Sidebar({
         ) : null}
       </div>
     </aside>
-  );
-}
-
-/** Light or dark. Saved per viewer; the layout applies it before first paint. */
-function ThemeSwitch() {
-  const [dark, setDark] = useState(false);
-  useEffect(() => setDark(document.documentElement.dataset.theme === "dark"), []);
-  function toggle() {
-    const next = !dark;
-    setDark(next);
-    if (next) document.documentElement.dataset.theme = "dark";
-    else delete document.documentElement.dataset.theme;
-    try {
-      localStorage.setItem("relay-theme", next ? "dark" : "light");
-    } catch {}
-  }
-  return (
-    <button type="button" onClick={toggle} title={dark ? "Light theme" : "Dark theme"}>
-      {dark ? <Sun size={16} aria-hidden /> : <Moon size={16} aria-hidden />}
-      <span>{dark ? "Light theme" : "Dark theme"}</span>
-    </button>
   );
 }

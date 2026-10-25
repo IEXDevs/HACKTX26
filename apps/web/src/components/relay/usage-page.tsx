@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { UsageRange, UsageView } from "@/lib/views";
+import { LiveRefresh } from "./live-refresh";
 import { UsageChart, compact } from "./usage-chart";
 
 export function UsagePage({
@@ -18,6 +19,7 @@ export function UsagePage({
   const router = useRouter();
   return (
     <div className="page">
+      <LiveRefresh intervalMs={4000} />
       <div className="page-top">
         <h1>Usage</h1>
         <div className="page-actions">
@@ -37,8 +39,8 @@ export function UsagePage({
       <UsageChart charts={data} />
       <p className="note">
         {data.ledger === "supabase"
-          ? "Live model calls written to Supabase, including builder drafts."
-          : "Live inference only. Seeded demo runs are not counted."}
+          ? "Live model calls synced to Supabase as each turn finishes, including builder drafts. This page refreshes every few seconds."
+          : "Live inference only. Seeded demo runs are not counted. This page refreshes every few seconds."}
       </p>
 
       <dl className="stats">

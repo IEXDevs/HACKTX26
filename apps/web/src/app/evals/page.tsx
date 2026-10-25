@@ -1,11 +1,11 @@
 import { EvalsView, type SuiteCard, type TemplateGroup } from "@/components/relay/evals";
 import { relativeTime } from "@/lib/format";
-import { getWorkspaceContext, listAgents, listEvalSuites, listFindings, listTemplates } from "@/lib/queries";
+import { requireWorkspace, listAgents, listEvalSuites, listFindings, listTemplates } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
 export default async function EvalsPage() {
-  const { workspace } = await getWorkspaceContext();
+  const workspace = await requireWorkspace();
   const [suites, agents, findings, templates] = await Promise.all([
     listEvalSuites(workspace.id),
     listAgents(workspace.id),

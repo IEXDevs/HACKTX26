@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, ne, sql } from "drizzle-orm";
 import type { RunEvent, RunEventPayload } from "@agent-os/core";
 import { getSessionUser } from "./auth";
 import { ensureBootstrapped } from "./bootstrap";
@@ -8,13 +8,11 @@ import { spendSince } from "./observability";
 import {
   agents,
   approvals,
-  auditLog,
   budgetPolicies,
   connectors,
   credentials,
   evalRuns,
   evalSuites,
-  memories,
   promptBlocks,
   runEvents,
   runs,
@@ -22,7 +20,6 @@ import {
   taskLog,
   templateProposals,
   templates,
-  triggers,
   users,
   workspaces,
   type AgentRow,
@@ -73,6 +70,12 @@ export async function getCurrentUser(workspaceId: string) {
   return user ?? null;
 }
 
+/** The workspace and signed-in user, without the shell stats `getWorkspaceContext` adds. */
+export async function getWorkspaceUser() {
+  const workspace = await requireWorkspace();
+  return { workspace, user: await getCurrentUser(workspace.id) };
+}
+
 export async function getWorkspaceContext() {
   const workspace = await requireWorkspace();
   const db = getDb();
@@ -80,7 +83,7 @@ export async function getWorkspaceContext() {
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
 
-  const [user, spendRow, pendingRow, agentRows, cloudSpend] = await Promise.all([
+  const [user, spendRow, pendingRow, cloudSpend] = await Promise.all([
     getCurrentUser(workspace.id),
     db
       .select({ total: sql<number>`coalesce(sum(${runs.costUsd}), 0)` })
@@ -98,7 +101,6 @@ export async function getWorkspaceContext() {
       .where(
         and(eq(approvals.workspaceId, workspace.id), eq(approvals.status, "pending")),
       ),
-    db.select().from(agents).where(eq(agents.workspaceId, workspace.id)),
     spendSince(workspace.id, startOfDay),
   ]);
 
@@ -107,8 +109,6 @@ export async function getWorkspaceContext() {
     user: user ?? null,
     spendTodayUsd: cloudSpend ?? Number(spendRow[0]?.total ?? 0),
     pendingApprovals: Number(pendingRow[0]?.total ?? 0),
-    agentCount: agentRows.length,
-    activeAgentCount: agentRows.filter((a) => a.status === "active").length,
   };
 }
 
@@ -134,48 +134,18 @@ export async function getAgentDetail(agentId: string) {
   const agent = await getAgent(agentId);
   if (!agent) return null;
 
-  const [parent, children, blocks, agentRuns, suites, findings, agentTriggers, agentBudget, proposals] =
-    await Promise.all([
-      agent.parentAgentId ? getAgent(agent.parentAgentId) : Promise.resolve(null),
-      db.select().from(agents).where(eq(agents.parentAgentId, agent.id)),
-      db.select().from(promptBlocks).where(eq(promptBlocks.workspaceId, agent.workspaceId)),
-      db
-        .select()
-        .from(runs)
-        .where(eq(runs.agentId, agent.id))
-        .orderBy(desc(runs.startedAt))
-        .limit(10),
-      db.select().from(evalSuites).where(eq(evalSuites.agentId, agent.id)),
-      db
-        .select()
-        .from(securityFindings)
-        .where(eq(securityFindings.targetAgentId, agent.id))
-        .orderBy(desc(securityFindings.createdAt)),
-      db.select().from(triggers).where(eq(triggers.agentId, agent.id)),
-      db
-        .select()
-        .from(budgetPolicies)
-        .where(eq(budgetPolicies.agentId, agent.id))
-        .limit(1),
-      db
-        .select()
-        .from(templateProposals)
-        .where(eq(templateProposals.parentAgentId, agent.id))
-        .orderBy(desc(templateProposals.createdAt)),
-    ]);
+  const [parent, children, blocks, proposals] = await Promise.all([
+    agent.parentAgentId ? getAgent(agent.parentAgentId) : Promise.resolve(null),
+    db.select().from(agents).where(eq(agents.parentAgentId, agent.id)),
+    db.select().from(promptBlocks).where(eq(promptBlocks.workspaceId, agent.workspaceId)),
+    db
+      .select()
+      .from(templateProposals)
+      .where(eq(templateProposals.parentAgentId, agent.id))
+      .orderBy(desc(templateProposals.createdAt)),
+  ]);
 
-  return {
-    agent,
-    parent,
-    children,
-    blocks,
-    runs: agentRuns,
-    suites,
-    findings,
-    triggers: agentTriggers,
-    budget: agentBudget[0] ?? null,
-    proposals,
-  };
+  return { agent, parent, children, blocks, proposals };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -246,21 +216,19 @@ function toRunEvent(row: RunEventRow): RunEvent {
   };
 }
 
-export async function getRunEvents(runId: string): Promise<RunEvent[]> {
+/** A run's events in order; `afterSeq` skips the ones a client already has. */
+export async function getRunEvents(runId: string, afterSeq?: number): Promise<RunEvent[]> {
   const rows = await getDb()
     .select()
     .from(runEvents)
-    .where(eq(runEvents.runId, runId))
+    .where(
+      and(
+        eq(runEvents.runId, runId),
+        afterSeq === undefined ? undefined : gt(runEvents.seq, afterSeq),
+      ),
+    )
     .orderBy(asc(runEvents.seq));
   return rows.map(toRunEvent);
-}
-
-export async function getRunEventBodies(runId: string): Promise<RunEventRow[]> {
-  return getDb()
-    .select()
-    .from(runEvents)
-    .where(eq(runEvents.runId, runId))
-    .orderBy(asc(runEvents.seq));
 }
 
 export async function getRunApprovals(runId: string) {
@@ -269,14 +237,6 @@ export async function getRunApprovals(runId: string) {
     .from(approvals)
     .where(eq(approvals.runId, runId))
     .orderBy(asc(approvals.requestedAt));
-}
-
-export async function getRunFindings(runId: string) {
-  return getDb()
-    .select()
-    .from(securityFindings)
-    .where(eq(securityFindings.runId, runId))
-    .orderBy(desc(securityFindings.severity));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -292,15 +252,6 @@ export async function listPendingApprovals(workspaceId: string, limit = 20) {
     .limit(limit);
 }
 
-export async function listApprovals(workspaceId: string, limit = 50) {
-  return getDb()
-    .select()
-    .from(approvals)
-    .where(eq(approvals.workspaceId, workspaceId))
-    .orderBy(desc(approvals.requestedAt))
-    .limit(limit);
-}
-
 export async function listTaskLog(workspaceId: string, limit = 12) {
   return getDb()
     .select()
@@ -310,22 +261,6 @@ export async function listTaskLog(workspaceId: string, limit = 12) {
     .limit(limit);
 }
 
-export async function listMemories(
-  workspaceId: string,
-  opts?: { agentId?: string; limit?: number },
-) {
-  const db = getDb();
-  const where = opts?.agentId
-    ? and(eq(memories.workspaceId, workspaceId), eq(memories.agentId, opts.agentId))
-    : eq(memories.workspaceId, workspaceId);
-  return db
-    .select()
-    .from(memories)
-    .where(where)
-    .orderBy(desc(memories.importance), desc(memories.createdAt))
-    .limit(opts?.limit ?? 20);
-}
-
 export async function listFindings(workspaceId: string, limit = 50) {
   return getDb()
     .select()
@@ -333,37 +268,6 @@ export async function listFindings(workspaceId: string, limit = 50) {
     .where(eq(securityFindings.workspaceId, workspaceId))
     .orderBy(desc(securityFindings.createdAt))
     .limit(limit);
-}
-
-export async function getSecuritySummary(workspaceId: string) {
-  const db = getDb();
-  const rows = await db
-    .select({
-      severity: securityFindings.severity,
-      count: sql<number>`count(*)`,
-    })
-    .from(securityFindings)
-    .where(eq(securityFindings.workspaceId, workspaceId))
-    .groupBy(securityFindings.severity);
-
-  const bySeverity: Record<string, number> = {};
-  for (const row of rows) bySeverity[row.severity] = Number(row.count);
-
-  const [openRow] = await db
-    .select({ total: sql<number>`count(*)` })
-    .from(securityFindings)
-    .where(
-      and(
-        eq(securityFindings.workspaceId, workspaceId),
-        eq(securityFindings.status, "open"),
-      ),
-    );
-
-  return {
-    bySeverity,
-    open: Number(openRow?.total ?? 0),
-    total: Object.values(bySeverity).reduce((a, b) => a + b, 0),
-  };
 }
 
 export async function listEvalSuites(workspaceId: string) {
@@ -413,58 +317,9 @@ export async function listTemplates() {
   return getDb().select().from(templates).orderBy(asc(templates.name));
 }
 
-export async function listPromptBlocks(workspaceId: string) {
-  return getDb()
-    .select()
-    .from(promptBlocks)
-    .where(eq(promptBlocks.workspaceId, workspaceId))
-    .orderBy(asc(promptBlocks.level), asc(promptBlocks.name));
-}
-
-export async function listTriggers(workspaceId: string) {
-  return getDb()
-    .select()
-    .from(triggers)
-    .where(eq(triggers.workspaceId, workspaceId))
-    .orderBy(asc(triggers.kind));
-}
-
 export async function listBudgetPolicies(workspaceId: string) {
   return getDb()
     .select()
     .from(budgetPolicies)
     .where(eq(budgetPolicies.workspaceId, workspaceId));
-}
-
-export async function listAuditLog(workspaceId: string, limit = 40) {
-  return getDb()
-    .select()
-    .from(auditLog)
-    .where(eq(auditLog.workspaceId, workspaceId))
-    .orderBy(desc(auditLog.at))
-    .limit(limit);
-}
-
-export async function getWorkspaceStats(workspaceId: string) {
-  const db = getDb();
-  const [runStats] = await db
-    .select({
-      total: sql<number>`count(*)`,
-      succeeded: sql<number>`sum(case when ${runs.status} = 'succeeded' then 1 else 0 end)`,
-      cost: sql<number>`coalesce(sum(${runs.costUsd}), 0)`,
-      tokens: sql<number>`coalesce(sum(${runs.inputTokens} + ${runs.outputTokens}), 0)`,
-    })
-    .from(runs)
-    .where(eq(runs.workspaceId, workspaceId));
-
-  return {
-    totalRuns: Number(runStats?.total ?? 0),
-    succeededRuns: Number(runStats?.succeeded ?? 0),
-    totalCostUsd: Number(runStats?.cost ?? 0),
-    totalTokens: Number(runStats?.tokens ?? 0),
-    successRate:
-      Number(runStats?.total ?? 0) > 0
-        ? Number(runStats?.succeeded ?? 0) / Number(runStats?.total ?? 1)
-        : 0,
-  };
 }

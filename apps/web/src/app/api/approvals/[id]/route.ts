@@ -4,7 +4,7 @@ import { z } from "zod";
 import { getDb } from "@/lib/db/client";
 import { approvals, auditLog } from "@/lib/db/schema";
 import { newId } from "@/lib/env";
-import { getWorkspaceContext, requireWorkspace } from "@/lib/queries";
+import { getWorkspaceUser, requireWorkspace } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +48,7 @@ export async function POST(
     );
   }
 
-  const { user } = await getWorkspaceContext();
+  const { user } = await getWorkspaceUser();
   const decidedBy = user?.email ?? "operator@local";
   const resolvedAt = new Date();
 

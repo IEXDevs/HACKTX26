@@ -7,7 +7,7 @@ import { newId } from "@/lib/env";
 import { advanceTarget } from "@/lib/loop/blue-team";
 import { closeDismissedCase } from "@/lib/loop/cases";
 import { canTransition } from "@/lib/loop/lifecycle";
-import { getWorkspaceContext, requireWorkspace } from "@/lib/queries";
+import { getWorkspaceUser, requireWorkspace } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +48,7 @@ export async function PATCH(
     );
   }
 
-  const { user } = await getWorkspaceContext();
+  const { user } = await getWorkspaceUser();
   const actor = user?.email ?? "operator@local";
 
   const [updated] = await db

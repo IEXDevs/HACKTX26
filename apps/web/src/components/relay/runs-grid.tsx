@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Search } from "@/components/icons";
 import { pct, usd } from "@/lib/format";
 import { sparkPoints, type RunKpis } from "@/lib/run-stats";
 import type { RunTile } from "@/lib/views";
 import { StartRun, type RunnableAgent } from "./start-run";
+import { useAutoRefresh } from "./use-auto-refresh";
 
 const groupRank: Record<RunTile["group"], number> = { waiting: 0, running: 1, recent: 2 };
 
@@ -20,14 +20,9 @@ export function RunsGrid({
   agents: RunnableAgent[];
   kpis: RunKpis;
 }) {
-  const router = useRouter();
   const [search, setSearch] = useState("");
   const live = runs.some((run) => run.group !== "recent");
-  useEffect(() => {
-    if (!live) return;
-    const timer = setInterval(() => router.refresh(), 4000);
-    return () => clearInterval(timer);
-  }, [live, router]);
+  useAutoRefresh(live, 4000);
 
   const visible = runs
     .filter((run) => [run.name, run.goal].join(" ").toLowerCase().includes(search.toLowerCase()))

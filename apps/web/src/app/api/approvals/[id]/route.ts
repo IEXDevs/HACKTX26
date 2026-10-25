@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { getDb } from "@/lib/db/client";
@@ -60,8 +60,10 @@ export async function POST(
       note: parsed.data.note ?? null,
       resolvedAt,
     })
-    .where(eq(approvals.id, id))
+    .where(and(eq(approvals.id, id), eq(approvals.status, "pending")))
     .returning();
+
+  if (!updated) return Response.json({ error: "This approval already has a decision." }, { status: 409 });
 
   await db.insert(auditLog).values({
     id: newId("aud"),

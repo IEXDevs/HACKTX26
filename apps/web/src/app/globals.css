@@ -50,8 +50,8 @@
   color-scheme: light;
   --t-bg: #ffffff;
   --t-void: #eef2ef;
-  --t-surface: rgb(255 255 255 / 0.72);
-  --t-surface-2: rgb(255 255 255 / 0.92);
+  --t-surface: rgb(255 255 255 / 0.84);
+  --t-surface-2: rgb(255 255 255 / 0.97);
   --t-surface-3: #eef3ef;
   --t-line: #e1e7e3;
   --t-line-strong: #c9d3cc;
@@ -69,12 +69,12 @@
   --t-audit: #6b4fb8;
 
   --page-bg: #ffffff;
-  --glass: rgb(255 255 255 / 0.7);
-  --glass-strong: rgb(255 255 255 / 0.9);
+  --glass: rgb(255 255 255 / 0.84);
+  --glass-strong: rgb(255 255 255 / 0.96);
   --glass-edge: rgb(20 45 30 / 0.08);
   --glass-edge-hover: rgb(20 45 30 / 0.16);
   --glass-line: rgb(20 45 30 / 0.08);
-  --glass-blur: blur(18px) saturate(140%);
+  --glass-blur: blur(24px) saturate(150%);
   --glass-shadow: 0 1px 2px rgb(20 45 30 / 0.04), 0 10px 28px rgb(20 45 30 / 0.06);
   --green: #134e2f;
   --green-deep: #0e3b24;
@@ -110,8 +110,8 @@
   color-scheme: dark;
   --t-bg: #0b0d0c;
   --t-void: #070908;
-  --t-surface: rgb(255 255 255 / 0.05);
-  --t-surface-2: rgb(255 255 255 / 0.08);
+  --t-surface: rgb(255 255 255 / 0.11);
+  --t-surface-2: rgb(255 255 255 / 0.16);
   --t-surface-3: #161a18;
   --t-line: #252b28;
   --t-line-strong: #343c38;
@@ -129,11 +129,12 @@
   --t-audit: #a98bfa;
 
   --page-bg: #0b0d0c;
-  --glass: rgb(255 255 255 / 0.05);
-  --glass-strong: rgb(255 255 255 / 0.09);
+  --glass: rgb(255 255 255 / 0.11);
+  --glass-strong: rgb(255 255 255 / 0.17);
   --glass-edge: rgb(255 255 255 / 0.08);
   --glass-edge-hover: rgb(255 255 255 / 0.16);
   --glass-line: rgb(255 255 255 / 0.1);
+  --glass-blur: blur(24px) saturate(150%);
   --glass-shadow: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 12px 32px rgb(0 0 0 / 0.35);
   --green: #5fbf86;
   --green-deep: #4aa872;

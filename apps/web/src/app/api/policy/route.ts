@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { eq } from "drizzle-orm";
 import {
   ACTION_POLICIES,
+  ApprovalModeSchema,
   POLICY_EFFECTS,
   resolveActionEffects,
   type PolicyEffect,
@@ -31,20 +32,22 @@ const EffectBody = {
 
 export async function GET() {
   const { workspace } = await getWorkspaceUser();
-  return Response.json({ effects: resolveActionEffects(workspace.actionEffects) });
+  return Response.json({ effects: resolveActionEffects(workspace.actionEffects), approvalMode: workspace.approvalMode });
 }
 
 export async function PATCH(request: NextRequest) {
   const { workspace, user } = await getWorkspaceUser();
   const body = await request.json().catch(() => null);
-  const patch = EffectBody.parse(body);
-  if (!patch) {
+  const patch = body?.effects === undefined ? undefined : EffectBody.parse(body);
+  const mode = body?.approvalMode === undefined ? undefined : ApprovalModeSchema.safeParse(body.approvalMode);
+  if (patch === null || (mode && !mode.success) || (!patch && !mode)) {
     return Response.json({ error: "Invalid policy." }, { status: 400 });
   }
   const effects = resolveActionEffects({ ...workspace.actionEffects, ...patch });
+  const approvalMode = mode?.success ? mode.data : workspace.approvalMode;
   await getDb()
     .update(workspaces)
-    .set({ actionEffects: effects })
+    .set({ ...(patch ? { actionEffects: effects } : {}), ...(mode?.success ? { approvalMode } : {}) })
     .where(eq(workspaces.id, workspace.id));
   await writeAudit({
     workspaceId: workspace.id,
@@ -52,8 +55,8 @@ export async function PATCH(request: NextRequest) {
     action: "policy.actions_updated",
     targetType: "workspace",
     targetId: workspace.id,
-    detail: { effects: patch },
+    detail: { ...(patch ? { effects: patch } : {}), ...(mode?.success ? { approvalMode, previousApprovalMode: workspace.approvalMode } : {}) },
     userId: user?.id,
   });
-  return Response.json({ effects });
+  return Response.json({ effects, approvalMode });
 }

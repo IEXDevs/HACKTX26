@@ -8,6 +8,7 @@ import { duration, initials, relativeTime, tokens, usd } from "@/lib/format";
 import type { GraphAgent, GraphFlow, GraphSnapshot, GraphTask } from "@/lib/graph-data";
 import { DotGrid, type DotGridHandle } from "./dot-grid";
 import {
+  alignPeers,
   blobScale,
   estimateLabelWidth,
   greyed,
@@ -16,6 +17,7 @@ import {
   nodeRadius,
   sampleCurve,
   sCurve,
+  sideCurve,
   tidyLayout,
   type Cubic,
   type V2,
@@ -65,7 +67,7 @@ function isBusy(agent: GraphAgent): boolean {
 /** Paused, queued, or waiting on a person: the node turns grey. */
 function isWaiting(agent: GraphAgent): boolean {
   const s = runStatus(agent);
-  return agent.status === "paused" || s === "paused" || s === "queued" || s === "awaiting_approval" || s === "blocked";
+  return agent.status === "paused" || s === "paused" || s === "queued" || s === "awaiting_approval" || s === "awaiting_input" || s === "blocked";
 }
 function isFailed(agent: GraphAgent): boolean {
   const s = runStatus(agent);
@@ -77,6 +79,7 @@ function isDone(agent: GraphAgent): boolean {
 }
 
 interface Laid extends GraphAgent {
+  peerOf?: string;
   r: number;
   color: string;
   busy: boolean;
@@ -217,6 +220,10 @@ export function GraphSpace({
     () =>
       agents.map((a) => ({
         ...a,
+        peerOf: a.kind === "motivator" ? (() => {
+          const link = flows.find((flow) => flow.kind === "info" && (flow.fromId === a.id || flow.toId === a.id));
+          return (link ? (link.fromId === a.id ? link.toId : link.fromId) : agents.find((agent) => agent.kind !== "motivator" && !agent.parentAgentId)?.id);
+        })() : undefined,
         r: nodeRadius(a.role, a.complexity),
         color: modelColor(a.modelId, a.provider),
         busy: isBusy(a),
@@ -225,13 +232,15 @@ export function GraphSpace({
         seed: hash01(a.id),
         labelWidth: estimateLabelWidth(a.name),
       })),
-    [agents],
+    [agents, flows],
   );
   const edges = useMemo(() => edgesFor(laid, flows), [laid, flows]);
 
   /* --------- layout: automatic, with per-node overrides --------- */
   // No control for spacing any more. A spacing saved in this browser earlier still applies.
   const [spacing, setSpacing] = useState(DEFAULT_SPACING);
+  const spacingRef = useRef(spacing);
+  spacingRef.current = spacing;
   const overridesRef = useRef<Map<string, V2>>(new Map());
   const [layoutVersion, setLayoutVersion] = useState(0);
   useEffect(() => {
@@ -256,6 +265,7 @@ export function GraphSpace({
     void layoutVersion;
     const auto = tidyLayout(laid, spacing);
     for (const [id, pos] of overridesRef.current) if (auto.has(id)) auto.set(id, { ...pos });
+    alignPeers(laid, auto, spacing);
     return auto;
   }, [laid, spacing, layoutVersion]);
   const layoutCallbackRef = useRef(onLayoutChange);
@@ -497,6 +507,7 @@ export function GraphSpace({
         p.y += (target.y - p.y) * ease;
       }
       for (const id of [...pos.keys()]) if (!nodes.some((a) => a.id === id)) pos.delete(id);
+      alignPeers(nodes, pos, spacingRef.current);
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
@@ -541,7 +552,9 @@ export function GraphSpace({
         const sa = S(pa);
         const sb = S(pb);
         const below = sb.y >= sa.y;
-        const curve = sCurve(
+        const curve = a.kind === "motivator" || b.kind === "motivator"
+          ? sideCurve(sa, a.r * zoom * 1.04, sb, b.r * zoom * 1.04)
+          : sCurve(
           sa,
           a.r * zoom * 1.04 + (below ? titleBlock : 0),
           sb,
@@ -719,11 +732,13 @@ export function GraphSpace({
         e.preventDefault();
         const rect = canvas.getBoundingClientRect();
         const hit = pick(e.clientX - rect.left, e.clientY - rect.top);
+        const node = hit ? agentsRef.current.find((agent) => agent.id === hit.id) : undefined;
+        const dragId = node?.peerOf ?? hit?.id;
         let gx = 0;
         let gy = 0;
         if (hit) {
           const wpt = toWorld(e.clientX, e.clientY);
-          const p = posRef.current.get(hit.id);
+          const p = dragId ? posRef.current.get(dragId) : undefined;
           if (p) {
             gx = p.x - wpt.x;
             gy = p.y - wpt.y;
@@ -732,7 +747,7 @@ export function GraphSpace({
         }
         dragRef.current = {
           down: true,
-          nid: hit?.id ?? null,
+          nid: dragId ?? null,
           moved: 0,
           sx: e.clientX,
           sy: e.clientY,
@@ -799,7 +814,7 @@ export function GraphSpace({
           const hit = pick(e.clientX - rect.left, e.clientY - rect.top);
           if (hit) {
             if (editorRef.current) {
-              if (!editorRef.current.disabled) editorRef.current.onSelect(hit.id);
+              if (!editorRef.current.disabled && agentsRef.current.find((agent) => agent.id === hit.id)?.kind !== "motivator") editorRef.current.onSelect(hit.id);
             } else {
               setSelectedId(hit.id);
               setModalOpen(true);
@@ -912,7 +927,8 @@ export function GraphSpace({
         ) : null}
         <canvas ref={canvasRef} className="graph-canvas touch-none" />
         {editor && <div className="graph-editor-controls">
-          {laid.map((agent) => <div key={agent.id}>
+          <span className="sr-only">Motivator is the built-in peer that reviews the orchestrator's progress and proposed exits.</span>
+          {laid.filter((agent) => agent.kind !== "motivator").map((agent) => <div key={agent.id}>
             <button type="button" className={agent.placeholder ? "graph-placeholder-pick" : "graph-edit-node"} aria-label={agent.placeholder ? (agent.parentAgentId ? "Choose child agent" : "Choose first agent") : `Select ${agent.name}`} aria-pressed={editor.selectedId === agent.id} disabled={editor.disabled}
               ref={(element) => { if (element) editButtonsRef.current.set(agent.id, element); else editButtonsRef.current.delete(agent.id); }}
               onClick={() => editor.onSelect(agent.id)}>{agent.placeholder && <Plus size={22} aria-hidden />}</button>

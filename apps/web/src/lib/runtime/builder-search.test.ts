@@ -28,7 +28,12 @@ function fakeGateway(completions: string[]) {
 }
 
 const hit = { title: "Google Calendar | Composio", url: "https://composio.dev/toolkits/googlecalendar", snippet: "Events and invites." };
-const history = [{ role: "user" as const, content: "Watch my calendar for double bookings." }];
+// Past the discovery reply, so a draft may come back.
+const history = [
+  { role: "user" as const, content: "Watch my calendar for double bookings." },
+  { role: "assistant" as const, content: "Which calendar, and where should alerts go?" },
+  { role: "user" as const, content: "My Google Calendar. Message me in Slack." },
+];
 const final = JSON.stringify({ reply: "Here is the agent.", draft });
 
 describe("builder web search", () => {

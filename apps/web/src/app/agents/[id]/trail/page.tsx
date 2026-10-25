@@ -85,14 +85,14 @@ export default async function AgentTrailPage({ params }: { params: Promise<{ id:
   }
 
   const live = runs.some(
-    (run) => run.status === "running" || run.status === "queued" || run.status === "awaiting_approval",
+    (run) => run.status === "running" || run.status === "queued" || run.status === "awaiting_approval" || run.status === "awaiting_input",
   );
 
   return (
     <div className="page">
       {live ? <LiveRefresh intervalMs={2000} /> : null}
       <div className="composer-bar">
-        <Link href="/agents" className="glass-pill">
+        <Link href="/agents/library" className="glass-pill">
           <ArrowLeft size={16} aria-hidden />
           Agents
         </Link>

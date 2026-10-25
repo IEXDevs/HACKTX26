@@ -54,8 +54,14 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const main: NavItem[] = [
-    { href: "/", label: "Home", icon: House, exact: true, count: pendingApprovals },
-    { href: "/agents", label: "Agents", icon: Bot, shortcut: { href: "/agents/new", label: "New agent" } },
+    { href: "/", label: "Home", icon: House, exact: true },
+    {
+      href: "/agents",
+      label: "Agents",
+      icon: Bot,
+      count: pendingApprovals,
+      shortcut: { href: "/agents/new", label: "New agent" },
+    },
     { href: "/workflows", label: "Workflows", icon: GitBranch, also: ["/graph"] },
     { href: "/runs", label: "Runs", icon: ListTree },
     { href: "/usage", label: "Usage", icon: Activity },

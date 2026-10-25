@@ -7,6 +7,8 @@ import { ArrowLeft, Square } from "@/components/icons";
 import type { RunLive } from "@/lib/views";
 import { plainText } from "@/lib/plain-text";
 import { LogStream } from "./log-stream";
+import { RichText } from "./rich-text";
+import { InputRequest, type InputRequestData } from "./input-request";
 import { useAutoRefresh } from "./use-auto-refresh";
 
 export interface RunViewData extends RunLive {
@@ -18,6 +20,8 @@ export interface RunViewData extends RunLive {
   tone: string;
   active: boolean;
   result: string | null;
+  failureReason?: string | null;
+  inputs?: InputRequestData[];
   elapsed: string;
   cost: string;
   approvals: Array<{ id: string; ask: string; reason: string }>;
@@ -36,7 +40,7 @@ export function RunView({
   const [deciding, setDeciding] = useState<string | null>(null),
     [stopping, setStopping] = useState(false),
     [error, setError] = useState("");
-  const waiting = run.approvals.length > 0;
+  const waiting = run.approvals.length > 0 || Boolean(run.inputs?.length);
   const history = run.history ?? [];
   const live = run.active || waiting;
 
@@ -89,7 +93,7 @@ export function RunView({
     <>
       <span className="run-bar-title">
         <b>{run.label}</b>
-        <small>{run.active ? run.now : plainText(run.result ?? run.label)}</small>
+        <small>{run.active ? run.now : run.result ? "Read the summary below" : run.label}</small>
       </span>
       <span className="run-bar-meta">
         {pct}% · {run.elapsed}
@@ -144,12 +148,28 @@ export function RunView({
         </div>
       </div>
 
+      {!run.active && run.result && (
+        <section className="section" aria-label="Run summary">
+          <div className="section-head">
+            <h2>Summary</h2>
+            <a className="link-btn" href={`data:text/markdown;charset=utf-8,${encodeURIComponent(run.result)}`} download={`${run.id}-summary.md`}>
+              Download .md
+            </a>
+          </div>
+          <div className="run-report"><RichText text={run.result} /></div>
+        </section>
+      )}
+
       {error && <p className="error-text" style={{ marginTop: 12 }}>{error}</p>}
+      {!run.active && run.failureReason && run.failureReason !== run.result && (
+        <p className="error-text" style={{ marginTop: 12 }}>{run.failureReason}</p>
+      )}
 
       {waiting && (
         <section className="section">
           <h2>Needs you</h2>
           <div className="needs-grid">
+            {run.inputs?.map((request) => <InputRequest key={request.id} request={request} />)}
             {run.approvals.map((a) => (
               <article key={a.id} className="need-card" style={{ minHeight: 0 }}>
                 <h3 style={{ marginTop: 0 }}>{a.ask}</h3>
@@ -179,7 +199,7 @@ export function RunView({
             <LogStream
               rows={history}
               empty="No events yet."
-              agentHref={(id) => `/agents/${id}/trail`}
+              agentHref={(id) => id === `mot_${run.id}` ? `/runs/${run.id}` : `/agents/${id}/trail`}
             />
             {run.draft && (
               <div className="log-draft" aria-live="polite">

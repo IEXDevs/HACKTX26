@@ -45,7 +45,7 @@ const SEVERITY: Record<(typeof RED_TEAM_CATEGORIES)[number], "high" | "medium"> 
   guardrail_bypass: "medium",
 };
 
-const ACTIVE = new Set(["queued", "running", "awaiting_approval"]);
+const ACTIVE = new Set(["queued", "running", "awaiting_approval", "awaiting_input"]);
 
 /** Wait until a run ends, or give up after the timeout. */
 async function waitForRun(runId: string, timeoutMs = 10 * 60 * 1000): Promise<void> {

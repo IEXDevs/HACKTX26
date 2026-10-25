@@ -1,6 +1,7 @@
 import type {
   AgentRank,
   AgentRole,
+  ApprovalMode,
   BudgetPolicy,
   DataClass,
   ModelPolicy,
@@ -40,6 +41,7 @@ export const workspaces = sqliteTable("workspaces", {
     .notNull()
     .default(sql`'[]'`),
   defaultRunBudgetUsd: real("default_run_budget_usd").notNull().default(2.5),
+  approvalMode: text("approval_mode").$type<ApprovalMode>().notNull().default("request"),
   /**
    * Operator-set access levels for the six named actions (fs.read, fs.write,
    * http.fetch, shell.exec, secret.use, cli:prod-deploy). Empty means defaults.
@@ -406,6 +408,27 @@ export const runEvents = sqliteTable(
     index("run_events_type_idx").on(t.type),
   ],
 );
+
+export const inputRequests = sqliteTable("input_requests", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  runId: text("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+  agentId: text("agent_id").notNull(),
+  callId: text("call_id").notNull(),
+  question: text("question").notNull(),
+  reason: text("reason").notNull(),
+  status: text("status", { enum: ["pending", "answered", "cancelled"] }).notNull().default("pending"),
+  answer: text("answer"),
+  answeredBy: text("answered_by"),
+  requestedAt: integer("requested_at", { mode: "timestamp_ms" }).notNull(),
+  answeredAt: integer("answered_at", { mode: "timestamp_ms" }),
+}, (t) => [index("input_requests_workspace_status_idx").on(t.workspaceId, t.status), uniqueIndex("input_requests_run_call_idx").on(t.runId, t.callId)]);
+
+export const runCheckpoints = sqliteTable("run_checkpoints", {
+  runId: text("run_id").primaryKey().references(() => runs.id, { onDelete: "cascade" }),
+  state: text("state", { mode: "json" }).$type<import("../runtime/run-input").RunContinuation>().notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
 
 export const approvals = sqliteTable(
   "approvals",

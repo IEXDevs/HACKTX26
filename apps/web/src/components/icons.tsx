@@ -437,6 +437,13 @@ export const Moon = icon(
     <path d="M19.5 14.5A7.8 7.8 0 1 1 9.5 4.5a6.2 6.2 0 0 0 10 10z" />
   </>,
 );
+export const Monitor = icon(
+  "Monitor",
+  <>
+    <SoftRect x="3" y="4.5" width="18" height="12" rx="2" />
+    <path d="M5 4.5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2zM9 20h6M12 16.5V20" />
+  </>,
+);
 export const LogOut = icon(
   "LogOut",
   <>

@@ -2582,9 +2582,9 @@ div.rich li {
 /* ---------- Settings appearance ---------- */
 .appearance-picks {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 12px;
-  max-width: 440px;
+  max-width: 660px;
 }
 .appearance-pick {
   display: flex;

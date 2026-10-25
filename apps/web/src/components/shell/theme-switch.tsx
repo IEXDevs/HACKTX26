@@ -1,29 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Moon, Sun } from "@/components/icons";
+import { Monitor, Moon, Sun } from "@/components/icons";
+import { readChoice, saveChoice, THEME_EVENT, type ThemeChoice } from "@/lib/theme";
 
-function readDark(): boolean {
-  return document.documentElement.dataset.theme === "dark";
-}
+const CHOICES: Array<{ value: ThemeChoice; label: string; hint: string; Icon: typeof Sun }> = [
+  { value: "light", label: "Light", hint: "Paper surfaces, daylight canvas", Icon: Sun },
+  { value: "dark", label: "Dark", hint: "Low light, same green marks", Icon: Moon },
+  { value: "system", label: "System", hint: "Matches your device, day and night", Icon: Monitor },
+];
 
-const THEME_EVENT = "relay-theme";
+/** Light / dark / system picker for Settings. */
+export function AppearanceControl() {
+  // Unknown until the browser's saved pick is read, so nothing is marked early.
+  const [choice, setChoice] = useState<ThemeChoice | null>(null);
 
-function writeTheme(dark: boolean) {
-  if (dark) document.documentElement.dataset.theme = "dark";
-  else delete document.documentElement.dataset.theme;
-  try {
-    localStorage.setItem("relay-theme", dark ? "dark" : "light");
-  } catch {
-    /* private mode */
-  }
-  window.dispatchEvent(new Event(THEME_EVENT));
-}
-
-function useTheme() {
-  const [dark, setDark] = useState(false);
   useEffect(() => {
-    const sync = () => setDark(readDark());
+    const sync = () => setChoice(readChoice());
     sync();
     window.addEventListener(THEME_EVENT, sync);
     window.addEventListener("storage", sync);
@@ -32,48 +25,22 @@ function useTheme() {
       window.removeEventListener("storage", sync);
     };
   }, []);
-  function setTheme(next: boolean) {
-    writeTheme(next);
-  }
-  return { dark, setTheme, toggle: () => setTheme(!dark) };
-}
 
-/** Compact control for the sidebar. */
-export function ThemeSwitch() {
-  const { dark, toggle } = useTheme();
-  return (
-    <button type="button" onClick={toggle} title={dark ? "Light theme" : "Dark theme"}>
-      {dark ? <Sun size={16} aria-hidden /> : <Moon size={16} aria-hidden />}
-      <span>{dark ? "Light theme" : "Dark theme"}</span>
-    </button>
-  );
-}
-
-/** Light / dark picker for Settings. */
-export function AppearanceControl() {
-  const { dark, setTheme } = useTheme();
   return (
     <div className="appearance-picks" role="group" aria-label="Color theme">
-      <button
-        type="button"
-        className="appearance-pick"
-        aria-pressed={!dark}
-        onClick={() => setTheme(false)}
-      >
-        <Sun size={18} aria-hidden />
-        <b>Light</b>
-        <small>Paper surfaces, daylight canvas</small>
-      </button>
-      <button
-        type="button"
-        className="appearance-pick"
-        aria-pressed={dark}
-        onClick={() => setTheme(true)}
-      >
-        <Moon size={18} aria-hidden />
-        <b>Dark</b>
-        <small>Low light, same green marks</small>
-      </button>
+      {CHOICES.map(({ value, label, hint, Icon }) => (
+        <button
+          key={value}
+          type="button"
+          className="appearance-pick"
+          aria-pressed={choice === value}
+          onClick={() => saveChoice(value)}
+        >
+          <Icon size={18} aria-hidden />
+          <b>{label}</b>
+          <small>{hint}</small>
+        </button>
+      ))}
     </div>
   );
 }

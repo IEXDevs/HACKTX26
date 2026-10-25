@@ -11,7 +11,7 @@ export default function SettingsPage() {
       <section className="section" style={{ marginTop: 0 }}>
         <h2>Appearance</h2>
         <p className="wf-meta" style={{ marginBottom: 14 }}>
-          Light or dark on this device. Saved in the browser, not the workspace.
+          Light, dark, or match your device. Saved in the browser, not the workspace.
         </p>
         <AppearanceControl />
       </section>

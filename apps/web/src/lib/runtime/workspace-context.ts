@@ -151,25 +151,31 @@ export class WorkspaceContextFile {
   }
 
   /** Prompt block injected into every agent that runs in this workspace. */
-  promptBlock(): string {
+  promptBlock(options?: { canWrite?: boolean }): string {
+    const canWrite = options?.canWrite === true;
     const content = this.read();
     const stub = isContextStub(content);
     const body = [
-      "Workspace CONTEXT.md (read this on your own; keep it current):",
+      "Workspace CONTEXT.md:",
       "",
       content.trim(),
-      ...(stub ? ["",
+      ...(stub ? canWrite ? ["",
           "The workspace CONTEXT.md still has unfinished sections.",
           "On this first run: inspect the repo (fs.list, README, package.json, kb.search)",
-          "and fill the missing tech stack, layout, and conventions with context.write.",
+          "and write a first draft with context.write covering the missing tech stack, layout, and conventions.",
           "Preserve existing builder context and operator notes while filling in the missing sections.",
+        ] : ["", "The workspace CONTEXT.md still has unfinished sections.",
+          "Read the existing notes. You cannot update this file on this run; the orchestrator fills it in.",
         ] : []),
     ].join("\n");
+    const honour = canWrite
+      ? "The operator may tell you to include or remove facts from this file; honour that with context.write / context.read."
+      : "The operator may tell you to include or remove facts from this file; honour reads with context.read. You cannot call context.write.";
     return [
       "",
       "",
       body,
-      "The operator may tell you to include or remove facts from this file; honour that with context.write / context.read.",
+      honour,
       "Do not put secrets, credentials, or raw PII in CONTEXT.md.",
     ].join("\n");
   }

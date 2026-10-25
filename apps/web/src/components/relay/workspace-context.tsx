@@ -6,10 +6,12 @@ import { RichText } from "./rich-text";
 
 export function WorkspaceContextPanel({
   initial,
+  defaultOpen = false,
 }: {
   initial: { content: string; stub: boolean };
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(defaultOpen);
   const [editing, setEditing] = useState(false);
   const [content, setContent] = useState(initial.content);
   const [stub, setStub] = useState(initial.stub);

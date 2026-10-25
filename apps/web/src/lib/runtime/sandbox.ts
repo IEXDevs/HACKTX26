@@ -68,17 +68,19 @@ export class AgentSandbox {
   }
 
   resolve(relativePath: string): string {
-    return resolveInside(this.root, relativePath);
+    return resolveInside(this.root, stripSandboxPrefix(relativePath, this.agentId));
   }
 
   tree(relative = ".", depth = 0): SandboxNode {
-    const target = relative === "." ? this.root : this.resolve(relative);
+    const cleaned = stripSandboxPrefix(relative, this.agentId);
+    const target = cleaned === "." ? this.root : this.resolve(cleaned);
     const stat = fs.statSync(target, { throwIfNoEntry: false });
     if (!stat) {
       throw new SandboxViolation("Path does not exist.", relative);
     }
 
-    const nodePath = relative === "." ? "" : toPosixPath(relative);
+    const isRoot = cleaned === ".";
+    const nodePath = isRoot ? "" : toPosixPath(cleaned);
 
     if (stat.isFile()) {
       return {
@@ -105,7 +107,9 @@ export class AgentSandbox {
             });
 
     return {
-      name: path.basename(target),
+      // Empty name so listings and the console treat this as the sandbox root,
+      // not a folder named after the agent id (agt_red_team/README.md is wrong).
+      name: isRoot ? "" : path.basename(target),
       path: nodePath,
       type: "dir",
       children,
@@ -282,4 +286,33 @@ export class AgentSandbox {
 
     this.write("notes/.keep", "");
   }
+}
+
+/**
+ * Models often prefix sandbox paths with the agent id because the root folder
+ * used to be named that way. Strip that prefix so `agt_red_team/README.md`
+ * and `README.md` resolve to the same file.
+ */
+export function stripSandboxPrefix(relativePath: string, agentId: string): string {
+  const normalised = relativePath.trim().replace(/\\/g, "/").replace(/^\.\//, "");
+  if (!normalised || normalised === ".") return ".";
+  if (normalised === agentId || normalised === `${agentId}/`) return ".";
+  const prefix = `${agentId}/`;
+  if (normalised.startsWith(prefix)) return normalised.slice(prefix.length) || ".";
+  return normalised;
+}
+
+/** Render a sandbox tree the way fs.list shows it to the model. */
+export function formatTreeListing(tree: SandboxNode, limit = 60): string {
+  const lines: string[] = [];
+  const walk = (node: SandboxNode, depth: number) => {
+    if (lines.length >= limit) return;
+    const indent = "  ".repeat(depth);
+    const label = node.name || ".";
+    lines.push(node.type === "dir" ? `${indent}${label}/` : `${indent}${node.name} (${node.bytes ?? 0}b)`);
+    for (const child of node.children ?? []) walk(child, depth + 1);
+  };
+  const roots = !tree.path && tree.type === "dir" ? (tree.children ?? []) : [tree];
+  for (const node of roots) walk(node, 0);
+  return `${lines.length} entries under ${tree.path || "."}\n${lines.join("\n")}`;
 }

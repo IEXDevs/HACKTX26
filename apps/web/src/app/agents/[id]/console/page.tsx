@@ -8,6 +8,7 @@ import {
   getAgent,
   getRunEvents,
   getWorkspaceContext,
+  listAgents,
   listBudgetPolicies,
   listRuns,
 } from "@/lib/queries";
@@ -26,10 +27,19 @@ export default async function AgentConsolePage({
   if (!agent) notFound();
 
   const ctx = await getWorkspaceContext();
-  const [runs, policies] = await Promise.all([
+  const [runs, policies, all] = await Promise.all([
     listRuns(agent.workspaceId, { agentId: agent.id, limit: 5 }),
     listBudgetPolicies(agent.workspaceId),
+    listAgents(agent.workspaceId),
   ]);
+  let workflowId = agent.id;
+  let cursor = agent;
+  while (cursor.parentAgentId) {
+    const parent = all.find((row) => row.id === cursor.parentAgentId);
+    if (!parent) break;
+    cursor = parent;
+    workflowId = parent.id;
+  }
 
   const sandbox = new AgentSandbox(env.sandboxRoot, agent.workspaceId, agent.id);
   if (!sandbox.exists()) {
@@ -99,7 +109,6 @@ export default async function AgentConsolePage({
       <PageHeader
         eyebrow={`${agent.role} · ${agent.id}`}
         title={`${agent.name} workspace`}
-        description="A real directory on disk. The model reads and writes here through the same tool executor the runs use; paths are confined to this root and every write is audited."
         actions={
           <span className="mono text-[10px] text-ink-4">
             {agent.allowedTools.length} tools · {agent.grants.length} grants
@@ -141,6 +150,7 @@ export default async function AgentConsolePage({
           dayUsd: dayPolicy?.limitUsd ?? null,
           spentTodayUsd: ctx.spendTodayUsd,
         }}
+        workflowHref={`/workflows/${workflowId}`}
       />
     </div>
   );

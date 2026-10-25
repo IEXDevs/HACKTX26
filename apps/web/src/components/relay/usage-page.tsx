@@ -37,11 +37,6 @@ export function UsagePage({
       </div>
 
       <UsageChart charts={data} />
-      <p className="note">
-        {data.ledger === "supabase"
-          ? "Live model calls synced to Supabase as each turn finishes, including builder drafts. This page refreshes every few seconds."
-          : "Live model calls only. This page refreshes every few seconds."}
-      </p>
 
       <dl className="stats">
         <div>

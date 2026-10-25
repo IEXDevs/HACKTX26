@@ -5,6 +5,8 @@ import {
   greyed,
   modelColor,
   sCurve,
+  spawnOrigin,
+  spawnScale,
   tidyLayout,
   type LayoutNode,
 } from "./graph-geometry";
@@ -104,5 +106,27 @@ describe("node visuals", () => {
   it("greys a color toward neutral", () => {
     expect(greyed("#ff0000", 0)).toBe("#ff0000");
     expect(greyed("#ff0000", 1)).toBe("#808080");
+  });
+});
+
+describe("subagent spawn", () => {
+  it("starts a child on its parent, then grows to full size", () => {
+    const parent = { x: 10, y: 20 };
+    const seat = { x: 80, y: 140 };
+    expect(spawnOrigin(parent, seat)).toEqual(parent);
+    expect(spawnOrigin(undefined, seat)).toEqual(seat);
+    expect(spawnScale(0)).toBe(0);
+    expect(spawnScale(700)).toBe(1);
+    expect(spawnScale(350)).toBeGreaterThan(0.7);
+    expect(spawnScale(350)).toBeLessThan(1);
+  });
+
+  it("opens a seat for a new sibling without overlapping captions", () => {
+    const before = tidyLayout(team);
+    const grown = tidyLayout([...team, node("a3", "a", 30, 160)]);
+    expect(grown.get("a3")!.y).toBe(grown.get("a1")!.y);
+    expect(Math.abs(grown.get("a3")!.x - grown.get("a1")!.x)).toBeGreaterThan(80);
+    // Existing children shift aside so the new one fits on the same row.
+    expect(grown.get("a2")!.x).not.toBe(before.get("a2")!.x);
   });
 });

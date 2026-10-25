@@ -25,7 +25,6 @@ export default async function LoginPage({
           </span>
           <h1>Astronom</h1>
         </div>
-        <p>Sign in to run agents, store usage, and keep prompt traces.</p>
         {error ? <p className="login-error">{decodeURIComponent(error)}</p> : null}
         {configured ? (
           <>

@@ -41,7 +41,8 @@ export const TOOL_MANIFEST: readonly ToolManifestEntry[] = [
   {
     name: "fs.list",
     label: "List files",
-    description: "List the agent's sandboxed filesystem.",
+    description:
+      "List files in this agent's sandbox. Paths are relative to the sandbox root (README.md, not <agent-id>/README.md).",
     category: "filesystem",
     scopes: ["read"],
     risk: "low",
@@ -50,7 +51,8 @@ export const TOOL_MANIFEST: readonly ToolManifestEntry[] = [
   {
     name: "fs.read",
     label: "Read file",
-    description: "Read a UTF-8 file from the agent sandbox.",
+    description:
+      "Read a UTF-8 file from the agent sandbox. Path is relative to the sandbox root (e.g. README.md, not <agent-id>/README.md).",
     category: "filesystem",
     scopes: ["read"],
     risk: "low",
@@ -160,7 +162,7 @@ export const TOOL_MANIFEST: readonly ToolManifestEntry[] = [
     name: "agent.delegate",
     label: "Delegate",
     description:
-      "Hand a bounded subtask to a child grunt that reports back to you. Use it when the work is narrower than the decision you owe: a lookup, a file read, a draft, or a check. Do not use it for the final decision, a credential, or your whole goal. If no child with that name exists, one is created under you and reused later.",
+      "Hand a bounded subtask to a child grunt that reports back to you. Pass agent (the child's name), title, and task. Use it when the work is narrower than the decision you owe: a lookup, a file read, a draft, or a check. Do not use it for the final decision, a credential, or your whole goal. If no child with that name exists, one is created under you and reused later. Team leads with a closed roster may only name specialists from that roster.",
     category: "meta",
     scopes: ["read"],
     risk: "low",

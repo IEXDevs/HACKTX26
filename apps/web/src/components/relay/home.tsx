@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowUpRight, ChevronDown } from "@/components/icons";
 import type { HomeRun, HomeView, StepState } from "@/lib/views";
-import { RichText } from "./rich-text";
+import { LogStream } from "./log-stream";
 import { StartRun } from "./start-run";
 import { useAutoRefresh } from "./use-auto-refresh";
 
@@ -183,7 +183,10 @@ export function Home({ data }: { data: HomeView }) {
                     />
                     <label htmlFor={`done-${f.id}`}>
                       <b>{f.name}</b>
-                      <small className={f.stopped ? "stopped" : ""}>{f.result}</small>
+                      <small className={f.stopped ? "stopped" : ""}>
+                        {f.result}
+                        {f.detail ? ` · ${f.detail}` : ""}
+                      </small>
                     </label>
                     <Link href={`/runs/${f.id}`} className="check-link">
                       Open
@@ -255,31 +258,18 @@ function RunBar({
               ))}
             </ol>
           )}
-          {run.feed.length > 0 && (
-            <ol className="run-feed" aria-label={`What ${run.name} has done`}>
-              {run.feed.map((o) => (
-                <li key={o.id}>
-                  <time>{o.at}</time>
-                  <div>
-                    <b>{o.who}</b>
-                    <RichText text={o.text} />
-                  </div>
-                </li>
-              ))}
-            </ol>
+          {run.history.length > 0 && (
+            <LogStream rows={run.history} limit={8} />
           )}
           {run.draft && (
-            <div className="run-draft" aria-live="polite">
+            <div className="log-draft" aria-live="polite">
               <span>{run.draft.who} is writing</span>
-              <div>
-                <RichText text={run.draft.text} />
-                <i className="run-caret" aria-hidden="true" />
-              </div>
+              <p>{run.draft.text.slice(0, 180)}</p>
             </div>
           )}
           <div className="run-bar-foot">
-            <Link href={`/runs/${run.id}`} className="btn primary">
-              Open run
+            <Link href={`/workflows/${run.agentId}`} className="btn primary">
+              Open map
               <ArrowUpRight size={15} aria-hidden />
             </Link>
           </div>

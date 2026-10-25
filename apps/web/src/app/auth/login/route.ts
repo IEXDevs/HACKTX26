@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAuthEnabled } from "@/lib/env";
-import { recordAuthEvent } from "@/lib/observability";
 import { authOrigin, createSupabaseRequestClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -44,13 +43,6 @@ async function startGoogleLogin(request: NextRequest) {
   });
 
   if (error || !data.url) {
-    await recordAuthEvent({
-      event: "login_failed",
-      provider: "google",
-      ip: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
-      userAgent: request.headers.get("user-agent"),
-      metadata: { message: error?.message ?? "missing oauth url" },
-    });
     const message = error?.message ?? "Google sign-in failed";
     const hint =
       /provider/i.test(message)

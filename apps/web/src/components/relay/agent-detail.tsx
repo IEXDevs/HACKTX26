@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Bot, Pause, Play, ShieldCheck, Terminal } from "@/components/icons";
+import { ArrowLeft, Bot, Pause, Play, ScrollText, ShieldCheck, Terminal } from "@/components/icons";
 import { TemplateProposals, type ProposalView } from "@/components/agents/template-proposals";
 import { plainText } from "@/lib/plain-text";
 import type { RunTile } from "@/lib/views";
@@ -99,6 +99,10 @@ export function AgentDetail({ agent }: { agent: AgentDetailView }) {
           </button>
         </div>
         <div className="composer-bar-end">
+          <Link href={`/agents/${agent.id}/trail`} className="glass-pill">
+            <ScrollText size={15} aria-hidden />
+            Trail
+          </Link>
           <Link href={`/agents/${agent.id}/console`} className="glass-pill">
             <Terminal size={15} aria-hidden />
             Files
@@ -150,6 +154,31 @@ export function AgentDetail({ agent }: { agent: AgentDetailView }) {
         <TemplateProposals proposals={agent.proposals} />
       ) : (
       <>
+      <dl className="spec-strip">
+        <div>
+          <dt>Model</dt>
+          <dd>{agent.advanced.model}</dd>
+        </div>
+        <div>
+          <dt>Hardware</dt>
+          <dd>{agent.advanced.hardware}</dd>
+        </div>
+        <div>
+          <dt>Budget</dt>
+          <dd>{agent.advanced.budget}</dd>
+        </div>
+        <div>
+          <dt>Class</dt>
+          <dd>
+            {agent.advanced.dataClass} · {agent.advanced.complexity}
+          </dd>
+        </div>
+        <div>
+          <dt>Tools</dt>
+          <dd>{agent.advanced.tools.length ? agent.advanced.tools.join(" · ") : "None"}</dd>
+        </div>
+      </dl>
+
       <div className="page-split">
       <section>
         <h2>Instructions</h2>

@@ -44,7 +44,7 @@ describe("saving agent builder context", () => {
     expect(saved).toContain("Keep completed assignments out of the report.");
     expect(isContextStub(saved)).toBe(true);
     expect(file.promptBlock()).toContain("Keep completed assignments out of the report.");
-    expect(file.promptBlock()).toContain("Preserve existing builder context and operator notes");
+    expect(file.promptBlock({ canWrite: true })).toContain("Preserve existing builder context and operator notes");
     const [stored] = await getDb().select().from(workspaceContexts);
     expect(stored).toMatchObject({ content: saved, updatedBy: "operator_test" });
     fs.unlinkSync(file.file);

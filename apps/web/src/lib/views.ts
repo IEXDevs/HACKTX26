@@ -10,6 +10,7 @@ import {
   routeModel,
   TERMINAL_RUN_STATUSES,
   type DataClass,
+  type RunEvent,
   type RunStatus,
   type TaskComplexity,
 } from "@agent-os/core";
@@ -45,7 +46,8 @@ export interface HistoryItem {
   at: string;
   ts: string;
   who: string;
-  kind: "thought" | "thinking" | "tool" | "handoff";
+  agentId?: string;
+  kind: "thought" | "thinking" | "tool" | "handoff" | "spawn";
   text: string;
   tool?: string;
   status?: string;
@@ -74,6 +76,116 @@ function previewArgs(args: Record<string, unknown>): string {
     return `${key}=${clip(raw ?? "", 80)}`;
   });
   return clip(parts.join(" · "), 280);
+}
+
+/** Fold a run event stream into a uniform activity log. Shared by run pages and the live graph. */
+export function foldRunHistory(
+  events: RunEvent[],
+  nameOf: (id: string) => string,
+): HistoryItem[] {
+  const history: HistoryItem[] = [];
+  for (const event of events) {
+    const payload = event.payload;
+    switch (payload.type) {
+      case "agent.message": {
+        if (payload.delta || payload.role === "user" || !payload.text.trim()) break;
+        history.push({
+          id: `t-${event.seq}`,
+          at: clock(event.ts),
+          ts: iso(event.ts),
+          who: nameOf(payload.agentId),
+          agentId: payload.agentId,
+          kind: "thought",
+          text: payload.text,
+        });
+        break;
+      }
+      case "log": {
+        if (payload.fields?.channel !== "thinking" || !payload.message.trim()) break;
+        history.push({
+          id: `k-${event.seq}`,
+          at: clock(event.ts),
+          ts: iso(event.ts),
+          who: payload.agentId ? nameOf(payload.agentId) : "Agent",
+          agentId: payload.agentId ?? undefined,
+          kind: "thinking",
+          text: payload.message,
+        });
+        break;
+      }
+      case "tool.requested": {
+        history.push({
+          id: `c-${event.seq}`,
+          at: clock(event.ts),
+          ts: iso(event.ts),
+          who: nameOf(payload.agentId),
+          agentId: payload.agentId,
+          kind: "tool",
+          text: previewArgs(payload.args),
+          tool: payload.tool,
+          status: "requested",
+        });
+        break;
+      }
+      case "tool.completed": {
+        history.push({
+          id: `d-${event.seq}`,
+          at: clock(event.ts),
+          ts: iso(event.ts),
+          who: nameOf(payload.agentId),
+          agentId: payload.agentId,
+          kind: "tool",
+          text: payload.error ?? payload.resultPreview ?? payload.tool,
+          tool: payload.tool,
+          status: payload.ok ? "done" : "failed",
+        });
+        break;
+      }
+      case "handoff": {
+        history.push({
+          id: `h-${event.seq}`,
+          at: clock(event.ts),
+          ts: iso(event.ts),
+          who: nameOf(payload.fromAgentId),
+          agentId: payload.fromAgentId,
+          kind: "handoff",
+          text: payload.summary,
+          tool: `→ ${nameOf(payload.toAgentId)}`,
+        });
+        break;
+      }
+      case "agent.spawned": {
+        history.push({
+          id: `s-${event.seq}`,
+          at: clock(event.ts),
+          ts: iso(event.ts),
+          who: payload.parentAgentId ? nameOf(payload.parentAgentId) : payload.name,
+          agentId: payload.parentAgentId ?? payload.agentId,
+          kind: "spawn",
+          text: payload.name,
+          tool: "spawn",
+        });
+        break;
+      }
+      case "memory.written": {
+        history.push({
+          id: `m-${event.seq}`,
+          at: clock(event.ts),
+          ts: iso(event.ts),
+          who: payload.agentId ? nameOf(payload.agentId) : "Agent",
+          agentId: payload.agentId ?? undefined,
+          kind: "tool",
+          text: payload.content,
+          tool: "memory.write",
+          status: payload.kind,
+        });
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  return history;
 }
 
 /** A plain question for a permission request. */
@@ -148,89 +260,7 @@ export async function runLive(
     who: name(entry.agentId),
     text: entry.text,
   }));
-  const history: HistoryItem[] = [];
-  for (const event of events) {
-    const payload = event.payload;
-    switch (payload.type) {
-      case "agent.message": {
-        if (payload.delta || payload.role === "user" || !payload.text.trim()) break;
-        history.push({
-          id: `t-${event.seq}`,
-          at: clock(event.ts),
-          ts: iso(event.ts),
-          who: name(payload.agentId),
-          kind: "thought",
-          text: payload.text,
-        });
-        break;
-      }
-      case "log": {
-        if (payload.fields?.channel !== "thinking" || !payload.message.trim()) break;
-        history.push({
-          id: `k-${event.seq}`,
-          at: clock(event.ts),
-          ts: iso(event.ts),
-          who: payload.agentId ? name(payload.agentId) : "Agent",
-          kind: "thinking",
-          text: payload.message,
-        });
-        break;
-      }
-      case "tool.requested": {
-        history.push({
-          id: `c-${event.seq}`,
-          at: clock(event.ts),
-          ts: iso(event.ts),
-          who: name(payload.agentId),
-          kind: "tool",
-          text: previewArgs(payload.args),
-          tool: payload.tool,
-          status: "requested",
-        });
-        break;
-      }
-      case "tool.completed": {
-        history.push({
-          id: `d-${event.seq}`,
-          at: clock(event.ts),
-          ts: iso(event.ts),
-          who: name(payload.agentId),
-          kind: "tool",
-          text: payload.error ?? payload.resultPreview ?? payload.tool,
-          tool: payload.tool,
-          status: payload.ok ? "done" : "failed",
-        });
-        break;
-      }
-      case "handoff": {
-        history.push({
-          id: `h-${event.seq}`,
-          at: clock(event.ts),
-          ts: iso(event.ts),
-          who: name(payload.fromAgentId),
-          kind: "handoff",
-          text: payload.summary,
-          tool: `→ ${name(payload.toAgentId)}`,
-        });
-        break;
-      }
-      case "memory.written": {
-        history.push({
-          id: `m-${event.seq}`,
-          at: clock(event.ts),
-          ts: iso(event.ts),
-          who: payload.agentId ? name(payload.agentId) : "Agent",
-          kind: "tool",
-          text: payload.content,
-          tool: "memory.write",
-          status: payload.kind,
-        });
-        break;
-      }
-      default:
-        break;
-    }
-  }
+  const history = foldRunHistory(events, name);
   const last = projection.transcript[projection.transcript.length - 1];
   const draft =
     ACTIVE.has(status) && last?.delta ? { who: name(last.agentId), text: last.text } : null;
@@ -268,6 +298,7 @@ export interface HomeNeed {
 }
 export interface HomeRun extends RunLive {
   id: string;
+  agentId: string;
   name: string;
   goal: string;
   elapsed: string;
@@ -322,6 +353,7 @@ export async function homeView(workspaceId: string): Promise<HomeView> {
       .filter((run) => ACTIVE.has(run.status))
       .map(async (run) => ({
         id: run.id,
+        agentId: run.agentId,
         name: run.agentName,
         goal: run.goal,
         elapsed: duration(Date.now() - run.startedAt.getTime()),

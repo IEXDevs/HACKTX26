@@ -227,9 +227,11 @@ button.glass-pill:hover:not(:disabled) {
 .composer-box {
   position: relative;
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
-  gap: 12px;
-  padding: 8px 8px 8px 22px;
+  gap: 4px 12px;
+  padding: 8px 8px 8px 16px;
+  overflow: visible;
   border: 1px solid var(--glass-edge);
   border-radius: 22px;
   background: var(--glass-strong);
@@ -265,6 +267,176 @@ button.glass-pill:hover:not(:disabled) {
 }
 .composer-box textarea::placeholder {
   color: var(--faint);
+}
+.composer-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 100%;
+  min-width: 0;
+  padding: 0 4px 4px 0;
+}
+.composer-attach {
+  position: relative;
+  flex: none;
+}
+.composer-plus {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--glass-edge);
+  border-radius: 50%;
+  background: var(--glass);
+  color: var(--ink);
+  box-shadow: none;
+}
+.composer-plus:hover:not(:disabled) {
+  background: var(--glass-strong);
+  border-color: var(--glass-edge-hover);
+}
+.composer-plus[aria-expanded="true"] {
+  background: var(--glass-strong);
+  border-color: rgba(19, 78, 47, 0.45);
+}
+.composer-attach-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  width: min(300px, 72vw);
+  max-height: 260px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 14px;
+  background: var(--glass-strong);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+.start-run-box {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px 8px 8px 12px;
+}
+.start-run-box textarea {
+  min-height: 96px;
+  padding: 8px 4px;
+  font-size: 15px;
+}
+.start-run-box .composer-tools {
+  flex: none;
+  width: 100%;
+  padding: 0;
+}
+.start-run-box .composer-attach-menu {
+  bottom: auto;
+  top: calc(100% + 8px);
+}
+.composer-attach-label,
+.composer-attach-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.composer-attach-note {
+  margin: 0;
+  font-weight: 400;
+  line-height: 1.45;
+}
+.composer-attach-list {
+  display: grid;
+  gap: 2px;
+}
+.composer-attach-list button {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  box-shadow: none;
+}
+.composer-attach-list button:hover,
+.composer-attach-list button.on,
+.composer-attach-app.on {
+  background: var(--glass);
+}
+.composer-attach-app {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  box-shadow: none;
+}
+.composer-attach-app:hover {
+  background: var(--glass);
+}
+.composer-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+.composer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 5px 8px 5px 10px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 999px;
+  background: var(--glass);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 500;
+}
+.composer-chip button {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+}
+.composer-chip button:hover {
+  background: var(--glass-strong);
+  color: var(--ink);
+}
+.composer-tools .composer-send {
+  margin-left: auto;
+}
+.console-prompt-tools {
+  padding: 0;
 }
 .composer-send {
   height: 44px;
@@ -473,22 +645,22 @@ button.glass-pill:hover:not(:disabled) {
 .composer-sphere {
   margin-bottom: 12px;
 }
-.composer-tools {
+.composer-voice-tools {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: 10px;
   margin-top: 14px;
 }
-.composer-dock .composer-tools {
+.composer-dock .composer-voice-tools {
   justify-content: flex-start;
   margin-top: 0;
 }
-.composer-tools .glass-pill {
+.composer-voice-tools .glass-pill {
   height: 38px;
   font-size: 13px;
 }
-.composer-tools .glass-pill:disabled {
+.composer-voice-tools .glass-pill:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }

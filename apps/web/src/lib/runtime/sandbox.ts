@@ -96,7 +96,7 @@ export class AgentSandbox {
       depth >= 6
         ? []
         : entries
-            .filter((entry) => !entry.name.startsWith(".") || entry.name === ".keep")
+            .filter((entry) => visibleSandboxEntry(entry.name))
             .sort((a, b) => {
               if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
               return a.name.localeCompare(b.name);
@@ -191,32 +191,41 @@ export class AgentSandbox {
     }
   }
 
-  /**
-   * Idempotent starter tree: the agent's README and an empty notes folder.
-   * Nothing else. Sample files here would look like the user's own material,
-   * and an agent would work on them instead of saying what it could not find.
-   */
-  provision(input: { agentName: string; role: string; summary: string }): void {
+  /** Create an empty sandbox. Demo checkout files from older builds are removed. */
+  provision(): void {
     this.ensure();
+    this.scrubDemoFixtures();
+  }
 
-    const readme = this.resolve("README.md");
-    if (!fs.existsSync(readme)) {
-      this.write(
-        "README.md",
-        [
-          `# ${input.agentName}`,
-          "",
-          `Role: ${input.role}`,
-          "",
-          input.summary,
-          "",
-          "This directory is the agent's own filesystem. Paths outside it are",
-          "unreachable; shell commands are allowlisted and time-boxed.",
-        ].join("\n"),
-      );
+  /** Drop the canned checkout tree if it is still sitting in this sandbox. */
+  scrubDemoFixtures(): void {
+    const dropIf = (relativePath: string, matches: (text: string) => boolean) => {
+      try {
+        const text = this.read(relativePath);
+        if (matches(text)) this.remove(relativePath);
+      } catch {
+        // Missing paths are already clean.
+      }
+    };
+    dropIf("README.md", (text) => text.includes("This directory is the agent's own filesystem"));
+    dropIf("package.json", (text) => text.includes("checkout-sandbox"));
+    dropIf("telemetry/deploy-log.json", (text) => text.includes("9f2c1ab") && text.includes("POOL_MAX"));
+    dropIf("services/checkout/pool.ts", (text) => text.includes("Connection pool for the checkout service"));
+    dropIf("checkout.test.js", (text) => text.includes("pool ceiling is restored to 40"));
+    dropIf("notes/.keep", (text) => text.trim() === "");
+    for (const dir of ["notes", "telemetry", "services/checkout", "services"]) {
+      this.pruneEmpty(dir);
     }
+  }
 
-    this.write("notes/.keep", "");
+  pruneEmpty(relativePath: string): void {
+    try {
+      const target = this.resolve(relativePath);
+      if (!fs.existsSync(target) || !fs.statSync(target).isDirectory()) return;
+      if (fs.readdirSync(target).length === 0) fs.rmdirSync(target);
+    } catch {
+      // Ignore races and missing folders.
+    }
   }
 }
 
@@ -235,7 +244,17 @@ export function stripSandboxPrefix(relativePath: string, agentId: string): strin
 }
 
 /** Render a sandbox tree the way fs.list shows it to the model. */
-export function formatTreeListing(tree: SandboxNode, limit = 60): string {
+/** Dotfiles that are part of a real checkout, not secrets or tooling caches. */
+export function visibleSandboxEntry(name: string): boolean {
+  if (name === ".keep" || name === ".github" || name === ".gitignore" || name === ".env.example") return true;
+  if (name === ".git" || name === ".github-checkout.json" || name === ".github-index.json") return false;
+  if (name === ".env" || name.startsWith(".env.")) return false;
+  if (name.startsWith(".astronom") || name.startsWith(".github-")) return false;
+  if (name.startsWith(".")) return false;
+  return true;
+}
+
+export function formatTreeListing(tree: SandboxNode, limit = 200): string {
   const lines: string[] = [];
   const walk = (node: SandboxNode, depth: number) => {
     if (lines.length >= limit) return;

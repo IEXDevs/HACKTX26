@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { LoaderCircle, Play, X } from "@/components/icons";
+import { applyAttachments, type ComposerAttachment } from "@/lib/composer-attachments";
+import { ComposerAttach, ComposerChips } from "./composer-attach";
 
 export interface RunnableAgent {
   id: string;
@@ -32,7 +34,8 @@ export function StartRun({
     [agentId, setAgentId] = useState(firstId),
     [goal, setGoal] = useState(goalFor(firstId)),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
 
   async function start() {
     setBusy(true);
@@ -42,7 +45,7 @@ export function StartRun({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         // Ask for live inference; the server falls back to scripted when no live gateway is set.
-        body: JSON.stringify({ agentId, goal: goal.trim(), mode: "live" }),
+        body: JSON.stringify({ agentId, goal: applyAttachments(goal.trim(), attachments), mode: "live" }),
       });
       const value = await response.json();
       if (!response.ok) throw new Error(value.error ?? "The run could not start.");
@@ -105,15 +108,25 @@ export function StartRun({
                 ))}
               </select>
             </label>
-            <label className="field">
+            <div className="field">
               What should it do?
-              <textarea
-                value={goal}
-                maxLength={4000}
-                placeholder="Describe the task in a sentence or two."
-                onChange={(e) => setGoal(e.target.value)}
-              />
-            </label>
+              <div className="composer-box start-run-box">
+                <textarea
+                  aria-label="What should it do?"
+                  value={goal}
+                  maxLength={4000}
+                  placeholder="Describe the task in a sentence or two."
+                  onChange={(e) => setGoal(e.target.value)}
+                />
+                <div className="composer-tools">
+                  <ComposerAttach attachments={attachments} onChange={setAttachments} />
+                  <ComposerChips
+                    attachments={attachments}
+                    onRemove={(item) => setAttachments(attachments.filter((row) => row !== item))}
+                  />
+                </div>
+              </div>
+            </div>
             {error && <p className="error-text">{error}</p>}
             <div className="dialog-actions">
               <button type="button" className="btn" onClick={() => setOpen(false)}>

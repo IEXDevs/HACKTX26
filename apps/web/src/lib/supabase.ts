@@ -33,12 +33,20 @@ export async function createSupabaseServerClient(): Promise<AppSupabaseClient | 
   });
 }
 
-/** Origin used in Google redirectTo. Query strings are not allowed on this URL. */
+/** Map loopback hosts to localhost so OAuth apps registered for localhost still match. */
+export function canonicalizeLoopbackHost(host: string): string {
+  return host
+    .trim()
+    .replace(/^127\.0\.0\.1\b/i, "localhost")
+    .replace(/^0\.0\.0\.0\b/i, "localhost")
+    .replace(/^\[::1\]/i, "localhost");
+}
+
+/** Origin used in Google redirectTo and Composio callbacks. Query strings are not allowed on this URL. */
 export function authOrigin(request: NextRequest): string {
-  const host =
-    request.headers.get("x-forwarded-host") ??
-    request.headers.get("host") ??
-    "localhost:3000";
+  const host = canonicalizeLoopbackHost(
+    request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "localhost:3000",
+  );
   const proto =
     request.headers.get("x-forwarded-proto") ??
     (host.includes("localhost") || host.startsWith("127.") ? "http" : "https");

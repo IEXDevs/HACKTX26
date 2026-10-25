@@ -36,7 +36,7 @@ export interface ToolkitAction {
 }
 
 export const POPULAR_TOOLKITS: ToolkitInfo[] = [
-  { slug: "github", name: "GitHub", description: "Repos, issues, pull requests, and Actions.", logoUrl: null, category: "developer", popular: true },
+  { slug: "github", name: "GitHub", description: "Link a repo so agents can see the tree and edit files.", logoUrl: null, category: "developer", popular: true },
   { slug: "gmail", name: "Gmail", description: "Read and send mail from the linked inbox.", logoUrl: null, category: "communication", popular: true },
   { slug: "slack", name: "Slack", description: "Channels, DMs, and workspace search.", logoUrl: null, category: "communication", popular: true },
   { slug: "googlecalendar", name: "Google Calendar", description: "Events, availability, and invites.", logoUrl: null, category: "productivity", popular: true },
@@ -221,6 +221,25 @@ function dedupeToolkits(list: ToolkitInfo[]): ToolkitInfo[] {
   return out;
 }
 
+const CONNECTED_STATUS_RANK: Record<ConnectedToolkit["status"], number> = {
+  connected: 3,
+  pending: 2,
+  error: 1,
+  disconnected: 0,
+};
+
+/** One row per toolkit. An ACTIVE GitHub account wins over leftover EXPIRED attempts. */
+export function preferConnectedAccounts(rows: ConnectedToolkit[]): ConnectedToolkit[] {
+  const byToolkit = new Map<string, ConnectedToolkit>();
+  for (const row of rows) {
+    const previous = byToolkit.get(row.toolkit);
+    if (!previous || CONNECTED_STATUS_RANK[row.status] > CONNECTED_STATUS_RANK[previous.status]) {
+      byToolkit.set(row.toolkit, row);
+    }
+  }
+  return [...byToolkit.values()];
+}
+
 export async function listConnectedFromComposio(
   userId: string,
 ): Promise<ConnectedToolkit[] | undefined> {
@@ -228,7 +247,7 @@ export async function listConnectedFromComposio(
   if (!composio) return undefined;
   try {
     const raw = await composio.connectedAccounts.list({ userIds: [userId] });
-    return itemsOf(raw).flatMap((item) => {
+    return preferConnectedAccounts(itemsOf(raw).flatMap((item) => {
       const record = asRecord(item);
       if (!record) return [];
       const toolkitRecord = asRecord(record.toolkit) ?? {};
@@ -257,7 +276,7 @@ export async function listConnectedFromComposio(
           authConfigId: str(record, "authConfigId") ?? str(asRecord(record.authConfig) ?? {}, "id"),
         },
       ];
-    });
+    }));
   } catch (error) {
     console.warn("[composio] list connected failed:", error instanceof Error ? error.message : error);
     return undefined;
@@ -346,19 +365,21 @@ export async function listToolkitActions(userId: string, toolkit: string): Promi
   }
 }
 
-export async function executeComposioAction(input: {
+export async function executeComposioActionRaw(input: {
   userId: string;
   toolkit: string;
   action: string;
   arguments?: Record<string, unknown>;
-}): Promise<{ ok: boolean; preview: string; error?: string }> {
+  connectedAccountId?: string | null;
+}): Promise<{ ok: boolean; data: unknown; error?: string }> {
   const composio = requireComposio();
   const slug = resolveActionSlug(input.toolkit, input.action);
-  if (!slug) return { ok: false, preview: "", error: "connector.call needs an action name." };
+  if (!slug) return { ok: false, data: null, error: "connector.call needs an action name." };
   try {
     const result = await composio.tools.execute(slug, {
       userId: input.userId,
       arguments: input.arguments ?? {},
+      ...(input.connectedAccountId ? { connectedAccountId: input.connectedAccountId } : {}),
       dangerouslySkipVersionCheck: true,
     });
     const record = asRecord(result) ?? {};
@@ -366,15 +387,26 @@ export async function executeComposioAction(input: {
       (typeof record.error === "string" && record.error) ||
       (record.successful === false ? "Composio action failed." : null);
     const data = record.data ?? record.result ?? result;
-    const preview =
-      typeof data === "string" ? data : JSON.stringify(data, null, 2);
-    if (error) return { ok: false, preview: preview.slice(0, 4_000), error };
-    return { ok: true, preview: preview.slice(0, 4_000) };
+    if (error) return { ok: false, data, error };
+    return { ok: true, data };
   } catch (error) {
     return {
       ok: false,
-      preview: "",
+      data: null,
       error: error instanceof Error ? error.message : "Composio action failed.",
     };
   }
+}
+
+export async function executeComposioAction(input: {
+  userId: string;
+  toolkit: string;
+  action: string;
+  arguments?: Record<string, unknown>;
+}): Promise<{ ok: boolean; preview: string; error?: string }> {
+  const result = await executeComposioActionRaw(input);
+  const preview =
+    typeof result.data === "string" ? result.data : JSON.stringify(result.data ?? {}, null, 2);
+  if (!result.ok) return { ok: false, preview: preview.slice(0, 4_000), error: result.error };
+  return { ok: true, preview: preview.slice(0, 4_000) };
 }

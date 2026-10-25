@@ -17,10 +17,12 @@ import {
 } from "@/components/icons";
 import { VoiceSphere, type VoiceSphereState } from "@/components/voice/voice-sphere";
 import { useLiveSession, type LiveStatus, type LiveToolCall } from "@/components/voice/use-live-session";
+import { applyAttachments, type ComposerAttachment } from "@/lib/composer-attachments";
 import { CHECK_MAX_USD, RED_TEAM_CATEGORIES } from "@/lib/loop/redteam-limits";
 import { DraftSchema, type BuilderDraft } from "@/lib/runtime/builder-parse";
 import { plainText } from "@/lib/plain-text";
 import { RichText } from "./rich-text";
+import { ComposerAttach, ComposerChips } from "./composer-attach";
 import { WORKFLOW_MODES, type WorkflowMode } from "@/lib/workflow-mode";
 
 export interface BuilderTemplate {
@@ -76,7 +78,8 @@ export function Builder({ templates, workflowMode, onBack }: {
     [spoken, setSpoken] = useState<SpokenLine[]>([]),
     // Set after publishing: offers a red-team check, then follows it.
     [published, setPublished] = useState<{ id: string; name: string } | null>(null),
-    [check, setCheck] = useState<Check | null>(null);
+    [check, setCheck] = useState<Check | null>(null),
+    [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const end = useRef<HTMLDivElement>(null);
   const videoInput = useRef<HTMLInputElement>(null);
   const nextId = useRef(0);
@@ -113,8 +116,9 @@ export function Builder({ templates, workflowMode, onBack }: {
   });
   const talking = !["idle", "error"].includes(live.status);
 
-  async function send(text = input.trim(), afterVideo = false) {
-    if (!text || (thinking && !afterVideo)) return;
+  async function send(raw = input.trim(), afterVideo = false) {
+    if (!raw || (thinking && !afterVideo)) return;
+    const text = afterVideo ? raw : applyAttachments(raw, attachments);
     const history: Message[] = [...messages, { id: id(), from: "you", text }];
     setMessages(history);
     setInput("");
@@ -325,7 +329,7 @@ export function Builder({ templates, workflowMode, onBack }: {
   const sphere: VoiceSphereState = talking ? sphereState(live.status) : thinking ? "thinking" : "idle";
   const voiceError = live.error;
   const tools = (
-    <div className="composer-tools">
+    <div className="composer-voice-tools">
       <button type="button" className={"glass-pill" + (talking ? " on" : "")} onClick={toggleAstro}>
         {talking ? <Square size={14} aria-hidden /> : <Mic size={16} aria-hidden />}
         {talking ? "Stop talking" : "Talk to Astro"}
@@ -484,6 +488,8 @@ export function Builder({ templates, workflowMode, onBack }: {
               disabled={Boolean(thinking) || !input.trim()}
               busy={Boolean(thinking)}
               autoFocus
+              attachments={attachments}
+              onAttachments={setAttachments}
             />
             {tools}
           </div>
@@ -510,6 +516,8 @@ export function Builder({ templates, workflowMode, onBack }: {
             submit="Start"
             disabled={Boolean(thinking) || !input.trim()}
             busy={Boolean(thinking)}
+            attachments={attachments}
+            onAttachments={setAttachments}
           />
           {tools}
           {thinking && <p className="chat-thinking composer-status">{thinking}</p>}
@@ -612,6 +620,8 @@ function Box({
   disabled,
   busy,
   autoFocus = false,
+  attachments,
+  onAttachments,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -622,6 +632,8 @@ function Box({
   disabled: boolean;
   busy: boolean;
   autoFocus?: boolean;
+  attachments: ComposerAttachment[];
+  onAttachments: (next: ComposerAttachment[]) => void;
 }) {
   const box = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -659,10 +671,17 @@ function Box({
           }}
         />
       </label>
-      <button type="submit" className="composer-send" disabled={disabled}>
-        {busy ? <LoaderCircle size={16} className="animate-spin" /> : <ArrowUp size={16} />}
-        {submit}
-      </button>
+      <div className="composer-tools">
+        <ComposerAttach attachments={attachments} onChange={onAttachments} />
+        <ComposerChips
+          attachments={attachments}
+          onRemove={(item) => onAttachments(attachments.filter((row) => row !== item))}
+        />
+        <button type="submit" className="composer-send" disabled={disabled}>
+          {busy ? <LoaderCircle size={16} className="animate-spin" /> : <ArrowUp size={16} />}
+          {submit}
+        </button>
+      </div>
     </form>
   );
 }

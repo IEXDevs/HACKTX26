@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { Inter, Inter_Tight, JetBrains_Mono } from "next/font/google";
 import { ensureBootstrapped } from "@/lib/bootstrap";
 import { getWorkspaceContext } from "@/lib/queries";
+import { SiteBackdrop } from "@/components/shell/backdrop";
 import { Sidebar } from "@/components/shell/sidebar";
 import { getSessionUser } from "@/lib/auth";
 import { supabaseAuthEnabled } from "@/lib/env";
@@ -45,10 +46,7 @@ export default async function RootLayout({
       </head>
       <body>
         <div className="backdrop" aria-hidden="true">
-          <i />
-          <i />
-          <i />
-          <i />
+          <SiteBackdrop />
         </div>
         {ctx ? (
           <>

@@ -1,10 +1,10 @@
 @import "tailwindcss";
 
 /*
- * Design language: frosted glass with one green accent and a slow gradient
- * backdrop. Two themes share every token name: light (white page, drifting
- * dark-green gradient) and dark (near-black page, a blended band of green,
- * teal and blue). html[data-theme] picks one; Tailwind colors read the
+ * Design language: frosted glass with one green accent over slow green
+ * waves. Two themes share every token name: light (white page, soft green
+ * waves) and dark (near-black page, green waves with a teal depth).
+ * html[data-theme] picks one; Tailwind colors read the
  * same --t-* variables, so every page follows the switch.
  */
 @theme inline {
@@ -45,7 +45,7 @@
   --text-2xs--line-height: 1rem;
 }
 
-/* ---------- Light: white page, drifting dark-green gradient ---------- */
+/* ---------- Light: white page, soft green waves ---------- */
 :root {
   color-scheme: light;
   --t-bg: #ffffff;
@@ -103,14 +103,9 @@
   --soft-fill: rgb(226 238 229 / 0.75);
   --scrim: rgb(20 35 26 / 0.25);
 
-  --blob-opacity: 0.7;
-  --blob-1: #1f7a4d;
-  --blob-2: #3aa56a;
-  --blob-3: #0e5a33;
-  --blob-4: #8fd4a8;
 }
 
-/* ---------- Dark: near-black page, green-teal-blue gradient band ---------- */
+/* ---------- Dark: near-black page, green waves with a teal depth ---------- */
 :root[data-theme="dark"] {
   color-scheme: dark;
   --t-bg: #0b0d0c;
@@ -167,14 +162,9 @@
   --soft-fill: rgb(95 191 134 / 0.1);
   --scrim: rgb(0 0 0 / 0.5);
 
-  --blob-opacity: 0.62;
-  --blob-1: #1f8a52;
-  --blob-2: #149e8f;
-  --blob-3: #2f5fd0;
-  --blob-4: #36b37e;
 }
 
-/* ---------- Animated backdrop ---------- */
+/* ---------- Backdrop: GradientWaves sits inside (components/shell/backdrop.tsx) ---------- */
 .backdrop {
   position: fixed;
   inset: 0;
@@ -182,84 +172,6 @@
   overflow: hidden;
   background: var(--page-bg);
   pointer-events: none;
-}
-.backdrop i {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(80px);
-  opacity: var(--blob-opacity);
-  animation: drift 28s ease-in-out infinite alternate;
-  will-change: transform;
-}
-.backdrop i:nth-child(1) {
-  top: -18vh;
-  left: -8vw;
-  width: 58vw;
-  height: 42vh;
-  background: var(--blob-1);
-}
-.backdrop i:nth-child(2) {
-  top: -10vh;
-  left: 34vw;
-  width: 46vw;
-  height: 36vh;
-  background: var(--blob-2);
-  animation-duration: 34s;
-  animation-delay: -8s;
-}
-.backdrop i:nth-child(3) {
-  top: -16vh;
-  right: -10vw;
-  width: 40vw;
-  height: 40vh;
-  background: var(--blob-3);
-  animation-duration: 40s;
-  animation-delay: -16s;
-}
-.backdrop i:nth-child(4) {
-  top: 4vh;
-  left: 18vw;
-  width: 36vw;
-  height: 26vh;
-  background: var(--blob-4);
-  animation-duration: 31s;
-  animation-delay: -4s;
-}
-/* Dark: one horizontal band through the upper page, like a horizon glow. */
-:root[data-theme="dark"] .backdrop i:nth-child(1) {
-  top: 18vh;
-  left: -6vw;
-  height: 30vh;
-}
-:root[data-theme="dark"] .backdrop i:nth-child(2) {
-  top: 22vh;
-  height: 26vh;
-}
-:root[data-theme="dark"] .backdrop i:nth-child(3) {
-  top: 16vh;
-  height: 30vh;
-}
-:root[data-theme="dark"] .backdrop i:nth-child(4) {
-  top: 34vh;
-  left: 10vw;
-  width: 70vw;
-  height: 18vh;
-}
-@keyframes drift {
-  0% {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  50% {
-    transform: translate3d(5vw, 3vh, 0) scale(1.12);
-  }
-  100% {
-    transform: translate3d(-4vw, 1vh, 0) scale(0.95);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .backdrop i {
-    animation: none;
-  }
 }
 
 @layer base {

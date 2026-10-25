@@ -120,6 +120,14 @@ export const DEFAULT_POLICY_RULES: readonly PolicyRule[] = [
     priority: 50,
   },
   {
+    id: "approve-connector-write",
+    resource: "connector.call",
+    risk: "high",
+    effect: "require_approval",
+    reason: "Connected-app writes leave the workspace and need a human decision.",
+    priority: 50,
+  },
+  {
     id: "approve-fs-delete",
     resource: "fs.delete",
     effect: "require_approval",

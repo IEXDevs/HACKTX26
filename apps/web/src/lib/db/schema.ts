@@ -196,6 +196,15 @@ export const agents = sqliteTable(
      * per agent, so a blue agent and a red agent are never the same instance.
      */
     team: text("team", { enum: ["red", "blue"] }),
+    /**
+     * Composio toolkit slugs (plus `serpapi`) this agent may call. Orchestrators
+     * ignore this and receive every app the current operator has linked.
+     * Grunts only get what the parent passed on `agent.delegate`.
+     */
+    allowedConnectors: text("allowed_connectors", { mode: "json" })
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'`),
   },
   (t) => [
     uniqueIndex("agents_workspace_slug_idx").on(t.workspaceId, t.slug),
@@ -225,6 +234,72 @@ export const connectors = sqliteTable("connectors", {
     .default("disconnected"),
   lastSyncAt: integer("last_sync_at", { mode: "timestamp_ms" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const connectedAccounts = sqliteTable(
+  "connected_accounts",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    toolkit: text("toolkit").notNull(),
+    toolkitName: text("toolkit_name").notNull(),
+    composioAccountId: text("composio_account_id"),
+    authConfigId: text("auth_config_id"),
+    status: text("status", { enum: ["connected", "pending", "disconnected", "error"] })
+      .notNull()
+      .default("disconnected"),
+    scopes: text("scopes", { mode: "json" }).$type<string[]>().notNull().default(sql`'[]'`),
+    metadata: text("metadata", { mode: "json" })
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'`),
+    lastSyncAt: integer("last_sync_at", { mode: "timestamp_ms" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [uniqueIndex("connected_accounts_user_toolkit_idx").on(t.workspaceId, t.userId, t.toolkit)],
+);
+
+export const connectorGrants = sqliteTable(
+  "connector_grants",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    agentId: text("agent_id").notNull(),
+    toolkit: text("toolkit").notNull(),
+    grantedBy: text("granted_by"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [uniqueIndex("connector_grants_agent_toolkit_idx").on(t.agentId, t.toolkit)],
+);
+
+export const workspaceContexts = sqliteTable("workspace_contexts", {
+  workspaceId: text("workspace_id")
+    .primaryKey()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  content: text("content").notNull(),
+  updatedBy: text("updated_by"),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const connectorCatalog = sqliteTable("connector_catalog", {
+  toolkit: text("toolkit").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  logoUrl: text("logo_url"),
+  category: text("category"),
+  authSchemes: text("auth_schemes", { mode: "json" }).$type<string[]>().notNull().default(sql`'[]'`),
+  popular: integer("popular", { mode: "boolean" }).notNull().default(false),
+  metadata: text("metadata", { mode: "json" })
+    .$type<Record<string, unknown>>()
+    .notNull()
+    .default(sql`'{}'`),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
 
 export const credentials = sqliteTable("credentials", {
@@ -290,6 +365,8 @@ export const runs = sqliteTable(
     mode: text("mode", { enum: ["live", "scripted", "replay"] }).notNull().default("live"),
     /** "retest" runs carry synthetic test data: no memory writes, no real secrets. */
     purpose: text("purpose", { enum: ["standard", "retest"] }).notNull().default("standard"),
+    /** Composio / SerpAPI identity for this run (Supabase user id or `local:…`). */
+    operatorUserId: text("operator_user_id"),
     startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
     endedAt: integer("ended_at", { mode: "timestamp_ms" }),
     eventCount: integer("event_count").notNull().default(0),
@@ -695,6 +772,10 @@ export type Template = typeof templates.$inferSelect;
 export type PromptBlockRow = typeof promptBlocks.$inferSelect;
 export type AgentRow = typeof agents.$inferSelect;
 export type Connector = typeof connectors.$inferSelect;
+export type ConnectedAccount = typeof connectedAccounts.$inferSelect;
+export type ConnectorGrant = typeof connectorGrants.$inferSelect;
+export type WorkspaceContextRow = typeof workspaceContexts.$inferSelect;
+export type ConnectorCatalogRow = typeof connectorCatalog.$inferSelect;
 export type CredentialRow = typeof credentials.$inferSelect;
 export type KbDocumentRow = typeof kbDocuments.$inferSelect;
 export type RunRow = typeof runs.$inferSelect;

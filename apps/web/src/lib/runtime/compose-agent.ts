@@ -298,11 +298,16 @@ function toolsFor(lower: string): string[] {
     tools.add("fs.read");
     tools.add("shell.exec");
   }
-  if (/\bweb\b|\burl\b|\bhttp\b|\bfetch\b|\bbrowse\b/.test(lower)) tools.add("http.fetch");
+  if (/\bweb\b|\burl\b|\bhttp\b|\bfetch\b|\bbrowse\b|\bsearch the web\b/.test(lower)) {
+    tools.add("http.fetch");
+    tools.add("web.search");
+  }
   if (/\bfinding\b|\bvulnerab\b|\bred[- ]team\b|\bsecurity\b/.test(lower)) tools.add("security.report");
   if (/\bdelegate\b|\bspecialist\b|\bworker\b|\bteam of\b/.test(lower)) tools.add("agent.delegate");
   if (/\bsecret\b|\bcredential\b|\btoken\b|\bapi key\b/.test(lower)) tools.add("secret.use");
-  if (/\bmcp\b|\bconnector\b/.test(lower)) tools.add("mcp.call");
+  if (/\bmcp\b|\bconnector\b|\bgithub\b|\bslack\b|\bgmail\b|\bnotion\b/.test(lower)) {
+    tools.add("connector.call");
+  }
   return [...tools];
 }
 

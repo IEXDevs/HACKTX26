@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { listRuns, requireWorkspace } from "@/lib/queries";
+import { operatorIdFor } from "@/lib/connectors";
+import { getSessionUser } from "@/lib/auth";
+import { getWorkspaceUser, listRuns, requireWorkspace } from "@/lib/queries";
 import { createRun } from "@/lib/runtime/orchestrator";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +32,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const workspace = await requireWorkspace();
+  const { workspace, user } = await getWorkspaceUser();
+  const session = await getSessionUser();
 
   try {
     const runId = await createRun({
@@ -42,6 +45,7 @@ export async function POST(request: NextRequest) {
       mode: parsed.data.mode,
       triggerId: parsed.data.triggerId ?? null,
       trigger: "manual",
+      operatorUserId: operatorIdFor(session?.id, user?.id),
     });
     return Response.json({ runId }, { status: 201 });
   } catch (error) {

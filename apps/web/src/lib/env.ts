@@ -64,6 +64,13 @@ export const env = {
     serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
   },
 
+  composio: {
+    apiKey: process.env.COMPOSIO_API_KEY ?? "",
+  },
+  serpapi: {
+    apiKey: process.env.SERPAPI_API_KEY ?? "",
+  },
+
   isProduction: process.env.NODE_ENV === "production",
 } as const;
 
@@ -75,6 +82,14 @@ export function supabaseAuthEnabled(): boolean {
 /** Server-only telemetry writes. Requires the service role key. */
 export function observabilityEnabled(): boolean {
   return Boolean(env.supabase.url && env.supabase.serviceRoleKey);
+}
+
+export function composioEnabled(): boolean {
+  return Boolean(env.composio.apiKey);
+}
+
+export function serpApiEnabled(): boolean {
+  return Boolean(env.serpapi.apiKey);
 }
 
 /* -------------------------------------------------------------------------- */

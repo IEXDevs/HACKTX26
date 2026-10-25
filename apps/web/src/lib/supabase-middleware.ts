@@ -2,7 +2,14 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { AUTH_COOKIE_OPTIONS, hasAuthTokenCookie, writeAuthCookies } from "./auth-cookies";
 
-const PUBLIC_PATHS = ["/login", "/auth/callback", "/auth/login", "/auth/password", "/auth/signout"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/auth/callback",
+  "/auth/login",
+  "/auth/password",
+  "/auth/signout",
+  "/api/connectors/callback",
+];
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));

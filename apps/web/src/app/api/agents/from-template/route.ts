@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { buildGraph, validateGraph, type AgentConfig } from "@agent-os/core";
-import { grantsFor, policyFor, slugify } from "@/lib/agent-factory";
+import { grantsFor, ORCHESTRATOR_TOOLS, policyFor, slugify } from "@/lib/agent-factory";
 import { getDb } from "@/lib/db/client";
 import {
   agents,
@@ -82,8 +82,8 @@ export async function POST(request: NextRequest) {
     instructions: template.graph.orchestrator.instructions,
     inheritedPromptBlockIds: orgBlocks.map((block) => block.id),
     modelPolicy: policyFor(template.graph.orchestrator.complexity, "orchestrator"),
-    grants: grantsFor(["kb.search", "fs.read", "fs.write", "memory.search", "memory.write", "context.read", "context.write"], TEMPLATE_SOURCE),
-    allowedTools: ["kb.search", "fs.read", "fs.write", "memory.search", "memory.write", "context.read", "context.write"],
+    grants: grantsFor(ORCHESTRATOR_TOOLS, TEMPLATE_SOURCE),
+    allowedTools: [...ORCHESTRATOR_TOOLS],
     complexity: template.graph.orchestrator.complexity,
     maxSteps: 12,
     dataClass,

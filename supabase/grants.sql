@@ -8,7 +8,11 @@ grant select, insert, update, delete on table
   public.auth_events,
   public.usage_events,
   public.prompt_logs,
-  public.activity_events
+  public.activity_events,
+  public.connector_catalog,
+  public.connected_accounts,
+  public.connector_grants,
+  public.workspace_contexts
   to service_role;
 grant usage, select on all sequences in schema public to service_role;
 alter default privileges in schema public

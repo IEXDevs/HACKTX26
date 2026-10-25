@@ -16,6 +16,7 @@ export const ToolCategorySchema = z.enum([
   "knowledge",
   "mcp",
   "cli",
+  "connector",
   "meta",
 ]);
 export type ToolCategory = z.infer<typeof ToolCategorySchema>;
@@ -164,7 +165,8 @@ export const TOOL_MANIFEST: readonly ToolManifestEntry[] = [
     scopes: ["read"],
     risk: "low",
     sandboxedToAgentFs: false,
-    argsHint: "{ agent: string, title: string, task: string, tools?: string[], model?: string, complexity?: string }",
+    argsHint:
+      "{ agent: string, title: string, task: string, tools?: string[], connectors?: string[], model?: string, complexity?: string }",
   },
   {
     name: "security.report",
@@ -175,6 +177,30 @@ export const TOOL_MANIFEST: readonly ToolManifestEntry[] = [
     risk: "low",
     sandboxedToAgentFs: false,
     argsHint: "{ severity, category, title, detail, evidence, remediation }",
+  },
+  {
+    name: "connector.call",
+    label: "Call connected app",
+    description:
+      "Run an action on an app the operator linked (GitHub, Gmail, Slack, Notion, …). Pass toolkit (slug), action (e.g. GITHUB_CREATE_AN_ISSUE), and arguments. Reads run immediately; writes wait for approval. Subagents may only use toolkits the parent granted via agent.delegate connectors.",
+    category: "connector",
+    scopes: ["execute", "net"],
+    risk: "medium",
+    sandboxedToAgentFs: false,
+    timeoutMs: 30_000,
+    argsHint: "{ toolkit: string, action: string, arguments?: object }",
+  },
+  {
+    name: "web.search",
+    label: "Web search",
+    description:
+      "Search the public web via SerpAPI. Use it when the goal needs live public information. Blocked for confidential and restricted runs. Subagents need the serpapi connector granted on delegate.",
+    category: "network",
+    scopes: ["net", "read"],
+    risk: "medium",
+    sandboxedToAgentFs: false,
+    timeoutMs: 20_000,
+    argsHint: "{ query: string, engine?: \"google\" | \"google_news\", num?: number }",
   },
   {
     name: "mcp.call",
@@ -209,6 +235,25 @@ export const TOOL_MANIFEST: readonly ToolManifestEntry[] = [
 export const TOOL_BY_NAME: ReadonlyMap<string, ToolManifestEntry> = new Map(
   TOOL_MANIFEST.map((t) => [t.name, t]),
 );
+
+const CONNECTOR_WRITE_RE =
+  /(^|_)(create|update|delete|send|post|put|patch|write|insert|remove|cancel|archive|upload|reply|comment|invite|assign|merge|close|publish|schedule|add|edit|set|move|share|grant|revoke|star|follow|subscribe|deploy|trigger|append|fork|modify|copy)(_|$)/i;
+const CONNECTOR_READ_RE =
+  /(^|_)(list|get|search|find|fetch|read|retrieve|lookup|describe|check|status|diff|show)(_|$)/i;
+
+/** Writes on a linked app need approval; unknown actions fail closed as writes. */
+export function isConnectorWriteAction(action: string): boolean {
+  const slug = action.trim();
+  if (!slug) return true;
+  const isRead = CONNECTOR_READ_RE.test(slug);
+  const isWrite = CONNECTOR_WRITE_RE.test(slug);
+  if (isRead && !isWrite) return false;
+  return true;
+}
+
+export function connectorActionRisk(action: string): "medium" | "high" {
+  return isConnectorWriteAction(action) ? "high" : "medium";
+}
 
 export function toolsForRole(role: "orchestrator" | "worker" | "security"): ToolManifestEntry[] {
   switch (role) {

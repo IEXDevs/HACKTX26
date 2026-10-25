@@ -71,6 +71,13 @@
       "when": 1792883500000,
       "tag": "0009_retire_old_spark",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1792883600000,
+      "tag": "0010_composio_connectors",
+      "breakpoints": true
     }
   ]
 }

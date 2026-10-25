@@ -24,15 +24,15 @@ function percent(part: number, total: number) {
   return (p < 10 ? Math.round(p * 10) / 10 : Math.round(p)) + '%';
 }
 
-export function UsageChart({ charts }: { charts: UsageCharts }) {
+export function UsageChart({ charts, heading = "Tokens used", unit = "tokens" }: { charts: UsageCharts; heading?: string; unit?: string }) {
   const [view, setView] = useState<View>('time');
   const total = charts.overTime.reduce((sum, p) => sum + p.tokens, 0);
   return (
     <section className="token-chart" aria-label="Token usage">
       <div className="token-chart-head">
         <div>
-          <h2>Tokens used</h2>
-          <strong>{compact(total)}</strong>
+          <h2>{heading}</h2>
+            <strong>{unit === "$" ? `$${total.toFixed(2)}` : compact(total)}</strong>
         </div>
         <div className="tabs" role="group" aria-label="Chart view">
           {views.map((v) => (
@@ -42,9 +42,9 @@ export function UsageChart({ charts }: { charts: UsageCharts }) {
           ))}
         </div>
       </div>
-      {view === 'time' && <OverTime points={charts.overTime} />}
-      {view === 'agent' && <ByAgent shares={charts.byAgent} />}
-      {view === 'workflow' && <ByWorkflow shares={charts.byWorkflow} />}
+      {view === 'time' && <OverTime points={charts.overTime} unit={unit} />}
+      {view === 'agent' && <ByAgent shares={charts.byAgent} unit={unit} />}
+      {view === 'workflow' && <ByWorkflow shares={charts.byWorkflow} unit={unit} />}
     </section>
   );
 }
@@ -66,7 +66,7 @@ function niceMax(value: number) {
   return [1, 2, 2.5, 5, 10].map((m) => m * power).find((m) => m >= value) || value;
 }
 
-function OverTime({ points }: { points: UsageCharts['overTime'] }) {
+function OverTime({ points, unit }: { points: UsageCharts['overTime']; unit: string }) {
   const [ref, width] = useWidth();
   const [active, setActive] = useState<number | null>(null);
   const height = 220,
@@ -143,7 +143,7 @@ function OverTime({ points }: { points: UsageCharts['overTime'] }) {
           className="usage-tooltip"
           style={{ left: Math.min(Math.max(x(active), 70), width - 70), top: y(hover.tokens) - 12 }}
         >
-          <b>{hover.tokens.toLocaleString()} tokens</b>
+          <b>{unit === "$" ? `$${hover.tokens.toFixed(2)}` : `${hover.tokens.toLocaleString()} ${unit}`}</b>
           <span>{hover.label}</span>
         </div>
       )}
@@ -158,7 +158,7 @@ function arc(cx: number, cy: number, r: number, inner: number, start: number, en
   return `M${p(r, start)} A${r} ${r} 0 ${large} 1 ${p(r, end)} L${p(inner, end)} A${inner} ${inner} 0 ${large} 0 ${p(inner, start)} Z`;
 }
 
-function ByAgent({ shares }: { shares: UsageCharts['byAgent'] }) {
+function ByAgent({ shares, unit }: { shares: UsageCharts['byAgent']; unit: string }) {
   const [active, setActive] = useState<string | null>(null);
   // The four largest agents get named slices; the rest fold into Other.
   // Slices keep the data's stable agent order, so colors follow the agent, not its rank.
@@ -237,7 +237,7 @@ function ByAgent({ shares }: { shares: UsageCharts['byAgent'] }) {
           >
             <i style={{ background: s.color }} aria-hidden="true" />
             <span>{s.name}</span>
-            <span className="usage-legend-tokens">{compact(s.tokens)}</span>
+            <span className="usage-legend-tokens">{unit === "$" ? `$${s.tokens.toFixed(2)}` : compact(s.tokens)}</span>
             <b>{percent(s.tokens, total)}</b>
           </li>
         ))}
@@ -246,7 +246,7 @@ function ByAgent({ shares }: { shares: UsageCharts['byAgent'] }) {
   );
 }
 
-function ByWorkflow({ shares }: { shares: UsageCharts['byWorkflow'] }) {
+function ByWorkflow({ shares, unit }: { shares: UsageCharts['byWorkflow']; unit: string }) {
   const sorted = [...shares].sort((a, b) => b.tokens - a.tokens);
   const top = sorted.slice(0, 5),
     rest = sorted.slice(5);
@@ -274,7 +274,7 @@ function ByWorkflow({ shares }: { shares: UsageCharts['byWorkflow'] }) {
             />
           </span>
           <b>{percent(r.tokens, total)}</b>
-          <span className="usage-legend-tokens">{compact(r.tokens)}</span>
+          <span className="usage-legend-tokens">{unit === "$" ? `$${r.tokens.toFixed(2)}` : compact(r.tokens)}</span>
         </li>
       ))}
     </ul>

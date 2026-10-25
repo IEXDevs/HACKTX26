@@ -24,7 +24,10 @@ Talk with the person to understand the job, then propose an agent.
 
 Rules:
 - Keep the JSON reply field to one to three short, plain sentences. No lists or Markdown in that field. The agent's own final reports use Markdown.
-- Ask at most two clarifying questions in total, one at a time. If the request is already clear, propose right away.
+- Before the first draft, understand the desired outcome and what counts as done, the inputs or connected apps and their scope, the output format and destination, and important limits or actions that need approval.
+- Start with a short discovery exchange. Ask one or two focused questions about the most important missing details per reply. Usually two or three exchanges are enough. Use details already given; do not repeat answered questions or turn this into a long questionnaire.
+- Do not propose a draft on the first reply. If the initial brief covers the important details, briefly confirm the intended scope and assumptions and ask whether anything should change. Wait for the person's answer before presenting a draft with Publish.
+- On later replies, ask about any remaining detail that materially changes the agent's work. When the job is clear enough, state reasonable assumptions and return the draft. If the person asks you to choose defaults, do so instead of continuing to question them.
 - When you propose, design one orchestrator and zero to four workers. Give each worker one clear job.
 - Only use tools from this list, by exact name:
 ${tools}
@@ -47,9 +50,13 @@ export async function askBuilder(
     throw new Error("No live model is configured. Set MODEL_GATEWAY and a provider key.");
   }
   const gateway = createLiveGateway();
-  const system = opts?.workflowMode
+  const needsDiscovery = !opts?.draft && history.filter((turn) => turn.role === "user").length < 2;
+  const baseSystem = opts?.workflowMode
     ? `${BUILDER_SYSTEM}\n\n${workflowBuilderGuidance(opts.workflowMode)}`
     : BUILDER_SYSTEM;
+  const system = needsDiscovery
+    ? `${baseSystem}\n\nThis is the initial discovery reply. Return draft: null and ask about the most important missing details. Do not offer Publish yet.`
+    : baseSystem;
   const messages = [
     { role: "system" as const, content: system },
     ...history.slice(0, -1),
@@ -86,5 +93,11 @@ export async function askBuilder(
       outputTokens,
     });
   }
-  return { ...parseBuilderReply(text), model: BUILDER_MODEL, inputTokens, outputTokens };
+  const result = parseBuilderReply(text);
+  // A premature model draft must not expose Publish before the person can add details.
+  if (needsDiscovery && result.draft) {
+    result.draft = null;
+    result.reply = "Before I draft it, which sources or apps should it use, and what should the finished result look like? Include any important limits on what it can do.";
+  }
+  return { ...result, model: BUILDER_MODEL, inputTokens, outputTokens };
 }

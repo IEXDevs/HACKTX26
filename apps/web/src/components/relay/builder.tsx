@@ -58,6 +58,7 @@ export function Builder({ templates, workflowMode, onBack }: {
     setMessages(history);
     setInput("");
     setThinking(true);
+    setDraft(null);
     setError("");
     try {
       const response = await fetch("/api/builder", {
@@ -82,7 +83,7 @@ export function Builder({ templates, workflowMode, onBack }: {
       };
       if (workflowMode === "dynamic" && reply.draft) reply.draft = { ...reply.draft, workers: [] };
       setMessages([...history, reply]);
-      if (reply.draft) setDraft(reply.draft);
+      setDraft(reply.draft ?? null);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -91,7 +92,7 @@ export function Builder({ templates, workflowMode, onBack }: {
   }
 
   async function create(publish: boolean) {
-    if (!draft || thinking) return;
+    if (!draft || thinking || busy) return;
     setBusy(true);
     setError("");
     try {
@@ -152,7 +153,7 @@ export function Builder({ templates, workflowMode, onBack }: {
   }
 
   const chatting = messages.length > 0;
-  const latest = [...messages].reverse().find((m) => m.draft)?.id;
+  const latest = messages[messages.length - 1]?.id;
   return (
     <div className={"composer" + (chatting ? " chatting" : "")}>
       <div className="composer-bar">

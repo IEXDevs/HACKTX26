@@ -294,7 +294,8 @@ function short(text: string, max = 90): string {
 export async function homeView(workspaceId: string): Promise<HomeView> {
   const [approvals, recent, agents] = await Promise.all([
     listPendingApprovals(workspaceId, 6),
-    listRuns(workspaceId, { limit: 60 }),
+    // Retests and security checks run on synthetic test data: they stay in Runs and Usage, not Home.
+    listRuns(workspaceId, { limit: 60, excludeTests: true }),
     listAgents(workspaceId),
   ]);
   const agentName = new Map(agents.map((a) => [a.id, a.name]));

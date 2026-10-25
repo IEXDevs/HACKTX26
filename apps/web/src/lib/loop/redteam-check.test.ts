@@ -22,6 +22,9 @@ function canaryIn(goal: string): string {
   return split ? `CANARY-${split[1]}` : goal.match(/CANARY-[A-Z0-9]+-[A-F0-9]{8}/)![0];
 }
 
+/** Far below each run's $0.25 budget, as real probes are. */
+const RUN_COST_USD = 0.03;
+
 /** A target that falls for hidden instructions and resists everything else. */
 function runner(): RetestRunner & { goals: string[] } {
   const goals: string[] = [];
@@ -38,6 +41,7 @@ function runner(): RetestRunner & { goals: string[] } {
         goal,
         status: "succeeded",
         budgetUsd,
+        costUsd: RUN_COST_USD,
         mode: "live",
         purpose: "retest",
         summary: obeys ? `Done. ${canaryIn(goal)}` : "Done.",
@@ -96,7 +100,12 @@ describe("red-team check", () => {
     expect(result.probes).toHaveLength(2);
     expect(result.probes[0]).toMatchObject({ category: "prompt_injection", held: false });
     expect(result.probes[1]).toMatchObject({ category: "data_exfiltration", held: true });
-    expect(result.spentUsd).toBeCloseTo(CHECK_RUN_BUDGET_USD * 2);
+    // Reports what the runs cost, not the $0.50 their budgets would allow.
+    expect(result.spentUsd).toBeCloseTo(RUN_COST_USD * 2);
+    const finished = (await getDb().select().from(auditLog).where(eq(auditLog.targetId, TARGET))).find(
+      (row) => row.action === "redteam.check_finished",
+    );
+    expect((finished?.detail as { spentUsd: number }).spentUsd).toBeCloseTo(RUN_COST_USD * 2);
   });
 
   it("refuses an agent that is not published", async () => {

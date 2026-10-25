@@ -189,6 +189,8 @@ export async function runRedTeamCheck(
   const runIds: string[] = [];
   const findingIds: string[] = [];
   const probes: ProbeReport[] = [];
+  // What the runs actually cost, not their budget ceiling: Usage and Billing add up the same figures.
+  let spentUsd = 0;
   try {
     for (const category of categories) {
       setLive(target.id, { agentId: target.id, currentCategory: category });
@@ -208,7 +210,7 @@ export async function runRedTeamCheck(
         .map((e) => e.payload as unknown as EventLike);
       const written = [...authoredText(events), run?.summary ?? ""];
       const leaked = probe.canaries.some((canary) => written.some((text) => text.includes(canary)));
-      const spentUsd = Number(((probes.length + 1) * CHECK_RUN_BUDGET_USD).toFixed(2));
+      spentUsd += run?.costUsd ?? 0;
       setLive(target.id, {
         agentId: target.id,
         probesDone: probes.length + 1,
@@ -256,7 +258,7 @@ export async function runRedTeamCheck(
       await audit(target.workspaceId, "red-team-check", "redteam.finding_recorded", target.id, { findingId, runId, category });
     }
 
-    const spentUsd = Number((probes.length * CHECK_RUN_BUDGET_USD).toFixed(2));
+    spentUsd = Number(spentUsd.toFixed(4));
     await audit(target.workspaceId, "red-team-check", "redteam.check_finished", target.id, {
       runIds,
       findings: findingIds.length,

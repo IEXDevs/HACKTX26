@@ -96,7 +96,7 @@ export class AgentSandbox {
       depth >= 6
         ? []
         : entries
-            .filter((entry) => !entry.name.startsWith(".") || entry.name === ".keep")
+            .filter((entry) => visibleSandboxEntry(entry.name))
             .sort((a, b) => {
               if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
               return a.name.localeCompare(b.name);
@@ -191,100 +191,41 @@ export class AgentSandbox {
     }
   }
 
-  /** Idempotent starter tree so tool calls have something real to operate on. */
-  provision(input: { agentName: string; role: string; summary: string }): void {
+  /** Create an empty sandbox. Demo checkout files from older builds are removed. */
+  provision(): void {
     this.ensure();
+    this.scrubDemoFixtures();
+  }
 
-    const readme = this.resolve("README.md");
-    if (!fs.existsSync(readme)) {
-      this.write(
-        "README.md",
-        [
-          `# ${input.agentName}`,
-          "",
-          `Role: ${input.role}`,
-          "",
-          input.summary,
-          "",
-          "This directory is the agent's own filesystem. Paths outside it are",
-          "unreachable; shell commands are allowlisted and time-boxed.",
-        ].join("\n"),
-      );
+  /** Drop the canned checkout tree if it is still sitting in this sandbox. */
+  scrubDemoFixtures(): void {
+    const dropIf = (relativePath: string, matches: (text: string) => boolean) => {
+      try {
+        const text = this.read(relativePath);
+        if (matches(text)) this.remove(relativePath);
+      } catch {
+        // Missing paths are already clean.
+      }
+    };
+    dropIf("README.md", (text) => text.includes("This directory is the agent's own filesystem"));
+    dropIf("package.json", (text) => text.includes("checkout-sandbox"));
+    dropIf("telemetry/deploy-log.json", (text) => text.includes("9f2c1ab") && text.includes("POOL_MAX"));
+    dropIf("services/checkout/pool.ts", (text) => text.includes("Connection pool for the checkout service"));
+    dropIf("checkout.test.js", (text) => text.includes("pool ceiling is restored to 40"));
+    dropIf("notes/.keep", (text) => text.trim() === "");
+    for (const dir of ["notes", "telemetry", "services/checkout", "services"]) {
+      this.pruneEmpty(dir);
     }
+  }
 
-    if (!fs.existsSync(this.resolve("telemetry/deploy-log.json"))) {
-      this.write(
-        "telemetry/deploy-log.json",
-        JSON.stringify(
-          {
-            deploy: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
-            sha: "9f2c1ab",
-            service: "checkout",
-            changes: [
-              "services/checkout/pool.ts",
-              "services/checkout/retry.ts",
-              "services/checkout/handler.ts",
-            ],
-            config: { POOL_MAX: "10 (was 40)" },
-          },
-          null,
-          2,
-        ),
-      );
+  pruneEmpty(relativePath: string): void {
+    try {
+      const target = this.resolve(relativePath);
+      if (!fs.existsSync(target) || !fs.statSync(target).isDirectory()) return;
+      if (fs.readdirSync(target).length === 0) fs.rmdirSync(target);
+    } catch {
+      // Ignore races and missing folders.
     }
-
-    if (!fs.existsSync(this.resolve("services/checkout/pool.ts"))) {
-      this.write(
-        "services/checkout/pool.ts",
-        [
-          "// Connection pool for the checkout service.",
-          "// NOTE: the ceiling is read at boot; changing it requires a restart.",
-          "export const POOL_MAX = 10;",
-          "export const POOL_TIMEOUT_MS = 3_000;",
-          "",
-        ].join("\n"),
-      );
-    }
-
-    if (!fs.existsSync(this.resolve("package.json"))) {
-      this.write(
-        "package.json",
-        JSON.stringify(
-          {
-            name: "checkout-sandbox",
-            private: true,
-            type: "module",
-            scripts: { test: "node --test checkout.test.js" },
-          },
-          null,
-          2,
-        ),
-      );
-    }
-
-    if (!fs.existsSync(this.resolve("checkout.test.js"))) {
-      this.write(
-        "checkout.test.js",
-        [
-          'import { test } from "node:test";',
-          'import assert from "node:assert/strict";',
-          'import fs from "node:fs";',
-          "",
-          'test("pool ceiling is restored to 40", () => {',
-          '  const src = fs.readFileSync("services/checkout/pool.ts", "utf8");',
-          "  assert.match(src, /POOL_MAX\\s*=\\s*40/);",
-          "});",
-          "",
-          'test("pool timeout is bounded", () => {',
-          '  const src = fs.readFileSync("services/checkout/pool.ts", "utf8");',
-          "  assert.match(src, /POOL_TIMEOUT_MS/);",
-          "});",
-          "",
-        ].join("\n"),
-      );
-    }
-
-    this.write("notes/.keep", "");
   }
 }
 
@@ -303,7 +244,17 @@ export function stripSandboxPrefix(relativePath: string, agentId: string): strin
 }
 
 /** Render a sandbox tree the way fs.list shows it to the model. */
-export function formatTreeListing(tree: SandboxNode, limit = 60): string {
+/** Dotfiles that are part of a real checkout, not secrets or tooling caches. */
+export function visibleSandboxEntry(name: string): boolean {
+  if (name === ".keep" || name === ".github" || name === ".gitignore" || name === ".env.example") return true;
+  if (name === ".git" || name === ".github-checkout.json" || name === ".github-index.json") return false;
+  if (name === ".env" || name.startsWith(".env.")) return false;
+  if (name.startsWith(".astronom") || name.startsWith(".github-")) return false;
+  if (name.startsWith(".")) return false;
+  return true;
+}
+
+export function formatTreeListing(tree: SandboxNode, limit = 200): string {
   const lines: string[] = [];
   const walk = (node: SandboxNode, depth: number) => {
     if (lines.length >= limit) return;

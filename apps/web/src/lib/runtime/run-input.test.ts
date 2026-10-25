@@ -3,12 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAgentGraph } from "../agent-factory";
 import { getDb } from "../db/client";
 import { agents, inputRequests, runCheckpoints, runEvents, runs, workspaces } from "../db/schema";
-import { newId } from "../env";
+import { env, newId } from "../env";
+import * as connectors from "../connectors";
+import * as githubSync from "../github-sync";
 import { homeView } from "../views";
 import { ScriptedGateway } from "./gateway-scripted";
 import { cancelRun, executeRun } from "./orchestrator";
 import { answerInput, listPendingInputs } from "./run-input";
 import { reapStaleRuns, STALE_AFTER_MS } from "./reaper";
+import { AgentSandbox } from "./sandbox";
 import type { ModelChunk, ModelRequest } from "./types";
 
 const question: ModelChunk = { type: "tool_call", call: { id: "ask_course", name: "user.ask", args: { question: "Which course should I include?", reason: "Two courses match the requested name. I checked the available notes." } } };
@@ -135,6 +138,29 @@ describe("pausing for user input", () => {
     await executeRun(runId);
     expect(requests).toHaveLength(1);
     expect((await row(runId)).status).toBe("halted");
+  });
+
+  it("keeps in-progress GitHub files when resuming a run after user input", async () => {
+    vi.spyOn(connectors, "connectedToolkitsFor").mockResolvedValue([]);
+    vi.spyOn(connectors, "refreshContextCatalog").mockResolvedValue("");
+    const sync = vi.spyOn(githubSync, "ensureGithubCheckout").mockImplementation(async ({ sandbox }) => {
+      sandbox.write("repo/work.md", "Remote checkout content.");
+      return { synced: true, skipped: false, files: 1, repo: "example/repo", branch: "main" };
+    });
+    turns = [[question], [{ type: "tool_call", call: { id: "read_work", name: "fs.read", args: { path: "repo/work.md" } } }], [text(final)]];
+    const { runId, workspaceId } = await fixture();
+    await getDb().update(runs).set({ operatorUserId: "test-operator" }).where(eq(runs.id, runId));
+    await executeRun(runId);
+    const root = await row(runId);
+    const sandbox = new AgentSandbox(env.sandboxRoot, workspaceId, root.agentId);
+    sandbox.write("repo/work.md", "In-progress local findings.");
+    const [pending] = await listPendingInputs(workspaceId);
+    answerInput(pending!.id, workspaceId, "CS 314", "operator");
+    await executeRun(runId);
+    expect(sync).toHaveBeenCalledTimes(1);
+    expect(sandbox.read("repo/work.md")).toBe("In-progress local findings.");
+    expect(requests[2]!.messages).toContainEqual(expect.objectContaining({ role: "tool", toolName: "fs.read", content: "In-progress local findings." }));
+    expect((await row(runId)).status).toBe("succeeded");
   });
 
   it("gives a lead the useful findings from a failed delegate so it can solve the gap", async () => {

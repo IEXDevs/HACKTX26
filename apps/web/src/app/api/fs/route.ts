@@ -1,8 +1,12 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
+import { getSessionUser } from "@/lib/auth";
+import { operatorIdFor } from "@/lib/connectors";
 import { getDb } from "@/lib/db/client";
 import { auditLog } from "@/lib/db/schema";
 import { env, newId } from "@/lib/env";
+import { isGithubSandboxPath } from "@/lib/github-repo";
+import { ensureGithubCheckout, pushGithubFile } from "@/lib/github-sync";
 import { getAgent, getWorkspaceUser, requireWorkspace } from "@/lib/queries";
 import { AgentSandbox } from "@/lib/runtime/sandbox";
 
@@ -17,16 +21,10 @@ async function sandboxFor(agentId: string) {
     return { error: Response.json({ error: "Agent not found." }, { status: 404 }) } as const;
   }
   const sandbox = new AgentSandbox(env.sandboxRoot, workspace.id, agent.id);
-  if (!sandbox.exists()) {
-    // Same starter tree the runtime provisions before a run, so the console is
-    // never an empty illusion.
-    sandbox.provision({
-      agentName: agent.name,
-      role: agent.role,
-      summary: agent.summary || agent.instructions.slice(0, 200),
-    });
-  }
-  return { workspace, agent, sandbox } as const;
+  sandbox.provision();
+  const { user } = await getWorkspaceUser();
+  const session = await getSessionUser();
+  return { workspace, agent, sandbox, user, session } as const;
 }
 
 export async function GET(request: NextRequest) {
@@ -44,7 +42,10 @@ export async function GET(request: NextRequest) {
 
   try {
     if (mode === "read") {
-      const content = ctx.sandbox.read(relativePath === "." ? "README.md" : relativePath);
+      if (!relativePath || relativePath === ".") {
+        return Response.json({ error: "Pick a file to read." }, { status: 400 });
+      }
+      const content = ctx.sandbox.read(relativePath);
       return Response.json({
         agentId,
         path: relativePath,
@@ -55,6 +56,11 @@ export async function GET(request: NextRequest) {
     }
 
     if (mode === "tree") {
+      await ensureGithubCheckout({
+        sandbox: ctx.sandbox,
+        workspaceId: ctx.workspace.id,
+        userId: operatorIdFor(ctx.session?.id, ctx.user?.id),
+      }).catch(() => undefined);
       return Response.json({
         agentId,
         tree: ctx.sandbox.tree(),
@@ -91,15 +97,23 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = ctx.sandbox.write(parsed.data.path, parsed.data.content);
-    const { user } = await getWorkspaceUser();
+    let github: { ok: boolean; preview: string; error?: string } | null = null;
+    if (isGithubSandboxPath(parsed.data.path)) {
+      github = await pushGithubFile({
+        workspaceId: ctx.workspace.id,
+        userId: operatorIdFor(ctx.session?.id, ctx.user?.id),
+        sandboxPath: parsed.data.path,
+        content: parsed.data.content,
+      }).catch((error: Error) => ({ ok: false, preview: "", error: error.message }));
+    }
     await getDb().insert(auditLog).values({
       id: newId("aud"),
       workspaceId: ctx.workspace.id,
-      actor: user?.email ?? "operator@local",
+      actor: ctx.user?.email ?? "operator@local",
       action: "sandbox.write",
       targetType: "agent",
       targetId: ctx.agent.id,
-      detail: { path: parsed.data.path, bytes: result.bytes },
+      detail: { path: parsed.data.path, bytes: result.bytes, github: github?.preview ?? null },
       at: new Date(),
     });
     return Response.json({
@@ -107,6 +121,7 @@ export async function POST(request: NextRequest) {
       path: parsed.data.path,
       bytes: result.bytes,
       tree: ctx.sandbox.tree(),
+      github,
     });
   } catch (error) {
     return Response.json({ error: (error as Error).message }, { status: 400 });

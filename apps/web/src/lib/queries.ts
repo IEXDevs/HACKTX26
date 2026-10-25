@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { RunEvent, RunEventPayload } from "@agent-os/core";
+import { ensureBootstrapped } from "./bootstrap";
 import { getDb } from "@/lib/db/client";
 import {
   agents,
@@ -38,6 +39,10 @@ export async function getWorkspace(slug = DEFAULT_WORKSPACE_SLUG) {
 }
 
 export async function requireWorkspace(slug = DEFAULT_WORKSPACE_SLUG) {
+  // Pages and layouts render concurrently in the App Router, so a page's
+  // first query can run before the layout's bootstrap seed finishes. Gate
+  // here (shared, idempotent) so a cold database never 500s the first hit.
+  await ensureBootstrapped();
   const workspace = await getWorkspace(slug);
   if (!workspace) {
     throw new Error(

@@ -41,11 +41,12 @@ describe("red-team specialists", () => {
     const steps = scriptFor("general", "Vendor Review", "orchestrator");
     expect(steps[0]?.tool?.name).toBe("agent.delegate");
     expect(steps[0]?.tool?.args.agent).toBe("Research Grunt");
-    expect(gruntTools(["kb.search", "secret.use", "shell.exec", "fs.write", "agent.delegate"])).toEqual([
-      "kb.search",
-      "fs.write",
-    ]);
-    expect(gruntTools(["secret.use"], ["secret.use"])).toEqual(["kb.search", "fs.read", "context.read"]);
+    const parent = ["kb.search", "secret.use", "shell.exec", "fs.write", "agent.delegate"];
+    // Unless the parent names what the task needs, a grunt only reads.
+    expect(gruntTools(parent)).toEqual(["kb.search"]);
+    expect(gruntTools(parent, ["fs.write", "shell.exec"])).toEqual(["fs.write"]);
+    // Never a tool the parent lacks, not even a read-only default.
+    expect(gruntTools(["secret.use"], ["secret.use"])).toEqual([]);
   });
 
   it("prepends a deploy step when the red team is asked to ship", () => {

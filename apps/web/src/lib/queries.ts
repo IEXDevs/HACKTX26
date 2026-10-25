@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
 import type { RunEvent, RunEventPayload } from "@agent-os/core";
 import { getSessionUser } from "./auth";
 import { ensureBootstrapped } from "./bootstrap";
@@ -189,7 +189,12 @@ export interface RunListRow extends RunRow {
 
 export async function listRuns(
   workspaceId: string,
-  opts?: { limit?: number; agentId?: string },
+  opts?: {
+    limit?: number;
+    agentId?: string;
+    /** Leave out retests and security-check runs, which carry synthetic test data. */
+    excludeTests?: boolean;
+  },
 ): Promise<RunListRow[]> {
   const db = getDb();
   const rows = await db
@@ -201,9 +206,11 @@ export async function listRuns(
     .from(runs)
     .leftJoin(agents, eq(agents.id, runs.agentId))
     .where(
-      opts?.agentId
-        ? and(eq(runs.workspaceId, workspaceId), eq(runs.agentId, opts.agentId))
-        : eq(runs.workspaceId, workspaceId),
+      and(
+        eq(runs.workspaceId, workspaceId),
+        opts?.agentId ? eq(runs.agentId, opts.agentId) : undefined,
+        opts?.excludeTests ? ne(runs.purpose, "retest") : undefined,
+      ),
     )
     .orderBy(desc(runs.startedAt))
     .limit(opts?.limit ?? 50);

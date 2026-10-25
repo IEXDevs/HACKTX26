@@ -149,6 +149,7 @@ export function AgentConsole({
   initialTree,
   root,
   toolCalls,
+  toolCallRunId,
   recentRun,
   budgets,
 }: {
@@ -162,6 +163,7 @@ export function AgentConsole({
   initialTree: ConsoleNode;
   root: string;
   toolCalls: ConsoleToolCall[];
+  toolCallRunId: string | null;
   recentRun: ConsoleRun | null;
   budgets: { runUsd: number | null; dayUsd: number | null; spentTodayUsd: number };
 }) {
@@ -563,6 +565,15 @@ export function AgentConsole({
                 working inside this sandbox.
               </p>
             ) : (
+              <>
+                {toolCallRunId ? (
+                  <p className="mono px-3 pt-2 text-[8.5px] text-ink-4">
+                    from{" "}
+                    <Link href={`/runs/${toolCallRunId}`} className="text-accent hover:text-accent/80">
+                      {toolCallRunId}
+                    </Link>
+                  </p>
+                ) : null}
               <ul className="max-h-[260px] divide-y divide-line overflow-y-auto">
                 {toolCalls.map((call) => (
                   <li key={call.id} className="px-3 py-2">
@@ -594,6 +605,7 @@ export function AgentConsole({
                   </li>
                 ))}
               </ul>
+              </>
             )
           ) : (
             <ul className="max-h-[260px] divide-y divide-line overflow-y-auto">

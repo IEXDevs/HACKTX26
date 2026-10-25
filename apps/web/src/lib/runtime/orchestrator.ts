@@ -60,6 +60,9 @@ import {
   type RedTeamSpecialist,
   type Scenario,
 } from "./scripts";
+import { insertHelperAgent, reactivateHelper } from "./helper-agents";
+import { AgentLifecycle, type AgentOutcome } from "./lifecycle";
+import { HEARTBEAT_MS, liveRuns } from "./reaper";
 import { AgentSandbox } from "./sandbox";
 import { fileChildTemplateProposal } from "./template-proposals";
 import { ENGINE_TOOLS, executeTool, type ToolContext } from "./tools";
@@ -81,6 +84,8 @@ interface RunnerOptions {
   budgetUsd?: number;
   mode?: "scripted" | "live";
   triggerId?: string | null;
+  /** "retest" for feedback-loop retests (lib/loop). */
+  purpose?: "standard" | "retest";
 }
 
 const DATA_CLASS_RANK: Record<DataClass, number> = {
@@ -177,7 +182,9 @@ export async function createRun(options: RunnerOptions): Promise<string> {
     inputTokens: 0,
     outputTokens: 0,
     mode,
+    purpose: options.purpose ?? "standard",
     startedAt: now,
+    heartbeatAt: now,
     eventCount: 0,
   });
 
@@ -215,7 +222,20 @@ export async function executeRun(runId: string): Promise<void> {
 
   const logger = await RunLogger.open(runId);
   const engine = new RunEngine(run, workspace, agentRows, blocks, logger);
-  await engine.execute();
+
+  // The heartbeat tells the reaper this process is still running the run.
+  liveRuns().add(runId);
+  const beat = () =>
+    db.update(runs).set({ heartbeatAt: new Date() }).where(eq(runs.id, runId)).catch(() => undefined);
+  await beat();
+  const timer = setInterval(() => void beat(), HEARTBEAT_MS);
+  timer.unref?.();
+  try {
+    await engine.execute();
+  } finally {
+    clearInterval(timer);
+    liveRuns().delete(runId);
+  }
 }
 
 class RunEngine {
@@ -223,6 +243,10 @@ class RunEngine {
   readonly #runKey: string;
   readonly #scenario: Scenario;
   readonly #spawned = new Set<string>();
+  /** Who has work left in this run. See lifecycle.ts. */
+  readonly #lifecycle = new AgentLifecycle();
+  /** Helpers created during this run; they retire once their work is done. */
+  readonly #spawnedGrunts = new Set<string>();
   readonly #grantedHighRisk = new Set<string>();
   readonly #budgetWrapUp = new Set<string>();
   readonly #downgraded = new Set<string>();
@@ -304,6 +328,7 @@ class RunEngine {
           ? `Halted by the run budget ceiling ($${this.run.budgetUsd.toFixed(2)}).`
           : null;
 
+      await this.#endAll(status === "succeeded" ? "done" : "failed");
       await this.logger.emit(
         {
           type: "run.completed",
@@ -320,6 +345,7 @@ class RunEngine {
       const message = (error as Error).message;
       const reason = redactSecrets(message).slice(0, 900);
       await this.logger.emit({ type: "log", level: "error", message: reason }, this.run.agentId);
+      await this.#endAll("failed").catch(() => undefined);
       await this.logger.emit({
         type: "run.completed",
         status: "failed",
@@ -334,7 +360,52 @@ class RunEngine {
 
   /* ------------------------------------------------------------------ agent */
 
+  /**
+   * Run one agent. Whatever happens inside, its lifetime ends here: once it
+   * and everything it delegated to have no work left, it terminates.
+   */
   async #runAgent(
+    agent: AgentRow,
+    taskId: string | null,
+    depth: number,
+    parentTask: string | null,
+    delegatorId: string | null = null,
+  ): Promise<AgentResult> {
+    this.#lifecycle.start(agent.id, delegatorId);
+    let outcome: AgentOutcome = "failed";
+    try {
+      const result = await this.#runAgentSteps(agent, taskId, depth, parentTask);
+      outcome = result.status === "succeeded" ? "done" : "failed";
+      return result;
+    } finally {
+      await this.#terminate(this.#lifecycle.finish(agent.id, outcome));
+    }
+  }
+
+  /** Report terminated agents and retire helpers this run created. */
+  async #terminate(ended: string[]): Promise<void> {
+    for (const id of ended) {
+      const row = this.agentRows.find((a) => a.id === id);
+      if (!row || !this.#spawned.has(id)) continue;
+      const done = this.#lifecycle.outcome(id) === "done";
+      await this.logger.emit({ type: "agent.status", agentId: id, status: done ? "done" : "failed" }, id);
+      if (this.#spawnedGrunts.has(id) && row.status !== "archived") {
+        await getDb().update(agents).set({ status: "archived", updatedAt: new Date() }).where(eq(agents.id, id));
+        row.status = "archived";
+        await this.logger.emit(
+          { type: "log", level: "info", message: `${row.name} has no work left and stopped. It will come back if it is needed again.`, agentId: id },
+          id,
+        );
+      }
+    }
+  }
+
+  /** At run end, nothing is left working: terminate whatever is still open. */
+  async #endAll(outcome: AgentOutcome): Promise<void> {
+    await this.#terminate(this.#lifecycle.terminateAll(outcome));
+  }
+
+  async #runAgentSteps(
     agent: AgentRow,
     taskId: string | null,
     depth: number,
@@ -435,10 +506,6 @@ class RunEngine {
 
     for (let step = 0; step < agent.maxSteps; step++) {
       if (this.#isHalted()) {
-        await this.logger.emit(
-          { type: "agent.status", agentId: agent.id, status: "failed" },
-          agent.id,
-        );
         return { status: "halted", summary: "Budget ceiling reached mid-task." };
       }
 
@@ -528,10 +595,6 @@ class RunEngine {
           limitUsd: budget.limitUsd,
         });
         await this.#setStatus("halted", budget.reason);
-        await this.logger.emit(
-          { type: "agent.status", agentId: agent.id, status: "failed" },
-          agent.id,
-        );
         return { status: "halted", summary: "Halted by the run budget ceiling." };
       }
       if (budget.kind === "warn") {
@@ -652,11 +715,6 @@ class RunEngine {
       }
     }
 
-    await this.logger.emit(
-      { type: "agent.status", agentId: agent.id, status: "done" },
-      agent.id,
-    );
-
     return { status: "succeeded", summary: lastText || `${agent.name} finished.` };
   }
 
@@ -763,6 +821,18 @@ class RunEngine {
         call.name,
         Date.now() - started,
         "Security agents never receive production credentials. Request denied by org policy; use the fixture.",
+      );
+    }
+
+    // Retest runs carry synthetic test data with canary secrets only. They may
+    // not reach real credentials or write into memory other runs read.
+    if (this.run.purpose === "retest" && (call.name === "secret.use" || call.name === "memory.write")) {
+      return this.#toolFailure(
+        agent,
+        call.id,
+        call.name,
+        Date.now() - started,
+        `Retest runs use synthetic test data, so ${call.name} is off for this run.`,
       );
     }
 
@@ -1026,6 +1096,11 @@ class RunEngine {
     if (child.id === agent.id) {
       return { ok: false, preview: "", error: "An agent cannot delegate to itself." };
     }
+    if (child.status === "archived" && child.parentAgentId === agent.id) {
+      // A helper that stopped earlier comes back for new work.
+      const revived = await reactivateHelper(child);
+      Object.assign(child, revived);
+    }
 
     const childTaskId = newId("tsk");
     await this.logger.emit(
@@ -1057,7 +1132,7 @@ class RunEngine {
       child.id,
     );
 
-    const result = await this.#runAgent(child, childTaskId, depth + 1, task);
+    const result = await this.#runAgent(child, childTaskId, depth + 1, task, agent.id);
 
     await this.logger.emit(
       {
@@ -1095,9 +1170,7 @@ class RunEngine {
     const slug = slugTaken ? `${spec.slug}-${id.slice(4, 8)}` : spec.slug;
     const grants = grantsForSpecialist(spec.tools);
 
-    const [created] = await getDb()
-      .insert(agents)
-      .values({
+    const { row: created, created: isNew } = await insertHelperAgent({
         id,
         workspaceId: parent.workspaceId,
         name: spec.name,
@@ -1122,12 +1195,11 @@ class RunEngine {
         templateId: parent.templateId,
         createdAt: now,
         updatedAt: now,
-      })
-      .returning();
+      });
 
-    if (!created) throw new Error(`Failed to create specialist ${spec.name}.`);
-
-    this.agentRows.push(created);
+    if (!this.agentRows.some((row) => row.id === created.id)) this.agentRows.push(created);
+    // Another run created it a moment ago: reuse it.
+    if (!isNew) return created;
 
     await this.logger.emit(
       {
@@ -1175,9 +1247,7 @@ class RunEngine {
       : undefined;
     const tools = gruntTools(parent.allowedTools, requested);
 
-    const [created] = await getDb()
-      .insert(agents)
-      .values({
+    const { row: created, created: isNew } = await insertHelperAgent({
         id,
         workspaceId: parent.workspaceId,
         name: cleanName,
@@ -1207,11 +1277,11 @@ class RunEngine {
         templateId: parent.templateId,
         createdAt: now,
         updatedAt: now,
-      })
-      .returning();
+      });
 
-    if (!created) throw new Error(`Failed to create grunt ${cleanName}.`);
-    this.agentRows.push(created);
+    this.#spawnedGrunts.add(created.id);
+    if (!this.agentRows.some((row) => row.id === created.id)) this.agentRows.push(created);
+    if (!isNew) return created;
     await this.logger.emit(
       {
         type: "log",
@@ -1332,6 +1402,31 @@ class RunEngine {
       agent.id,
     );
 
+    // A finding the red-team lead reports itself is accepted by that lead: it
+    // opens a case and sends it up the chain of command. Probers' findings
+    // stay open until the lead or a person accepts them.
+    const parent = agent.parentAgentId
+      ? this.agentRows.find((row) => row.id === agent.parentAgentId)
+      : undefined;
+    const isLead = agent.role === "security" && parent?.role !== "security";
+    if (isLead && targetAgentId && this.run.purpose !== "retest") {
+      try {
+        const loop = await import("@/lib/loop/cases");
+        const opened = await loop.openCase(findingId, { kind: "agent", agentId: agent.id });
+        await loop.elevateCase(opened.id);
+      } catch (error) {
+        await this.logger.emit(
+          {
+            type: "log",
+            level: "warn",
+            message: `finding ${findingId} recorded, but its case did not open: ${redactSecrets((error as Error).message)}`,
+            agentId: agent.id,
+          },
+          agent.id,
+        );
+      }
+    }
+
     return { ok: true, preview: `finding ${findingId} recorded at ${severity} severity` };
   }
 
@@ -1446,6 +1541,17 @@ class RunEngine {
         .update(triggers)
         .set({ lastFiredAt: endedAt })
         .where(eq(triggers.id, this.run.triggerId));
+    }
+
+    if (this.run.purpose === "retest") {
+      // Imported lazily to keep the loop module out of the engine's import graph.
+      try {
+        const { noteRunFinished } = await import("@/lib/loop/cases");
+        await noteRunFinished(this.run.id);
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error(`[run ${this.run.id}] retest check failed`, error);
+      }
     }
   }
 }

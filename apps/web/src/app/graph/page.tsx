@@ -22,7 +22,8 @@ export default async function GraphPage() {
     listTaskLog(wsId, 60),
   ]);
 
-  const graphAgents: GraphAgent[] = agents.map((agent) => {
+  // Retired helpers and archived agents have no work; keep them off the graph.
+  const graphAgents: GraphAgent[] = agents.filter((agent) => agent.status !== "archived").map((agent) => {
     const latest = runs.find((run) => run.agentId === agent.id);
     const runBudget = policies.find(
       (policy) => policy.agentId === agent.id && policy.period === "run",

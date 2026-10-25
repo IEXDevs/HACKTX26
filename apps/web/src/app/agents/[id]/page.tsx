@@ -31,7 +31,7 @@ export default async function AgentPage({ params }: { params: Promise<{ id: stri
         canSpawnSubagents: agent.canSpawnSubagents,
         proposeTemplates: agent.proposeTemplates,
         parent: parent ? { id: parent.id, name: parent.name } : null,
-        team: children.map((child) => ({
+        team: children.filter((child) => child.status !== "archived").map((child) => ({
           id: child.id,
           name: child.name,
           summary: child.summary,

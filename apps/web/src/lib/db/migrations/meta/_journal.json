@@ -29,6 +29,20 @@
       "when": 1792882900000,
       "tag": "0003_agent_ranks",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1792883000000,
+      "tag": "0004_finding_loop",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1792883100000,
+      "tag": "0005_run_heartbeat",
+      "breakpoints": true
     }
   ]
 }

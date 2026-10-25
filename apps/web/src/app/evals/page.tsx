@@ -50,7 +50,7 @@ export default async function EvalsPage() {
       }}
       healable={
         findings.filter(
-          (f) => f.status === "open" && (f.severity === "high" || f.severity === "critical"),
+          (f) => (f.status === "open" || f.status === "accepted") && (f.severity === "high" || f.severity === "critical"),
         ).length
       }
     />

@@ -449,7 +449,8 @@ export interface WorkflowView {
 function teamOf(all: AgentRow[], rootId: string): AgentRow[] {
   const found: AgentRow[] = [];
   const walk = (id: string) => {
-    for (const child of all.filter((a) => a.parentAgentId === id)) {
+    // Retired helpers are not part of the team until they get work again.
+    for (const child of all.filter((a) => a.parentAgentId === id && a.status !== "archived")) {
       found.push(child);
       walk(child.id);
     }
@@ -500,7 +501,7 @@ export async function workflowView(
     job: agent.summary,
     instructions: agent.instructions,
     tools: agent.allowedTools,
-    children: agents.filter((a) => a.parentAgentId === agent.id).map(node),
+    children: agents.filter((a) => a.parentAgentId === agent.id && a.status !== "archived").map(node),
   });
   return {
     id: root.id,

@@ -351,7 +351,8 @@ interface RunSpec {
   events: RunEvent[];
   summary?: string;
   failureReason?: string;
-  mode: "scripted";
+  /** Seeded runs are recorded fixtures replayed into the log, not engine executions. */
+  mode: "replay";
 }
 
 const RUN_SPECS: RunSpec[] = [
@@ -366,7 +367,7 @@ const RUN_SPECS: RunSpec[] = [
     events: incidentEvents,
     summary:
       "POOL_MAX regression in deploy 9f2c1ab. Roll-forward plan verified against 214 checkout tests; customer comms drafted.",
-    mode: "scripted",
+    mode: "replay",
   },
   {
     id: RUN_REDTEAM,
@@ -378,7 +379,7 @@ const RUN_SPECS: RunSpec[] = [
     startedAt: redteamStart,
     events: redteamEvents,
     summary: "3 findings (2 high, 1 medium). No credential left the workspace; one escalation path is exploitable.",
-    mode: "scripted",
+    mode: "replay",
   },
   {
     id: RUN_REVIEW,
@@ -390,7 +391,7 @@ const RUN_SPECS: RunSpec[] = [
     startedAt: reviewStart,
     events: reviewEvents,
     summary: "Request changes: refresh-token TTL 14d → 90d without a migration note. Merge denied by policy.",
-    mode: "scripted",
+    mode: "replay",
   },
   {
     id: RUN_CONTRACT,
@@ -401,7 +402,7 @@ const RUN_SPECS: RunSpec[] = [
     budgetUsd: 1.5,
     startedAt: contractStart,
     events: contractEvents,
-    mode: "scripted",
+    mode: "replay",
   },
   {
     id: RUN_BACKFILL,
@@ -413,7 +414,7 @@ const RUN_SPECS: RunSpec[] = [
     startedAt: backfillStart,
     events: backfillEvents,
     failureReason: "Halted by run budget ceiling ($0.40) at 20% completion.",
-    mode: "scripted",
+    mode: "replay",
   },
 ];
 

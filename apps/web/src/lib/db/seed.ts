@@ -429,6 +429,49 @@ const RUN_SPECS: RunSpec[] = [
 /* Seed                                                                       */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Templates added after the first catalog shipped. They are platform config,
+ * so boot inserts any that are missing on an existing database too.
+ */
+export const DEALERSHIP_TEMPLATE_ID = "tpl_dealership_receptionist";
+
+const LATER_TEMPLATES: Array<typeof templates.$inferInsert> = [
+  {
+    id: DEALERSHIP_TEMPLATE_ID,
+    key: "dealership-after-hours-receptionist",
+    name: "After-hours dealership receptionist",
+    category: "Customer",
+    description: "Answers after-hours calls for a car dealership and books appointments on the shared calendar.",
+    outcome: "A booked 30-minute appointment, confirmed back to the caller",
+    graph: {
+      orchestrator: {
+        name: "After-hours receptionist",
+        instructions: [
+          "You answer after-hours phone calls for a car dealership.",
+          "- Greet the caller, then collect their name, a callback phone number, and the reason for the visit: a test drive, service, or a sales question.",
+          "- Business hours are Monday to Saturday, 9 AM to 6 PM. Appointments are 30 minutes and must start and end inside those hours.",
+          "- Check Google Calendar for open times before you offer any. Offer two or three options, nearest first.",
+          "- Book the time the caller picks as a 30-minute appointment, then confirm the day, time, name, and phone number back to them.",
+          "- Never quote prices, discounts, trade-in values, financing terms, or availability of a specific vehicle. Say the team will cover that at the visit.",
+          "- If you cannot book, take a message with the caller's name, number, and reason, and say the team will call back during business hours.",
+        ].join("\n"),
+        complexity: "standard",
+      },
+      workers: [],
+    },
+    requiredConnectors: ["googlecalendar"],
+    tags: ["voice", "scheduling", "automotive"],
+    estimatedMinutes: 3,
+    builtin: true,
+    createdAt: new Date(now),
+  },
+];
+
+/** Insert platform templates a database does not have yet. Safe to run on every boot. */
+export async function ensurePlatformTemplates(): Promise<void> {
+  await getDb().insert(templates).values(LATER_TEMPLATES).onConflictDoNothing();
+}
+
 /** The red and blue team leads are platform infrastructure; every other seeded agent is sample data. */
 const TEAM_LEAD_IDS = new Set(["agt_red_team", "agt_blue_team"]);
 
@@ -919,6 +962,7 @@ async function seed(demo: boolean): Promise<void> {
       createdAt: new Date(now - 62 * 24 * HOUR),
     },
   ]);
+  await ensurePlatformTemplates();
 
   await seedPopularCatalog();
 

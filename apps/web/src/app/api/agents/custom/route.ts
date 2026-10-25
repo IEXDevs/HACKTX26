@@ -42,6 +42,7 @@ export async function POST(request: NextRequest) {
       workflowMode: parsed.data.workflowMode,
       canSpawnSubagents: canSpawnSubagents ?? true,
       proposeTemplates: proposeTemplates ?? false,
+      apps: draft.apps ?? [],
     },
     spec: {
       orchestrator: {
@@ -52,6 +53,7 @@ export async function POST(request: NextRequest) {
         goal: draft.goal,
       },
       workers: draft.workers,
+      apps: draft.apps,
     },
   });
   if (!result.ok) return Response.json(result, { status: 409 });

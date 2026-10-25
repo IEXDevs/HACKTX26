@@ -70,6 +70,10 @@ export const env = {
   serpapi: {
     apiKey: process.env.SERPAPI_API_KEY ?? "",
   },
+  /** Server only. The browser gets short-lived Live tokens, never this key. */
+  gemini: {
+    apiKey: process.env.GEMINI_API_KEY ?? "",
+  },
 
   isProduction: process.env.NODE_ENV === "production",
 } as const;
@@ -90,6 +94,11 @@ export function composioEnabled(): boolean {
 
 export function serpApiEnabled(): boolean {
   return Boolean(env.serpapi.apiKey);
+}
+
+/** Astro voice, agent voice lines, and workflow videos. */
+export function geminiEnabled(): boolean {
+  return Boolean(env.gemini.apiKey);
 }
 
 /* -------------------------------------------------------------------------- */

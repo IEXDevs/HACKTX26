@@ -1230,9 +1230,10 @@ class RunEngine {
     if (child.id === agent.id) {
       return { ok: false, preview: "", error: "An agent cannot delegate to itself." };
     }
-    const granted = parseConnectorList(call.args.connectors).filter((slug) =>
-      this.#connectorsFor(agent).includes(slug),
-    );
+    // Without a connectors argument, a child keeps the apps it was built with, still within the parent's.
+    const requestedApps =
+      call.args.connectors === undefined ? child.allowedConnectors : parseConnectorList(call.args.connectors);
+    const granted = requestedApps.filter((slug) => this.#connectorsFor(agent).includes(slug));
     this.#runConnectors.set(child.id, granted);
     child.allowedConnectors = granted;
     await persistConnectorGrants(this.run.workspaceId, child.id, granted, agent.id);

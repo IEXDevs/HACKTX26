@@ -1,6 +1,6 @@
 import { getDb } from "./db/client";
 import { workspaces } from "./db/schema";
-import { seedPlatform } from "./db/seed";
+import { ensurePlatformTemplates, seedPlatform } from "./db/seed";
 
 let bootstrapPromise: Promise<void> | null = null;
 
@@ -19,6 +19,9 @@ export function ensureBootstrapped(): Promise<void> {
       const existing = await db.select({ id: workspaces.id }).from(workspaces).limit(1);
       if (existing.length === 0) {
         await seedPlatform();
+      } else {
+        // Templates are platform config: an older database still gets new ones.
+        await ensurePlatformTemplates();
       }
     })().catch((error) => {
       bootstrapPromise = null;

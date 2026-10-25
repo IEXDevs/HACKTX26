@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseBuilderReply } from "./builder-parse";
+import { DraftSchema, parseBuilderReply, parseSearchRequest } from "./builder-parse";
 
 const draft = {
   name: "Support Lead",
@@ -43,5 +43,35 @@ describe("parseBuilderReply", () => {
 
   it("falls back to plain text when there is no JSON", () => {
     expect(parseBuilderReply("What should it do?")).toEqual({ reply: "What should it do?", draft: null });
+  });
+});
+
+describe("draft apps", () => {
+  it("defaults to no apps", () => {
+    expect(parseBuilderReply(JSON.stringify({ reply: "Ok.", draft })).draft?.apps).toEqual([]);
+  });
+
+  it("normalizes slugs, drops duplicates, and keeps at most six", () => {
+    const apps = [" GoogleCalendar ", "gmail", "googlecalendar", "", "slack", "notion", "linear", "jira", "github"];
+    expect(DraftSchema.parse({ ...draft, apps }).apps).toEqual(["googlecalendar", "gmail", "slack", "notion", "linear", "jira"]);
+  });
+
+  it("drops a bad apps value without losing the draft", () => {
+    const result = parseBuilderReply(JSON.stringify({ reply: "Ok.", draft: { ...draft, apps: "gmail" } }));
+    expect(result.draft?.name).toBe("Support Lead");
+    expect(result.draft?.apps).toEqual([]);
+  });
+});
+
+describe("parseSearchRequest", () => {
+  it("reads a search request", () => {
+    expect(parseSearchRequest('{"search": "  composio google calendar  "}')).toBe("composio google calendar");
+  });
+
+  it("ignores replies, drafts, and empty queries", () => {
+    expect(parseSearchRequest('{"reply":"Hi.","draft":null}')).toBeNull();
+    expect(parseSearchRequest(JSON.stringify({ search: "gmail api", reply: "Ok.", draft }))).toBeNull();
+    expect(parseSearchRequest('{"search": " "}')).toBeNull();
+    expect(parseSearchRequest("plain text")).toBeNull();
   });
 });

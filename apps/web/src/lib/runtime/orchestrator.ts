@@ -89,6 +89,7 @@ import {
   isBlueLead,
   isProbeLead,
 } from "./capabilities";
+import { clampToParent, grantsFromParent } from "./attenuate";
 import { insertHelperAgent, reactivateHelper } from "./helper-agents";
 import { AgentLifecycle, type AgentOutcome } from "./lifecycle";
 import { cancelledRuns, HEARTBEAT_MS, liveRuns } from "./reaper";
@@ -1492,7 +1493,8 @@ class RunEngine {
           complexityForTask(task),
           this.workspace.deniedModelIds,
         ),
-        grants: grantsForSpecialist(tools),
+        // Cut from the parent's grants, so the grunt never holds more than the parent.
+        grants: grantsFromParent(parent, tools),
         allowedTools: tools,
         allowedConnectors: granted,
         complexity: complexityForTask(task),
@@ -1505,8 +1507,12 @@ class RunEngine {
         updatedAt: now,
       });
 
+    // A grunt reused from an earlier run may hold more than its parent does now. Hold it to the parent for this run.
+    if (!isNew) Object.assign(created, clampToParent(created, parent));
     this.#spawnedGrunts.add(created.id);
-    if (!this.agentRows.some((row) => row.id === created.id)) this.agentRows.push(created);
+    const known = this.agentRows.find((row) => row.id === created.id);
+    if (known) Object.assign(known, { allowedTools: created.allowedTools, grants: created.grants });
+    else this.agentRows.push(created);
     this.#runConnectors.set(created.id, granted);
     await persistConnectorGrants(this.run.workspaceId, created.id, granted, parent.id);
     if (!isNew) return created;

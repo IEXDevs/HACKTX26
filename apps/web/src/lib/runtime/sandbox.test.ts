@@ -54,3 +54,15 @@ describe("sandbox listing", () => {
     expect(tree.children?.some((child) => child.name === "README.md")).toBe(true);
   });
 });
+
+describe("a new agent's sandbox", () => {
+  it("holds only its README and an empty notes folder, no sample material", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sandbox-test-"));
+    tmpRoots.push(root);
+    const box = new AgentSandbox(root, "ws_test", "agt_test");
+    box.provision({ agentName: "Resume Reviewer", role: "orchestrator", summary: "Reviews resumes." });
+    const dir = path.join(root, "ws_test", "agt_test");
+    const files = fs.readdirSync(dir, { recursive: true }).map(String).map((f) => f.replace(/\\/g, "/")).sort();
+    expect(files).toEqual(["README.md", "notes", "notes/.keep"]);
+  });
+});

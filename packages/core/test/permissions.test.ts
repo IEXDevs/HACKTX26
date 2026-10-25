@@ -79,6 +79,31 @@ describe("permission evaluation", () => {
     expect(outside.effect).not.toBe("allow");
   });
 
+  it("keeps a grant's path and host limits even where the workspace allows the action", () => {
+    const effects = resolveActionEffects({});
+    const agentGrants = [
+      { resource: "fs.write", scopes: ["write" as const], constraints: { paths: ["reports/"] } },
+      { resource: "http.fetch", scopes: ["net" as const, "read" as const], constraints: { hosts: ["api.example.com"] } },
+    ];
+    const write = (path: string) =>
+      evaluatePermission({ resource: "fs.write", scopes: ["write"], risk: "medium", path, agentGrants }, DEFAULT_POLICY_RULES, effects);
+    expect(write("reports/q3.md").effect).toBe("allow_with_log");
+    expect(write("src/auth.ts")).toMatchObject({ effect: "deny" });
+    const fetch = (host: string) =>
+      evaluatePermission(
+        { resource: "http.fetch", scopes: ["net", "read"], risk: "medium", host, agentGrants },
+        DEFAULT_POLICY_RULES,
+        effects,
+      );
+    expect(fetch("api.example.com").effect).toBe("allow_with_log");
+    expect(fetch("evil.example.net").effect).toBe("deny");
+    // No grant for the action at all: the workspace setting decides, as before.
+    expect(
+      evaluatePermission({ resource: "fs.read", scopes: ["read"], risk: "low", path: "src/a.ts", agentGrants }, DEFAULT_POLICY_RULES, effects)
+        .effect,
+    ).toBe("allow");
+  });
+
   it("defaults to approval when nothing matches", () => {
     const d = evaluatePermission(
       { resource: "unknown.tool", scopes: ["read"], risk: "medium" },

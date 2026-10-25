@@ -191,7 +191,11 @@ export class AgentSandbox {
     }
   }
 
-  /** Idempotent starter tree so tool calls have something real to operate on. */
+  /**
+   * Idempotent starter tree: the agent's README and an empty notes folder.
+   * Nothing else. Sample files here would look like the user's own material,
+   * and an agent would work on them instead of saying what it could not find.
+   */
   provision(input: { agentName: string; role: string; summary: string }): void {
     this.ensure();
 
@@ -208,78 +212,6 @@ export class AgentSandbox {
           "",
           "This directory is the agent's own filesystem. Paths outside it are",
           "unreachable; shell commands are allowlisted and time-boxed.",
-        ].join("\n"),
-      );
-    }
-
-    if (!fs.existsSync(this.resolve("telemetry/deploy-log.json"))) {
-      this.write(
-        "telemetry/deploy-log.json",
-        JSON.stringify(
-          {
-            deploy: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
-            sha: "9f2c1ab",
-            service: "checkout",
-            changes: [
-              "services/checkout/pool.ts",
-              "services/checkout/retry.ts",
-              "services/checkout/handler.ts",
-            ],
-            config: { POOL_MAX: "10 (was 40)" },
-          },
-          null,
-          2,
-        ),
-      );
-    }
-
-    if (!fs.existsSync(this.resolve("services/checkout/pool.ts"))) {
-      this.write(
-        "services/checkout/pool.ts",
-        [
-          "// Connection pool for the checkout service.",
-          "// NOTE: the ceiling is read at boot; changing it requires a restart.",
-          "export const POOL_MAX = 10;",
-          "export const POOL_TIMEOUT_MS = 3_000;",
-          "",
-        ].join("\n"),
-      );
-    }
-
-    if (!fs.existsSync(this.resolve("package.json"))) {
-      this.write(
-        "package.json",
-        JSON.stringify(
-          {
-            name: "checkout-sandbox",
-            private: true,
-            type: "module",
-            scripts: { test: "node --test checkout.test.js" },
-          },
-          null,
-          2,
-        ),
-      );
-    }
-
-    if (!fs.existsSync(this.resolve("checkout.test.js"))) {
-      this.write(
-        "checkout.test.js",
-        [
-          'import { test } from "node:test";',
-          'import assert from "node:assert/strict";',
-          'import fs from "node:fs";',
-          "",
-          'test("pool ceiling is restored to 40", () => {',
-          '  const src = fs.readFileSync("services/checkout/pool.ts", "utf8");',
-          "  assert.match(src, /POOL_MAX\\s*=\\s*40/);",
-          "});",
-          "",
-          'test("pool timeout is bounded", () => {',
-          '  const src = fs.readFileSync("services/checkout/pool.ts", "utf8");',
-          "  assert.match(src, /POOL_TIMEOUT_MS/);",
-          "});",
-          "",
         ].join("\n"),
       );
     }

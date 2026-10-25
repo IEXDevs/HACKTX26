@@ -1911,3 +1911,46 @@ div.rich li {
   font-family: inherit;
   font-size: 14px;
 }
+
+/* ---------- Section heading with an action ---------- */
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.page .section-head h2 {
+  margin: 0;
+}
+/* Green when it can act, grey when there is nothing to do. */
+.clear-btn {
+  padding: 4px 12px;
+  border: 1px solid transparent;
+  border-radius: 99px;
+  background: var(--green);
+  color: var(--on-green);
+  font-size: 13px;
+  font-weight: 500;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    opacity 0.15s;
+}
+.clear-btn:hover:not(:disabled) {
+  background: var(--green-deep);
+}
+.clear-btn:disabled {
+  border-color: var(--hairline);
+  background: var(--hairline);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+.clear-btn:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.section-head-actions {
+  display: flex;
+  gap: 8px;
+}

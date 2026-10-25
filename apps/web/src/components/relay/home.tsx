@@ -31,8 +31,17 @@ function useChecked() {
       localStorage.setItem(checkedKey, JSON.stringify(next));
     } catch {}
   }
+  // Hide these items now instead of after the hour. Run history is untouched.
+  function hideNow(ids: string[]) {
+    const next = { ...checked };
+    for (const id of ids) next[id] = 1;
+    setChecked(next);
+    try {
+      localStorage.setItem(checkedKey, JSON.stringify(next));
+    } catch {}
+  }
   const hidden = (id: string) => !!checked[id] && now - checked[id] > hideAfter;
-  return [checked, toggle, hidden] as const;
+  return [checked, toggle, hidden, hideNow] as const;
 }
 
 const stateLabel: Record<StepState, string> = {
@@ -48,8 +57,9 @@ export function Home({ data }: { data: HomeView }) {
     [open, setOpen] = useState<string[]>([]),
     [deciding, setDeciding] = useState<string | null>(null),
     [error, setError] = useState(""),
-    [checked, toggleChecked, hidden] = useChecked();
+    [checked, toggleChecked, hidden, hideNow] = useChecked();
   const finished = data.finished.filter((f) => !hidden(f.id));
+  const crossedOff = finished.filter((f) => checked[f.id]).map((f) => f.id);
 
   // Live runs change quickly; re-read the page while any are active.
   useEffect(() => {
@@ -144,7 +154,30 @@ export function Home({ data }: { data: HomeView }) {
 
         <aside className="home-side">
           <section aria-labelledby="finished-title">
-            <h2 id="finished-title">Finished today</h2>
+            <div className="section-head">
+              <h2 id="finished-title">Finished today</h2>
+              {/* Always shown: green when it can act, grey when there is nothing to do. */}
+              <div className="section-head-actions">
+                <button
+                  type="button"
+                  className="clear-btn"
+                  disabled={crossedOff.length === 0}
+                  onClick={() => hideNow(crossedOff)}
+                  title="Remove the crossed-off tasks. Run history stays."
+                >
+                  Declutter
+                </button>
+                <button
+                  type="button"
+                  className="clear-btn"
+                  disabled={finished.length === 0}
+                  onClick={() => hideNow(finished.map((f) => f.id))}
+                  title="Remove every task from this list. Run history stays."
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
             {finished.length ? (
               <ul className="checklist">
                 {finished.map((f) => (
@@ -167,7 +200,7 @@ export function Home({ data }: { data: HomeView }) {
                 ))}
               </ul>
             ) : (
-              <p className="empty">Nothing finished yet today.</p>
+              <p className="empty">{data.finished.length ? "All clear." : "Nothing finished yet today."}</p>
             )}
           </section>
         </aside>

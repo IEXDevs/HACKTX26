@@ -3,7 +3,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowUp, LoaderCircle, Users } from "@/components/icons";
+import { ArrowLeft, ArrowUp, LoaderCircle, ShieldCheck, Users } from "@/components/icons";
+import { CHECK_MAX_USD, RED_TEAM_CATEGORIES } from "@/lib/loop/redteam-limits";
 import type { BuilderDraft } from "@/lib/runtime/builder-parse";
 import { plainText } from "@/lib/plain-text";
 import { RichText } from "./rich-text";
@@ -35,7 +36,9 @@ export function Builder({ templates }: { templates: BuilderTemplate[] }) {
     [proposeTemplates, setProposeTemplates] = useState(false),
     [thinking, setThinking] = useState(false),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    // Set after publishing: offers a red-team check before leaving.
+    [published, setPublished] = useState<{ id: string; name: string } | null>(null);
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (messages.length) end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -103,11 +106,36 @@ export function Builder({ templates }: { templates: BuilderTemplate[] }) {
           }
         }
       }
+      if (publish) {
+        setPublished({ id: value.orchestratorId, name: draft.name });
+        return;
+      }
       router.push(`/agents/${value.orchestratorId}`);
       router.refresh();
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      setBusy(false);
+    }
+  }
+
+  async function finish(redTeam: boolean) {
+    if (!published) return;
+    setBusy(true);
+    setError("");
+    try {
+      if (redTeam) {
+        const response = await fetch(`/api/agents/${published.id}/redteam`, { method: "POST" });
+        if (!response.ok) {
+          const value = await response.json().catch(() => ({}));
+          throw new Error(value.error ?? "The red-team tests did not start.");
+        }
+      }
+      // The workflow page shows the test runs as they happen.
+      router.push(redTeam ? `/workflows/${published.id}` : `/agents/${published.id}`);
+      router.refresh();
+    } catch (e) {
+      setError((e as Error).message);
       setBusy(false);
     }
   }
@@ -242,6 +270,37 @@ export function Builder({ templates }: { templates: BuilderTemplate[] }) {
             ))}
           </div>
         </>
+      )}
+
+      {published && (
+        <div className="dialog-backdrop">
+          <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="redteam-title">
+            <div className="toolbar">
+              <h2 id="redteam-title">Run red-team tests on {published.name}?</h2>
+            </div>
+            <p className="redteam-copy">
+              The red team sends {published.name} {RED_TEAM_CATEGORIES.length} labeled test attacks, such
+              as hidden instructions and fake credentials, and records any that work so you can fix them.
+            </p>
+            <div className="redteam-warning" role="note">
+              <ShieldCheck size={18} aria-hidden />
+              <p>
+                This uses tokens, up to about ${CHECK_MAX_USD.toFixed(2)}, but it improves the agent&apos;s safety
+                significantly.
+              </p>
+            </div>
+            {error && <p className="error-text">{error}</p>}
+            <div className="dialog-actions">
+              <button type="button" className="btn" disabled={busy} onClick={() => void finish(false)}>
+                No
+              </button>
+              <button type="button" className="btn primary" disabled={busy} onClick={() => void finish(true)}>
+                {busy && <LoaderCircle size={15} className="animate-spin" aria-hidden />}
+                Yes, run tests
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

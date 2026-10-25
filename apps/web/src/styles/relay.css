@@ -1954,3 +1954,30 @@ div.rich li {
   display: flex;
   gap: 8px;
 }
+
+/* ---------- Red-team prompt after publishing ---------- */
+.redteam-copy {
+  margin: 0 0 14px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+.redteam-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+}
+.redteam-warning svg {
+  flex: none;
+  margin-top: 1px;
+}
+.redteam-warning p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}

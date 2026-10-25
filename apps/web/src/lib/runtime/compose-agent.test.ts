@@ -12,6 +12,9 @@ describe("use-case composer", () => {
     expect(draft.instructions).not.toBe(draft.goal);
     expect(draft.goal.toLowerCase()).toContain("acme vendor msa");
     expect(draft.goal.length).toBeGreaterThan(8);
+    expect(draft.instructions).toContain("Recover from ordinary failures");
+    expect(draft.instructions).toContain("Markdown summary of findings");
+    expect(draft.instructions).not.toContain("If a call is denied or the budget warns, finish");
   });
 
   it("autofills classification, complexity, and tools from the request", () => {

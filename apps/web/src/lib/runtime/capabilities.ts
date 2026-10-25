@@ -46,6 +46,7 @@ export function heldToolNames(
   if (mayDelegate(agent)) names.add("agent.delegate");
   if (agent.role === "security" && agent.team !== "blue") names.add("security.report");
   names.add("context.read");
+  names.add("user.ask");
   // CONTEXT.md is workspace-wide. File-writing agents (Red Team, Patch Author)
   // keep fs.write for their own sandbox; they do not inherit context.write
   // from it. Orchestrators, and anyone granted the tool, may update the file.

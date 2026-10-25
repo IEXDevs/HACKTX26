@@ -53,12 +53,12 @@ export function summarizeRuns(rows: readonly RunStatRow[], now = Date.now()): Ru
 
   for (const row of rows) {
     const started = typeof row.startedAt === "number" ? row.startedAt : row.startedAt.getTime();
-    if (row.status === "awaiting_approval") waiting += 1;
+    if (row.status === "awaiting_approval" || row.status === "awaiting_input") waiting += 1;
     const index = starts.indexOf(startOfLocalDay(started));
     if (index < 0) continue;
     const bucket = buckets[index]!;
     bucket.spend += row.costUsd;
-    if (row.status === "awaiting_approval") bucket.waiting += 1;
+    if (row.status === "awaiting_approval" || row.status === "awaiting_input") bucket.waiting += 1;
     if (row.status === "succeeded") {
       bucket.terminal += 1;
       bucket.succeeded += 1;

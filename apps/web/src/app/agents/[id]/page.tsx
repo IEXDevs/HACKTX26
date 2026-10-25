@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { AGENT_RANK_LABEL, hardwareForComplexity, type TaskComplexity } from "@agent-os/core";
+import { hardwareForComplexity, type TaskComplexity } from "@agent-os/core";
 import { AgentDetail } from "@/components/relay/agent-detail";
 import { usd } from "@/lib/format";
 import { getAgentDetail, getWorkspace, listBudgetPolicies, listRuns } from "@/lib/queries";
@@ -28,7 +28,6 @@ export default async function AgentPage({ params }: { params: Promise<{ id: stri
         instructions: agent.instructions,
         defaultGoal: agent.defaultGoal,
         status: agent.status,
-        rank: AGENT_RANK_LABEL[agent.rank],
         canSpawnSubagents: agent.canSpawnSubagents,
         proposeTemplates: agent.proposeTemplates,
         parent: parent ? { id: parent.id, name: parent.name } : null,
@@ -37,7 +36,6 @@ export default async function AgentPage({ params }: { params: Promise<{ id: stri
           name: child.name,
           summary: child.summary,
           role: child.role,
-          rank: AGENT_RANK_LABEL[child.rank],
           status: child.status,
         })),
         proposals: proposals.map((proposal) => ({

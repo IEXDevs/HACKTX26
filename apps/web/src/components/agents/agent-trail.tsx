@@ -105,5 +105,5 @@ function interleave(
     ...thoughts.map((item) => ({ kind: "thought" as const, ...item })),
     ...calls.map((item) => ({ kind: "call" as const, ...item })),
   ];
-  return rows.sort((a, b) => a.at.localeCompare(b.at));
+  return rows.sort((a, b) => b.at.localeCompare(a.at));
 }

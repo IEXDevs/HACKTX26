@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  alignPeers,
   bezierPoint,
   blobScale,
   greyed,
   modelColor,
   sCurve,
+  sideCurve,
   spawnOrigin,
   spawnScale,
   tidyLayout,
@@ -85,6 +87,36 @@ describe("sCurve", () => {
     const [p0, p1, p2, p3] = sCurve({ x: 0, y: 0 }, 40, { x: 120, y: 200 }, 30);
     expect(p1.x).toBe(p0.x);
     expect(p2.x).toBe(p3.x);
+  });
+});
+
+describe("motivator peer geometry", () => {
+  const peers = [...team, { ...node("motivator", null, 40, 100), peerOf: "lead" }];
+
+  it("places the motivator beside the top agent and reserves room in the forest", () => {
+    const nodes = [...peers, node("other", null, 40, 180)];
+    const pos = tidyLayout(nodes);
+    expect(pos.get("motivator")!.y).toBe(pos.get("lead")!.y);
+    expect(pos.get("motivator")!.x).toBeGreaterThan(pos.get("lead")!.x + 100);
+    expect(pos.get("other")!.x - pos.get("motivator")!.x).toBeGreaterThan(140);
+    const tree = tidyLayout(team);
+    expect(pos.get("a")!.x - pos.get("lead")!.x).toBeCloseTo(tree.get("a")!.x - tree.get("lead")!.x);
+  });
+
+  it("keeps a peer horizontal after old saved positions or dragging move the lead", () => {
+    const pos = tidyLayout(peers);
+    const gap = pos.get("motivator")!.x - pos.get("lead")!.x;
+    pos.set("lead", { x: 300, y: 250 });
+    pos.set("motivator", { x: -100, y: 900 });
+    alignPeers(peers, pos);
+    expect(pos.get("motivator")).toEqual({ x: 300 + gap, y: 250 });
+  });
+
+  it.each([1, -1])("connects side rims with a straight horizontal line in direction %s", (direction) => {
+    const curve = sideCurve({ x: 0, y: 20 }, 40, { x: 240 * direction, y: 20 }, 30);
+    expect(curve[0]).toEqual({ x: 40 * direction, y: 20 });
+    expect(curve[3]).toEqual({ x: 210 * direction, y: 20 });
+    expect(curve.every((point) => point.y === 20)).toBe(true);
   });
 });
 

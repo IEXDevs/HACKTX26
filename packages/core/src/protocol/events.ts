@@ -19,6 +19,7 @@ export const RunStatusSchema = z.enum([
   "queued",
   "running",
   "awaiting_approval",
+  "awaiting_input",
   "succeeded",
   "failed",
   "halted",
@@ -99,6 +100,7 @@ const AgentSpawned = z.object({
   parentAgentId: ulidLike.nullable(),
   name: z.string(),
   role: AgentRoleSchema,
+  purpose: z.literal("motivator").optional(),
   model: z.string(),
 });
 
@@ -266,6 +268,16 @@ const Handoff = z.object({
   summary: z.string(),
 });
 
+const InputRequested = z.object({
+  type: z.literal("input.requested"),
+  requestId: ulidLike, agentId: ulidLike, callId: ulidLike,
+  question: z.string(), reason: z.string(),
+});
+const InputAnswered = z.object({
+  type: z.literal("input.answered"),
+  requestId: ulidLike, agentId: ulidLike, answer: z.string(), answeredBy: z.string(),
+});
+
 export const RunEventPayloadSchema = z.discriminatedUnion("type", [
   RunStarted,
   RunCompleted,
@@ -288,6 +300,8 @@ export const RunEventPayloadSchema = z.discriminatedUnion("type", [
   EvalScored,
   LogLine,
   Handoff,
+  InputRequested,
+  InputAnswered,
 ]);
 
 export type RunEventPayload = z.infer<typeof RunEventPayloadSchema>;

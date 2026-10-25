@@ -159,7 +159,7 @@ export function Builder({ templates, workflowMode, onBack }: {
         {onBack ? (
           <button className="glass-pill" onClick={onBack}><ArrowLeft size={16} aria-hidden />Workflow modes</button>
         ) : (
-          <Link href="/agents" className="glass-pill"><ArrowLeft size={16} />Agents</Link>
+          <Link href="/agents/library" className="glass-pill"><Users size={16} aria-hidden />View agents</Link>
         )}
         <div className="composer-bar-end">
           <button className="glass-pill" disabled={busy || thinking || !draft} onClick={() => void create(false)}>

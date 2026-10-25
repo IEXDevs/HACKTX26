@@ -19,6 +19,7 @@ import { runEvents, runs, type AgentRow } from "./db/schema";
 import { duration, relativeTime, usd } from "./format";
 import { listUsageEvents, type CloudUsageRow } from "./observability";
 import { plainText } from "./plain-text";
+import { listPendingInputs } from "./runtime/run-input";
 import {
   getRun,
   getRunEvents,
@@ -57,7 +58,11 @@ const ACTIVE: ReadonlySet<RunStatus> = new Set(["queued", "running"]);
 const STOPPED: ReadonlySet<RunStatus> = new Set(["failed", "halted", "cancelled"]);
 
 function clock(ts: string | Date): string {
-  return new Date(ts).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return new Date(ts).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 function iso(ts: string | Date): string {
@@ -87,6 +92,16 @@ export function foldRunHistory(
   for (const event of events) {
     const payload = event.payload;
     switch (payload.type) {
+      case "input.requested": {
+        history.push({ id: `input-${event.seq}`, at: clock(event.ts), ts: iso(event.ts), who: nameOf(payload.agentId), agentId: payload.agentId,
+          kind: "thought", text: `Waiting for your answer: ${payload.question}\n${payload.reason}` });
+        break;
+      }
+      case "input.answered": {
+        history.push({ id: `answer-${event.seq}`, at: clock(event.ts), ts: iso(event.ts), who: payload.answeredBy, agentId: payload.agentId,
+          kind: "thought", text: `Answer: ${payload.answer}` });
+        break;
+      }
       case "agent.message": {
         if (payload.delta || payload.role === "user" || !payload.text.trim()) break;
         history.push({
@@ -212,6 +227,7 @@ export function statusLabel(status: RunStatus): string {
     queued: "Starting",
     running: "Running now",
     awaiting_approval: "Waiting for you",
+    awaiting_input: "Waiting for your answer",
     succeeded: "Finished",
     failed: "Stopped",
     halted: "Stopped by budget",
@@ -288,6 +304,7 @@ export async function runLive(
 /* ---------- Home ---------- */
 
 export interface HomeNeed {
+  kind: "approval" | "input";
   id: string;
   runId: string;
   workflow: string;
@@ -325,18 +342,20 @@ function short(text: string, max = 90): string {
 }
 
 export async function homeView(workspaceId: string): Promise<HomeView> {
-  const [approvals, recent, agents] = await Promise.all([
+  const [approvals, recent, agents, questions] = await Promise.all([
     listPendingApprovals(workspaceId, 6),
     // Retests and security checks run on synthetic test data: they stay in Runs and Usage, not Home.
     listRuns(workspaceId, { limit: 60, excludeTests: true }),
     listAgents(workspaceId),
+    listPendingInputs(workspaceId),
   ]);
   const agentName = new Map(agents.map((a) => [a.id, a.name]));
 
-  const needs = await Promise.all(
+  const needs: HomeNeed[] = await Promise.all(
     approvals.map(async (approval) => {
       const run = await getRun(approval.runId);
       return {
+        kind: "approval" as const,
         id: approval.id,
         runId: approval.runId,
         workflow: run?.agent?.name ?? agentName.get(approval.agentId) ?? "Agent",
@@ -347,6 +366,12 @@ export async function homeView(workspaceId: string): Promise<HomeView> {
       };
     }),
   );
+
+  needs.unshift(...questions.map((question) => ({
+    kind: "input" as const, id: question.id, runId: question.runId,
+    workflow: agentName.get(question.agentId) ?? "Agent", ask: question.question, preview: question.reason,
+    waiting: relativeTime(question.requestedAt).replace(" ago", ""), risk: "low",
+  })));
 
   const running = await Promise.all(
     recent
@@ -411,7 +436,7 @@ export interface RunTile {
 
 export function runTile(run: RunListRow): RunTile {
   const group: RunTile["group"] =
-    run.status === "awaiting_approval" ? "waiting" : ACTIVE.has(run.status) ? "running" : "recent";
+    run.status === "awaiting_approval" || run.status === "awaiting_input" ? "waiting" : ACTIVE.has(run.status) ? "running" : "recent";
   return {
     id: run.id,
     name: run.agentName,
@@ -445,7 +470,6 @@ export interface UsageView {
   byAgent: Array<{ id: string; name: string; tokens: number }>;
   byWorkflow: Array<{ id: string; name: string; tokens: number }>;
   runs: number;
-  problems: Array<{ id: string; name: string; result: string; when: string }>;
   spendUsd: number;
   avgDurationMs: number;
   ledger: "supabase" | "local";
@@ -515,14 +539,6 @@ function fromCloud(rows: CloudUsageRow[], range: UsageRange, liveRuns: RunListRo
     byAgent: [...perAgent.entries()].map(([id, value]) => ({ id, ...value })),
     byWorkflow: [...perWorkflow.entries()].map(([id, value]) => ({ id, ...value })),
     runs: runIds.size,
-    problems: liveRuns
-      .filter((run) => STOPPED.has(run.status))
-      .map((run) => ({
-        id: run.id,
-        name: run.agentName,
-        result: short(run.failureReason ?? statusLabel(run.status), 140),
-        when: relativeTime(run.startedAt),
-      })),
     spendUsd,
     avgDurationMs: ended.length
       ? ended.reduce((sum, run) => sum + (run.endedAt!.getTime() - run.startedAt.getTime()), 0) /
@@ -589,14 +605,6 @@ export async function usageView(workspaceId: string, range: UsageRange): Promise
     byAgent,
     byWorkflow: [...perWorkflow.entries()].map(([id, value]) => ({ id, ...value })),
     runs: live.length,
-    problems: live
-      .filter((run) => STOPPED.has(run.status))
-      .map((run) => ({
-        id: run.id,
-        name: run.agentName,
-        result: short(run.failureReason ?? statusLabel(run.status), 140),
-        when: relativeTime(run.startedAt),
-      })),
     spendUsd: live.reduce((sum, run) => sum + run.costUsd, 0),
     avgDurationMs: ended.length
       ? ended.reduce((sum, run) => sum + (run.endedAt!.getTime() - run.startedAt.getTime()), 0) /
@@ -735,7 +743,7 @@ export async function workflowView(
     agentIds: [root.id, ...teamOf(agents, root.id).map((a) => a.id)],
     liveRunId:
       runs.find(
-        (run) => run.status === "queued" || run.status === "running" || run.status === "awaiting_approval",
+        (run) => run.status === "queued" || run.status === "running" || run.status === "awaiting_approval" || run.status === "awaiting_input",
       )?.id ?? null,
     runs: runs.map((run) => {
       const tile = runTile(run);

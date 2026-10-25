@@ -59,6 +59,7 @@ const STATUS_TONES: Record<string, Tone> = {
   queued: "info",
   pending: "warn",
   awaiting_approval: "warn",
+  awaiting_input: "warn",
   blocked: "warn",
   degraded: "warn",
   paused: "warn",

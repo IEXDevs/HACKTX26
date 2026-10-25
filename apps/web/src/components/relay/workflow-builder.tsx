@@ -31,6 +31,7 @@ export function WorkflowBuilder({ mode, library, onBack }: {
   const positions = useRef<Record<string, V2>>({});
   const serial = useRef(0);
   const graph = useMemo(() => selectionGraph(slots, library), [slots, library]);
+  const headFlows = useMemo(() => graph[0] ? [{ fromId: graph[0].id, toId: "builtin-motivator", kind: "info" as const }] : [], [graph]);
   const locked = busy || thinking;
   const ready = slots.every((slot) => slot.agentId);
   const pickerSlot = slots.find((slot) => slot.id === pickerId);
@@ -127,7 +128,7 @@ export function WorkflowBuilder({ mode, library, onBack }: {
         </button>
       </header>
       <div className="wf-studio-canvas">
-        <GraphSpace agents={graph} tasks={NO_TASKS}
+        <GraphSpace agents={graph} tasks={NO_TASKS} flows={headFlows}
           onLayoutChange={(next) => { positions.current = next; }}
           editor={{ selectedId, onSelect: openPicker, onAdd: mode === "dynamic" ? undefined : addChild, canAddChild, disabled: locked }} />
         {mode !== "manual" && <form className="wf-studio-command" onSubmit={(event) => { event.preventDefault(); void arrange(); }}>
@@ -154,7 +155,7 @@ export function WorkflowBuilder({ mode, library, onBack }: {
             {visible.map((agent) => <button key={agent.id} className="wf-agent-option" onClick={() => choose(agent)} aria-label={`Use ${agent.name}`}>
               <span><b>{agent.name}</b><span>{agent.summary}</span></span>{pickerSlot?.agentId === agent.id && <Check size={16} aria-hidden />}
             </button>)}
-            {!visible.length && <p className="wf-picker-empty">{library.length ? "No agents match that search." : <>No agents yet. <Link href="/agents/new">Add one in Agents.</Link></>}</p>}
+            {!visible.length && <p className="wf-picker-empty">{library.length ? "No agents match that search." : <>No agents yet. <Link href="/">Create one on Home.</Link></>}</p>}
           </div>
           {pickerSlot?.agentId && <footer><button className="link-btn" onClick={() => { setSlots((current) => removeSlotBranch(current, pickerId)); setPickerId(null); setSelectedId(null); }}>Remove from workflow</button></footer>}
         </section>

@@ -7,6 +7,7 @@ import { Archive, ArrowLeft, LoaderCircle, Play, Square } from "@/components/ico
 import { GraphSpace } from "@/components/graph/graph-space";
 import type { GraphSnapshot } from "@/lib/graph-data";
 import type { WorkflowView } from "@/lib/views";
+import { canArchiveAgent } from "@/lib/required-agents";
 import { WorkspaceContextPanel } from "./workspace-context";
 
 /**
@@ -119,14 +120,14 @@ export function Workflow({
                 {stopping ? "Stopping" : "Force stop"}
               </button>
             ) : null}
-            <button
+            {(archived || canArchiveAgent(workflow.id)) && <button
               className="btn"
               disabled={busy}
               onClick={() => void act(() => setStatus([workflow.id], archived ? "active" : "archived"))}
             >
               <Archive size={15} aria-hidden />
               {archived ? "Restore" : "Archive"}
-            </button>
+            </button>}
           </div>
         </div>
       </div>

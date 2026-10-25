@@ -4,6 +4,106 @@
  * defaults, so every rule here sets full borders and spacing itself.
  */
 
+/* ---------- Shared dropdowns ---------- */
+select:not([multiple]):not([size]) {
+  appearance: none;
+  min-height: 38px;
+  max-width: 100%;
+  padding: 8px 38px 8px 12px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 4px;
+  background-color: var(--raised);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2379847e' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 450;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+select:not([multiple]):not([size]):hover:not(:disabled) {
+  border-color: var(--faint-line);
+}
+select:not([multiple]):not([size]):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+select:not([multiple]):not([size]):disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Customize the menu itself where the browser supports native select pickers.
+ * Other browsers retain keyboard navigation and the styled closed control. */
+@supports (appearance: base-select) {
+  select:not([multiple]):not([size]),
+  select:not([multiple]):not([size])::picker(select) {
+    appearance: base-select;
+  }
+  select:not([multiple]):not([size]) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding-right: 12px;
+    background-image: none;
+  }
+  select:not([multiple]):not([size])::picker-icon {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    content: "";
+    background: var(--muted);
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='m7 10 5 5 5-5' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+    transition: rotate 120ms ease;
+  }
+  select:not([multiple]):not([size]):open::picker-icon { rotate: 180deg; }
+  select:not([multiple]):not([size])::picker(select) {
+    margin-top: 5px;
+    padding: 4px;
+    border: 1px solid var(--hairline-strong);
+    border-radius: 4px;
+    background: var(--raised);
+    color: var(--ink);
+    box-shadow: 0 6px 20px rgb(0 0 0 / 0.12);
+    max-height: min(320px, 60vh);
+    overflow-y: auto;
+  }
+  select:not([multiple]):not([size]) option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 36px;
+    padding: 8px 12px;
+    border: 0;
+    border-radius: 2px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  select:not([multiple]):not([size]) option:checked {
+    background: var(--green-soft);
+    color: var(--green);
+    font-weight: 550;
+  }
+  select:not([multiple]):not([size]) option:hover,
+  select:not([multiple]):not([size]) option:focus-visible {
+    outline: none;
+    background: var(--hover);
+  }
+  select:not([multiple]):not([size]) option::checkmark {
+    order: 1;
+    margin-left: auto;
+    color: var(--green);
+  }
+  select:not([multiple]):not([size]) option:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+
 /* ---------- Buttons ---------- */
 .btn {
   display: inline-flex;

@@ -9,6 +9,8 @@ export {
   TaskComplexitySchema,
   TIER_CAPABILITY,
   estimateCostUsd,
+  isMetaModelId,
+  provisionMetaModel,
   routeModel,
   hardwareForComplexity,
   HardwareTierSchema,

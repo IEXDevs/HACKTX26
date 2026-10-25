@@ -16,6 +16,7 @@ import {
 import { getDb } from "./db/client";
 import { runEvents, runs, type AgentRow } from "./db/schema";
 import { duration, relativeTime } from "./format";
+import { listUsageEvents, type CloudUsageRow } from "./observability";
 import { plainText } from "./plain-text";
 import {
   getRun,
@@ -39,12 +40,40 @@ export interface FeedItem {
   who: string;
   text: string;
 }
+export interface HistoryItem {
+  id: string;
+  at: string;
+  ts: string;
+  who: string;
+  kind: "thought" | "thinking" | "tool" | "handoff";
+  text: string;
+  tool?: string;
+  status?: string;
+}
 
 const ACTIVE: ReadonlySet<RunStatus> = new Set(["queued", "running"]);
 const STOPPED: ReadonlySet<RunStatus> = new Set(["failed", "halted", "cancelled"]);
 
 function clock(ts: string | Date): string {
   return new Date(ts).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
+function iso(ts: string | Date): string {
+  const date = new Date(ts);
+  return Number.isNaN(date.getTime()) ? new Date(0).toISOString() : date.toISOString();
+}
+
+function clip(value: string, max = 280): string {
+  const text = value.replace(/\s+/g, " ").trim();
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function previewArgs(args: Record<string, unknown>): string {
+  const parts = Object.entries(args).map(([key, value]) => {
+    const raw = typeof value === "string" ? value : JSON.stringify(value);
+    return `${key}=${clip(raw ?? "", 80)}`;
+  });
+  return clip(parts.join(" · "), 280);
 }
 
 /** A plain question for a permission request. */
@@ -82,6 +111,7 @@ export function statusLabel(status: RunStatus): string {
 export interface RunLive {
   steps: Step[];
   feed: FeedItem[];
+  history: HistoryItem[];
   draft: { who: string; text: string } | null;
   now: string;
   progress: number;
@@ -92,7 +122,8 @@ export async function runLive(
   status: RunStatus,
   feedLimit = 6,
 ): Promise<RunLive> {
-  const projection = projectRun(await getRunEvents(runId), runId);
+  const events = await getRunEvents(runId);
+  const projection = projectRun(events, runId);
   const name = (id: string) => projection.agents.get(id)?.name ?? "Agent";
   const tasks = [...projection.tasks.values()].sort((a, b) =>
     a.createdAt.localeCompare(b.createdAt),
@@ -115,6 +146,89 @@ export async function runLive(
     who: name(entry.agentId),
     text: entry.text,
   }));
+  const history: HistoryItem[] = [];
+  for (const event of events) {
+    const payload = event.payload;
+    switch (payload.type) {
+      case "agent.message": {
+        if (payload.delta || payload.role === "user" || !payload.text.trim()) break;
+        history.push({
+          id: `t-${event.seq}`,
+          at: clock(event.ts),
+          ts: iso(event.ts),
+          who: name(payload.agentId),
+          kind: "thought",
+          text: payload.text,
+        });
+        break;
+      }
+      case "log": {
+        if (payload.fields?.channel !== "thinking" || !payload.message.trim()) break;
+        history.push({
+          id: `k-${event.seq}`,
+          at: clock(event.ts),
+          ts: iso(event.ts),
+          who: payload.agentId ? name(payload.agentId) : "Agent",
+          kind: "thinking",
+          text: payload.message,
+        });
+        break;
+      }
+      case "tool.requested": {
+        history.push({
+          id: `c-${event.seq}`,
+          at: clock(event.ts),
+          ts: iso(event.ts),
+          who: name(payload.agentId),
+          kind: "tool",
+          text: previewArgs(payload.args),
+          tool: payload.tool,
+          status: "requested",
+        });
+        break;
+      }
+      case "tool.completed": {
+        history.push({
+          id: `d-${event.seq}`,
+          at: clock(event.ts),
+          ts: iso(event.ts),
+          who: name(payload.agentId),
+          kind: "tool",
+          text: payload.error ?? payload.resultPreview ?? payload.tool,
+          tool: payload.tool,
+          status: payload.ok ? "done" : "failed",
+        });
+        break;
+      }
+      case "handoff": {
+        history.push({
+          id: `h-${event.seq}`,
+          at: clock(event.ts),
+          ts: iso(event.ts),
+          who: name(payload.fromAgentId),
+          kind: "handoff",
+          text: payload.summary,
+          tool: `→ ${name(payload.toAgentId)}`,
+        });
+        break;
+      }
+      case "memory.written": {
+        history.push({
+          id: `m-${event.seq}`,
+          at: clock(event.ts),
+          ts: iso(event.ts),
+          who: payload.agentId ? name(payload.agentId) : "Agent",
+          kind: "tool",
+          text: payload.content,
+          tool: "memory.write",
+          status: payload.kind,
+        });
+        break;
+      }
+      default:
+        break;
+    }
+  }
   const last = projection.transcript[projection.transcript.length - 1];
   const draft =
     ACTIVE.has(status) && last?.delta ? { who: name(last.agentId), text: last.text } : null;
@@ -128,6 +242,7 @@ export async function runLive(
   return {
     steps,
     feed,
+    history,
     draft,
     now: working
       ? `${name(working.agentId)}: ${plainText(working.title)}`
@@ -292,16 +407,10 @@ export interface UsageView {
   problems: Array<{ id: string; name: string; result: string; when: string }>;
   spendUsd: number;
   avgDurationMs: number;
+  ledger: "supabase" | "local";
 }
 
-export async function usageView(workspaceId: string, range: UsageRange): Promise<UsageView> {
-  const now = Date.now();
-  const since =
-    range === "24h" ? now - 24 * 3600e3 : range === "7d" ? now - 7 * 24 * 3600e3 : 0;
-  const all = await listRuns(workspaceId, { limit: 1000 });
-  const inRange = all.filter((run) => run.startedAt.getTime() >= since);
-
-  // Buckets: hours for 24h, days for 7d, weeks for all time.
+function usageBuckets(range: UsageRange, now: number, timestamps: number[]) {
   const unit = range === "24h" ? 3600e3 : range === "7d" ? 24 * 3600e3 : 7 * 24 * 3600e3;
   const count =
     range === "all"
@@ -309,8 +418,7 @@ export async function usageView(workspaceId: string, range: UsageRange): Promise
           2,
           Math.min(
             26,
-            Math.ceil((now - Math.min(...inRange.map((r) => r.startedAt.getTime()), now)) / unit) +
-              1,
+            Math.ceil((now - Math.min(...timestamps, now)) / unit) + 1,
           ),
         )
       : range === "24h"
@@ -328,13 +436,82 @@ export async function usageView(workspaceId: string, range: UsageRange): Promise
       tokens: 0,
     };
   });
-  for (const run of inRange) {
+  return { buckets, start, unit, count };
+}
+
+function fromCloud(rows: CloudUsageRow[], range: UsageRange, liveRuns: RunListRow[]): UsageView {
+  const now = Date.now();
+  const { buckets, start, unit, count } = usageBuckets(
+    range,
+    now,
+    rows.map((row) => row.createdAt.getTime()),
+  );
+  const perAgent = new Map<string, { name: string; tokens: number }>();
+  const perWorkflow = new Map<string, { name: string; tokens: number }>();
+  const runIds = new Set<string>();
+  let spendUsd = 0;
+  for (const row of rows) {
+    const tokens = row.inputTokens + row.outputTokens;
+    spendUsd += row.costUsd;
+    if (row.runId) runIds.add(row.runId);
+    const index = Math.floor((row.createdAt.getTime() - start + unit / 2) / unit);
+    const bucket = buckets[Math.max(0, Math.min(count - 1, index))];
+    if (bucket) bucket.tokens += tokens;
+    const agentKey = row.agentId ?? row.source;
+    const agentName =
+      row.agentName ?? (row.source === "builder" ? "Builder" : row.source === "compose" ? "Composer" : "Model");
+    const agent = perAgent.get(agentKey) ?? { name: agentName, tokens: 0 };
+    agent.tokens += tokens;
+    perAgent.set(agentKey, agent);
+    const workflowKey = row.agentId ?? row.source;
+    const workflow = perWorkflow.get(workflowKey) ?? { name: agentName, tokens: 0 };
+    workflow.tokens += tokens;
+    perWorkflow.set(workflowKey, workflow);
+  }
+  const ended = liveRuns.filter((run) => run.endedAt);
+  return {
+    overTime: buckets,
+    byAgent: [...perAgent.entries()].map(([id, value]) => ({ id, ...value })),
+    byWorkflow: [...perWorkflow.entries()].map(([id, value]) => ({ id, ...value })),
+    runs: runIds.size,
+    problems: liveRuns
+      .filter((run) => STOPPED.has(run.status))
+      .map((run) => ({
+        id: run.id,
+        name: run.agentName,
+        result: short(run.failureReason ?? statusLabel(run.status), 140),
+        when: relativeTime(run.startedAt),
+      })),
+    spendUsd,
+    avgDurationMs: ended.length
+      ? ended.reduce((sum, run) => sum + (run.endedAt!.getTime() - run.startedAt.getTime()), 0) /
+        ended.length
+      : 0,
+    ledger: "supabase",
+  };
+}
+
+export async function usageView(workspaceId: string, range: UsageRange): Promise<UsageView> {
+  const now = Date.now();
+  const since =
+    range === "24h" ? now - 24 * 3600e3 : range === "7d" ? now - 7 * 24 * 3600e3 : 0;
+  const all = await listRuns(workspaceId, { limit: 1000 });
+  const live = all.filter((run) => run.mode === "live" && run.startedAt.getTime() >= since);
+
+  const cloud = await listUsageEvents(workspaceId, range);
+  if (cloud && cloud.length > 0) return fromCloud(cloud, range, live);
+
+  const { buckets, start, unit, count } = usageBuckets(
+    range,
+    now,
+    live.map((run) => run.startedAt.getTime()),
+  );
+  for (const run of live) {
     const index = Math.floor((run.startedAt.getTime() - start + unit / 2) / unit);
     const bucket = buckets[Math.max(0, Math.min(count - 1, index))];
     if (bucket) bucket.tokens += run.inputTokens + run.outputTokens;
   }
 
-  // Tokens per agent come from model.usage events, so workers are counted too.
   const usage = await getDb()
     .select({ payload: runEvents.payload, agentId: runEvents.agentId })
     .from(runEvents)
@@ -342,6 +519,7 @@ export async function usageView(workspaceId: string, range: UsageRange): Promise
     .where(
       and(
         eq(runs.workspaceId, workspaceId),
+        eq(runs.mode, "live"),
         eq(runEvents.type, "model.usage"),
         gte(runs.startedAt, new Date(since)),
       ),
@@ -358,19 +536,19 @@ export async function usageView(workspaceId: string, range: UsageRange): Promise
     .map((agent) => ({ id: agent.id, name: agent.name, tokens: perAgent.get(agent.id) ?? 0 }));
 
   const perWorkflow = new Map<string, { name: string; tokens: number }>();
-  for (const run of inRange) {
+  for (const run of live) {
     const entry = perWorkflow.get(run.agentId) ?? { name: run.agentName, tokens: 0 };
     entry.tokens += run.inputTokens + run.outputTokens;
     perWorkflow.set(run.agentId, entry);
   }
 
-  const ended = inRange.filter((run) => run.endedAt);
+  const ended = live.filter((run) => run.endedAt);
   return {
     overTime: buckets,
     byAgent,
     byWorkflow: [...perWorkflow.entries()].map(([id, value]) => ({ id, ...value })),
-    runs: inRange.length,
-    problems: inRange
+    runs: live.length,
+    problems: live
       .filter((run) => STOPPED.has(run.status))
       .map((run) => ({
         id: run.id,
@@ -378,18 +556,19 @@ export async function usageView(workspaceId: string, range: UsageRange): Promise
         result: short(run.failureReason ?? statusLabel(run.status), 140),
         when: relativeTime(run.startedAt),
       })),
-    spendUsd: inRange.reduce((sum, run) => sum + run.costUsd, 0),
+    spendUsd: live.reduce((sum, run) => sum + run.costUsd, 0),
     avgDurationMs: ended.length
       ? ended.reduce((sum, run) => sum + (run.endedAt!.getTime() - run.startedAt.getTime()), 0) /
         ended.length
       : 0,
+    ledger: "local",
   };
 }
 
 /* ---------- Agents ---------- */
 
 /** The model the router would pick for this agent today, as a display label. */
-export function routedModel(agent: AgentRow): string {
+export function routedModel(agent: AgentRow, deniedModelIds: readonly string[] = []): string {
   try {
     const result = routeModel({
       complexity: agent.complexity as TaskComplexity,
@@ -403,11 +582,11 @@ export function routedModel(agent: AgentRow): string {
         agent.modelPolicy.mode === "pinned"
           ? (agent.modelPolicy.pinnedModelId ?? undefined)
           : undefined,
-      deniedModelIds: agent.modelPolicy.deniedModelIds,
+      deniedModelIds: [...deniedModelIds, ...agent.modelPolicy.deniedModelIds],
     });
     return MODEL_BY_ID.get(result.chosenModel)?.label ?? result.chosenModel;
   } catch {
-    return "No approved model";
+    return "Muse Spark 1.3";
   }
 }
 
@@ -445,6 +624,7 @@ export interface WorkflowView {
   tree: WorkflowNode;
   /** Every agent in the team, so activation can cover all of them. */
   agentIds: string[];
+  liveRunId: string | null;
   runs: Array<{ id: string; label: string; when: string }>;
 }
 
@@ -512,6 +692,10 @@ export async function workflowView(
     task: root.defaultGoal || runs[0]?.goal || "",
     tree: node(root),
     agentIds: [root.id, ...teamOf(agents, root.id).map((a) => a.id)],
+    liveRunId:
+      runs.find(
+        (run) => run.status === "queued" || run.status === "running" || run.status === "awaiting_approval",
+      )?.id ?? null,
     runs: runs.map((run) => {
       const tile = runTile(run);
       return { id: run.id, label: tile.label, when: tile.when };

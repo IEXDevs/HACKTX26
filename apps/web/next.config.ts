@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  allowedDevOrigins: ["host.docker.internal", "127.0.0.1", "localhost"],
   // better-sqlite3 is a native addon; it must not be bundled.
   serverExternalPackages: ["better-sqlite3"],
   // @agent-os/core ships TypeScript source, not a build artifact.

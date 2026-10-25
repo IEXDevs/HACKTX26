@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowUpRight, ChevronDown } from "@/components/icons";
 import type { HomeRun, HomeView, StepState } from "@/lib/views";
-import { AdvancedSwitch, useAdvanced } from "./advanced";
 import { RichText } from "./rich-text";
 import { StartRun } from "./start-run";
 
@@ -53,8 +52,7 @@ const stateLabel: Record<StepState, string> = {
 
 export function Home({ data }: { data: HomeView }) {
   const router = useRouter();
-  const [advanced, toggleAdvanced] = useAdvanced(),
-    [open, setOpen] = useState<string[]>([]),
+  const [open, setOpen] = useState<string[]>([]),
     [deciding, setDeciding] = useState<string | null>(null),
     [error, setError] = useState(""),
     [checked, toggleChecked, hidden, hideNow] = useChecked();
@@ -96,7 +94,6 @@ export function Home({ data }: { data: HomeView }) {
       <div className="page-top">
         <h1>Home</h1>
         <div className="page-actions">
-          <AdvancedSwitch on={advanced} toggle={toggleAdvanced} />
           <StartRun agents={data.agents} />
         </div>
       </div>
@@ -144,7 +141,6 @@ export function Home({ data }: { data: HomeView }) {
                 run={r}
                 open={open.includes(r.id)}
                 onToggle={() => toggle(r.id)}
-                advanced={advanced}
               />
             ))
           ) : (
@@ -153,7 +149,7 @@ export function Home({ data }: { data: HomeView }) {
         </section>
 
         <aside className="home-side">
-          <section aria-labelledby="finished-title">
+          <section className="home-panel" aria-labelledby="finished-title">
             <div className="section-head">
               <h2 id="finished-title">Finished today</h2>
               {/* Always shown: green when it can act, grey when there is nothing to do. */}
@@ -191,7 +187,6 @@ export function Home({ data }: { data: HomeView }) {
                     <label htmlFor={`done-${f.id}`}>
                       <b>{f.name}</b>
                       <small className={f.stopped ? "stopped" : ""}>{f.result}</small>
-                      {advanced && <small className="detail">{f.detail}</small>}
                     </label>
                     <Link href={`/runs/${f.id}`} className="check-link">
                       Open
@@ -217,12 +212,10 @@ function RunBar({
   run,
   open,
   onToggle,
-  advanced,
 }: {
   run: HomeRun;
   open: boolean;
   onToggle: () => void;
-  advanced: boolean;
 }) {
   const pct = Math.max(4, Math.round(run.progress * 100));
   const label = (
@@ -255,7 +248,6 @@ function RunBar({
       </button>
       {open && (
         <div className="run-bar-body">
-          {advanced && <p className="detail">{run.goal}</p>}
           {run.steps.length > 0 && (
             <ol className="run-steps">
               {run.steps.map((s, i) => (

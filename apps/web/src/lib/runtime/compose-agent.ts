@@ -13,6 +13,7 @@
  */
 import { TOOL_BY_NAME, TOOL_MANIFEST, type DataClass, type TaskComplexity } from "@agent-os/core";
 import { env } from "../env";
+import { recordModelTurn } from "../observability";
 
 const COMPLEXITY = ["trivial", "standard", "complex", "critical"] as const;
 const DATA_CLASS = ["public", "internal", "confidential", "restricted"] as const;
@@ -37,6 +38,8 @@ export interface ComposeResult {
   model: string | null;
   notice: string | null;
   draft: ComposedDraft;
+  inputTokens: number;
+  outputTokens: number;
 }
 
 const BUILDER_SYSTEM = `You draft one orchestrator agent for Astronom, an internal agent platform.
@@ -81,7 +84,10 @@ export function composeAgentScripted(useCase: string): ComposedDraft {
   };
 }
 
-export async function composeAgent(useCase: string): Promise<ComposeResult> {
+export async function composeAgent(
+  useCase: string,
+  opts?: { workspaceId?: string },
+): Promise<ComposeResult> {
   const scripted = composeAgentScripted(useCase);
   const gateway = composeGateway();
   if (!gateway) {
@@ -90,32 +96,57 @@ export async function composeAgent(useCase: string): Promise<ComposeResult> {
       model: null,
       notice: "No model key is configured, so the local composer filled the draft.",
       draft: scripted,
+      inputTokens: 0,
+      outputTokens: 0,
     };
   }
 
+  const messages = [
+    { role: "system" as const, content: BUILDER_SYSTEM },
+    {
+      role: "user" as const,
+      content: [
+        "Allowed tool names:",
+        TOOL_MANIFEST.map((tool) => `- ${tool.name}: ${tool.description} (risk ${tool.risk})`).join("\n"),
+        "",
+        "<use_case>",
+        useCase.trim(),
+        "</use_case>",
+      ].join("\n"),
+    },
+  ];
+
   try {
-    const raw = await completeOnce(gateway.model, [
-      { role: "system", content: BUILDER_SYSTEM },
-      {
-        role: "user",
-        content: [
-          "Allowed tool names:",
-          TOOL_MANIFEST.map((tool) => `- ${tool.name}: ${tool.description} (risk ${tool.risk})`).join("\n"),
-          "",
-          "<use_case>",
-          useCase.trim(),
-          "</use_case>",
-        ].join("\n"),
-      },
-    ]);
-    const draft = mergeDraft(scripted, extractJson(raw));
-    return { source: "live", model: gateway.model, notice: null, draft };
+    const raw = await completeOnce(gateway.model, messages);
+    const draft = mergeDraft(scripted, extractJson(raw.text));
+    if (opts?.workspaceId) {
+      await recordModelTurn({
+        workspaceId: opts.workspaceId,
+        source: "compose",
+        model: gateway.model,
+        messages,
+        completion: raw.text,
+        inputTokens: raw.inputTokens,
+        outputTokens: raw.outputTokens,
+        dataClass: draft.dataClass,
+      });
+    }
+    return {
+      source: "live",
+      model: gateway.model,
+      notice: null,
+      draft,
+      inputTokens: raw.inputTokens,
+      outputTokens: raw.outputTokens,
+    };
   } catch (error) {
     return {
       source: "scripted",
       model: gateway.model,
       notice: `The model draft failed (${(error as Error).message}). The local composer filled the form instead.`,
       draft: scripted,
+      inputTokens: 0,
+      outputTokens: 0,
     };
   }
 }
@@ -144,7 +175,7 @@ function composeGateway(): { model: string } | null {
 async function completeOnce(
   model: string,
   messages: Array<{ role: "system" | "user"; content: string }>,
-): Promise<string> {
+): Promise<{ text: string; inputTokens: number; outputTokens: number }> {
   const response = await fetch(`${env.openai.baseUrl.replace(/\/$/, "")}/chat/completions`, {
     method: "POST",
     headers: {
@@ -165,6 +196,7 @@ async function completeOnce(
   }
   const parsed = JSON.parse(raw) as {
     choices?: Array<{ finish_reason?: string | null; message?: { content?: string | null } }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
   const choice = parsed.choices?.[0];
   const content = choice?.message?.content?.trim() ?? "";
@@ -175,7 +207,11 @@ async function completeOnce(
         : "model returned an empty draft",
     );
   }
-  return content;
+  return {
+    text: content,
+    inputTokens: parsed.usage?.prompt_tokens ?? 0,
+    outputTokens: parsed.usage?.completion_tokens ?? 0,
+  };
 }
 
 function mergeDraft(base: ComposedDraft, raw: unknown): ComposedDraft {
@@ -246,7 +282,14 @@ function classifyComplexity(lower: string): TaskComplexity {
 }
 
 function toolsFor(lower: string): string[] {
-  const tools = new Set<string>(["kb.search", "memory.search", "memory.write", "task.handoff"]);
+  const tools = new Set<string>([
+    "kb.search",
+    "memory.search",
+    "memory.write",
+    "task.handoff",
+    "context.read",
+    "context.write",
+  ]);
   if (/\bfiles?\b|\brepo\b|\bcode\b|\bwrites?\b|\bdocuments?\b|\bpr\b|\bpull request\b/.test(lower)) {
     tools.add("fs.read");
     tools.add("fs.write");

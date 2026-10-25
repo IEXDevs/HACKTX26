@@ -5,13 +5,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Search } from "@/components/icons";
 import type { RunTile } from "@/lib/views";
-import { AdvancedSwitch, useAdvanced } from "./advanced";
 import { StartRun, type RunnableAgent } from "./start-run";
 
 export function RunsGrid({ runs, agents }: { runs: RunTile[]; agents: RunnableAgent[] }) {
   const router = useRouter();
-  const [advanced, toggleAdvanced] = useAdvanced(),
-    [search, setSearch] = useState("");
+  const [search, setSearch] = useState("");
   const live = runs.some((run) => run.group !== "recent");
   // Keep live runs current without a manual reload.
   useEffect(() => {
@@ -34,7 +32,6 @@ export function RunsGrid({ runs, agents }: { runs: RunTile[]; agents: RunnableAg
       <div className="page-top">
         <h1>Runs</h1>
         <div className="page-actions">
-          <AdvancedSwitch on={advanced} toggle={toggleAdvanced} />
           <StartRun agents={agents} />
         </div>
       </div>
@@ -67,7 +64,7 @@ export function RunsGrid({ runs, agents }: { runs: RunTile[]; agents: RunnableAg
                     <p>{run.goal}</p>
                   </Link>
                   <footer className="tile-foot">
-                    <span>{advanced ? run.detail : `Started ${run.when}`}</span>
+                    <span>Started {run.when}</span>
                   </footer>
                 </article>
               ))}

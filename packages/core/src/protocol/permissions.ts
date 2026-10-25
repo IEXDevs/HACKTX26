@@ -47,6 +47,40 @@ export const PolicyRuleSchema = z.object({
   priority: z.number().int().default(0),
 });
 export type PolicyRule = z.infer<typeof PolicyRuleSchema>;
+export type PolicyEffect = PolicyRule["effect"];
+
+/** The six operator-facing actions shown on Policy. Keys are tool resources. */
+export const ACTION_POLICIES = [
+  { action: "Read files", resource: "fs.read", risk: "low" as const, scopes: ["read"] as const },
+  { action: "Write files", resource: "fs.write", risk: "medium" as const, scopes: ["write"] as const },
+  { action: "Reach outside websites", resource: "http.fetch", risk: "medium" as const, scopes: ["net", "read"] as const },
+  { action: "Run shell commands", resource: "shell.exec", risk: "high" as const, scopes: ["execute"] as const },
+  { action: "Use stored credentials", resource: "secret.use", risk: "critical" as const, scopes: ["secret"] as const },
+  { action: "Deploy to production", resource: "cli:prod-deploy", risk: "high" as const, scopes: ["execute"] as const },
+] as const;
+
+export const POLICY_EFFECTS: readonly PolicyEffect[] = [
+  "allow",
+  "allow_with_log",
+  "require_approval",
+  "deny",
+];
+
+/** Defaults matching DEFAULT_POLICY_RULES for the six named actions. */
+export const DEFAULT_ACTION_EFFECTS: Record<string, PolicyEffect> = {
+  "fs.read": "allow",
+  "fs.write": "allow_with_log",
+  "http.fetch": "allow_with_log",
+  "shell.exec": "require_approval",
+  "secret.use": "require_approval",
+  "cli:prod-deploy": "deny",
+};
+
+export function resolveActionEffects(
+  stored?: Record<string, PolicyEffect> | null,
+): Record<string, PolicyEffect> {
+  return { ...DEFAULT_ACTION_EFFECTS, ...(stored ?? {}) };
+}
 
 export const DEFAULT_POLICY_RULES: readonly PolicyRule[] = [
   {
@@ -168,7 +202,17 @@ function grantCovers(
 export function evaluatePermission(
   request: PermissionRequest,
   rules: readonly PolicyRule[] = DEFAULT_POLICY_RULES,
+  actionEffects?: Readonly<Record<string, PolicyEffect>>,
 ): PermissionDecision {
+  const workspaceEffect = actionEffects?.[request.resource];
+  if (workspaceEffect) {
+    return {
+      effect: workspaceEffect,
+      reason: "Set in workspace policy.",
+      matchedRuleId: `workspace:${request.resource}`,
+    };
+  }
+
   const matchingRules = rules
     .filter((r) => globMatches(r.resource, request.resource))
     .filter((r) => !r.risk || r.risk === request.risk)

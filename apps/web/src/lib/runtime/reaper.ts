@@ -24,6 +24,13 @@ export function liveRuns(): Set<string> {
   return g.__agentOsLiveRuns;
 }
 
+/** Operator force-stop. The engine checks this between steps. */
+export function cancelledRuns(): Set<string> {
+  const g = globalThis as unknown as { __agentOsCancelledRuns?: Set<string> };
+  g.__agentOsCancelledRuns ??= new Set<string>();
+  return g.__agentOsCancelledRuns;
+}
+
 /** Agents that spawned in a run but never reported a final status. */
 async function openAgents(runId: string): Promise<string[]> {
   const rows = await getDb()

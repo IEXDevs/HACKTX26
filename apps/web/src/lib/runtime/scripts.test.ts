@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { gruntTools, RED_TEAM_SPECIALISTS, redTeamSpecialist, scriptFor } from "./scripts";
+import {
+  gruntTools,
+  RED_TEAM_SPECIALISTS,
+  redTeamSpecialist,
+  scriptFor,
+  shouldSpawnAdversarialSwarm,
+  wantsDeploy,
+} from "./scripts";
 
 describe("red-team specialists", () => {
   it("has the lead delegate each vector instead of running the probes itself", () => {
@@ -33,6 +40,32 @@ describe("red-team specialists", () => {
       "kb.search",
       "fs.write",
     ]);
-    expect(gruntTools(["secret.use"], ["secret.use"])).toEqual(["kb.search", "fs.read"]);
+    expect(gruntTools(["secret.use"], ["secret.use"])).toEqual(["kb.search", "fs.read", "context.read"]);
+  });
+
+  it("prepends a deploy step when the red team is asked to ship", () => {
+    expect(wantsDeploy("roll forward the pool ceiling")).toBe(true);
+    const steps = scriptFor("security", "Red Team", "security", "deploy the mitigation then probe");
+    expect(steps[0]?.tool?.name).toBe("fs.write");
+    expect(steps.some((step) => step.tool?.args?.agent === "Injection Prober")).toBe(true);
+  });
+
+  it("spawns an adversarial swarm after a deploy when the workflow already has a red team", () => {
+    expect(
+      shouldSpawnAdversarialSwarm({
+        goal: "roll forward the pool ceiling after the deploy",
+        rootRole: "orchestrator",
+        hasRedTeam: true,
+        securityRun: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldSpawnAdversarialSwarm({
+        goal: "roll forward the pool ceiling after the deploy",
+        rootRole: "security",
+        hasRedTeam: true,
+        securityRun: true,
+      }),
+    ).toBe(false);
   });
 });

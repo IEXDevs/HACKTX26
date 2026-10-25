@@ -13,7 +13,6 @@ import {
   Terminal,
   type IconProps,
 } from "@/components/icons";
-import { AdvancedSwitch, useAdvanced } from "./advanced";
 
 export interface ConnectorCard {
   id: string;
@@ -62,7 +61,6 @@ export function ConnectorsView({
   query,
   hits,
   documents,
-  tools,
 }: {
   connectors: ConnectorCard[];
   keys: KeyRow[];
@@ -72,8 +70,7 @@ export function ConnectorsView({
   tools: ToolRow[];
 }) {
   const router = useRouter();
-  const [advanced, toggleAdvanced] = useAdvanced(),
-    [search, setSearch] = useState(query),
+  const [search, setSearch] = useState(query),
     [checked, setChecked] = useState<Record<string, "ok" | "failed">>({}),
     [busy, setBusy] = useState<string | null>(null);
 
@@ -94,9 +91,6 @@ export function ConnectorsView({
     <div className="page">
       <div className="page-top">
         <h1>Connectors</h1>
-        <div className="page-actions">
-          <AdvancedSwitch on={advanced} toggle={toggleAdvanced} />
-        </div>
       </div>
 
       <div className="tile-grid">
@@ -109,7 +103,7 @@ export function ConnectorsView({
                   <Icon size={18} />
                 </span>
                 <b>{c.name}</b>
-                <p>{advanced ? c.description : kindWord[c.kind]}</p>
+                <p>{kindWord[c.kind]}</p>
               </div>
               <footer className="tile-foot">
                 <span className={`conn-state ${c.status}`}>
@@ -130,7 +124,8 @@ export function ConnectorsView({
         })}
       </div>
 
-      <section className="section">
+      <div className="page-split">
+      <section>
         <h2>Saved keys</h2>
         {keys.length ? (
           <ul className="list">
@@ -144,7 +139,6 @@ export function ConnectorsView({
                   <small>
                     {k.connector ? `${k.connector} · ` : ""}
                     {k.used ? `Used ${k.used}` : "Not used yet"}
-                    {advanced ? ` · ${k.hint}` : ""}
                   </small>
                 </div>
                 {checked[k.id] === "ok" ? (
@@ -166,7 +160,7 @@ export function ConnectorsView({
         )}
       </section>
 
-      <section className="section">
+      <section>
         <div className="toolbar">
           <h2>Search your documents</h2>
           <span className="detail" style={{ color: "var(--muted)" }}>
@@ -175,7 +169,6 @@ export function ConnectorsView({
         </div>
         <form
           className="search"
-          style={{ flex: "none", maxWidth: 560 }}
           onSubmit={(e) => {
             e.preventDefault();
             router.push(search.trim() ? `/connectors?q=${encodeURIComponent(search.trim())}` : "/connectors");
@@ -214,32 +207,7 @@ export function ConnectorsView({
           </ul>
         )}
       </section>
-
-      {advanced && (
-        <section className="section">
-          <h2>Tools agents can use</h2>
-          <div className="table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Tool</th>
-                  <th>Name</th>
-                  <th>Risk</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tools.map((t) => (
-                  <tr key={t.name}>
-                    <td>{t.label}</td>
-                    <td className="mono">{t.name}</td>
-                    <td>{t.risk}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
+      </div>
     </div>
   );
 }

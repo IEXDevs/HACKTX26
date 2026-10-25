@@ -21,7 +21,11 @@ export async function POST(_request: NextRequest, context: { params: Promise<{ i
   if (agent.status !== "active") {
     return Response.json({ error: `${agent.name} is not published yet.` }, { status: 409 });
   }
-  startRedTeamCheck(agent.id, user?.email ?? "operator@local");
+  try {
+    startRedTeamCheck(agent.id, user?.email ?? "operator@local");
+  } catch (error) {
+    return Response.json({ error: (error as Error).message }, { status: 409 });
+  }
   return Response.json(
     { started: true, probes: RED_TEAM_CATEGORIES.length, maxUsd: CHECK_MAX_USD },
     { status: 202 },

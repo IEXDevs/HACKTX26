@@ -170,7 +170,7 @@ export function PageHeader({
           {title}
         </h1>
         {description ? (
-          <p className="mt-1.5 max-w-2xl text-[13px] leading-relaxed text-ink-2">
+          <p className="mt-1.5 text-[13px] leading-relaxed text-ink-2">
             {description}
           </p>
         ) : null}

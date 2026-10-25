@@ -4,6 +4,7 @@
  * person publishes it through POST /api/agents/custom.
  */
 import { MODEL_BY_ID, TOOL_MANIFEST } from "@agent-os/core";
+import { recordModelTurn } from "../observability";
 import { createLiveGateway, liveGatewayAvailable } from "./gateway";
 import { parseBuilderReply } from "./builder-parse";
 
@@ -35,17 +36,21 @@ or, once you can propose:
 
 export const BUILDER_MODEL = process.env.BUILDER_MODEL ?? "muse-spark-1.3";
 
-export async function askBuilder(history: BuilderTurn[]) {
+export async function askBuilder(
+  history: BuilderTurn[],
+  opts?: { workspaceId?: string },
+) {
   if (!liveGatewayAvailable()) {
     throw new Error("No live model is configured. Set MODEL_GATEWAY and a provider key.");
   }
   const gateway = createLiveGateway();
+  const messages = [{ role: "system" as const, content: BUILDER_SYSTEM }, ...history];
   let text = "";
   let inputTokens = 0;
   let outputTokens = 0;
   for await (const chunk of gateway.complete({
     model: BUILDER_MODEL,
-    messages: [{ role: "system", content: BUILDER_SYSTEM }, ...history],
+    messages,
     tools: [],
     temperature: 0.3,
     maxOutputTokens: 4000,
@@ -57,6 +62,18 @@ export async function askBuilder(history: BuilderTurn[]) {
       inputTokens = chunk.inputTokens;
       outputTokens = chunk.outputTokens;
     }
+  }
+  if (opts?.workspaceId) {
+    await recordModelTurn({
+      workspaceId: opts.workspaceId,
+      source: "builder",
+      agentName: "Builder",
+      model: BUILDER_MODEL,
+      messages,
+      completion: text,
+      inputTokens,
+      outputTokens,
+    });
   }
   return { ...parseBuilderReply(text), model: BUILDER_MODEL, inputTokens, outputTokens };
 }

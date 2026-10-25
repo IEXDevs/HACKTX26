@@ -142,6 +142,21 @@ export interface RunProjection {
   transcript: TranscriptEntry[];
   router: RouterDecisionView[];
   logs: LogLineView[];
+  files: Array<{
+    seq: number;
+    ts: string;
+    agentId: string;
+    path: string;
+    op: "created" | "updated" | "deleted" | "read";
+    bytes: number | null;
+  }>;
+  handoffs: Array<{
+    seq: number;
+    ts: string;
+    fromAgentId: string;
+    toAgentId: string;
+    summary: string;
+  }>;
   budgetEvents: Array<{
     seq: number;
     kind: "warning" | "halted";
@@ -177,6 +192,8 @@ export function emptyProjection(runId: string): RunProjection {
     transcript: [],
     router: [],
     logs: [],
+    files: [],
+    handoffs: [],
     budgetEvents: [],
     lastSeq: -1,
   };
@@ -199,6 +216,8 @@ export function applyEvent(
     transcript: [...state.transcript],
     router: [...state.router],
     logs: [...state.logs],
+    files: [...state.files],
+    handoffs: [...state.handoffs],
     budgetEvents: [...state.budgetEvents],
     lastSeq: event.seq,
   };
@@ -446,8 +465,27 @@ export function applyEvent(
       });
       break;
     }
-    case "file.changed":
-    case "handoff":
+    case "file.changed": {
+      next.files.push({
+        seq: event.seq,
+        ts: event.ts,
+        agentId: p.agentId,
+        path: p.path,
+        op: p.op,
+        bytes: p.bytes ?? null,
+      });
+      break;
+    }
+    case "handoff": {
+      next.handoffs.push({
+        seq: event.seq,
+        ts: event.ts,
+        fromAgentId: p.fromAgentId,
+        toAgentId: p.toAgentId,
+        summary: p.summary,
+      });
+      break;
+    }
     case "eval.scored":
       break;
   }

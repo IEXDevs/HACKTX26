@@ -12,6 +12,7 @@ export interface AgentTile {
   name: string;
   summary: string;
   status: string;
+  defaultGoal: string;
   role: string;
   team: number;
   runs: number;
@@ -86,7 +87,7 @@ export function AgentsGrid({ agents }: { agents: AgentTile[] }) {
                 </span>
                 {a.status === "active" && (
                   <StartRun
-                    agents={[{ id: a.id, name: a.name, status: a.status }]}
+                    agents={[{ id: a.id, name: a.name, status: a.status, defaultGoal: a.defaultGoal }]}
                     initialAgentId={a.id}
                     label="Run"
                     className="btn small"

@@ -31,6 +31,16 @@ describe("parseBuilderReply", () => {
     expect(parseBuilderReply(JSON.stringify({ reply: "Done.", draft: bad })).draft).toBeNull();
   });
 
+  it("keeps a first-run goal and drops a bad one without losing the draft", () => {
+    const withGoal = { ...draft, goal: "Triage the ten newest tickets." };
+    expect(parseBuilderReply(JSON.stringify({ reply: "Ok.", draft: withGoal })).draft?.goal).toBe(
+      "Triage the ten newest tickets.",
+    );
+    const badGoal = parseBuilderReply(JSON.stringify({ reply: "Ok.", draft: { ...draft, goal: "go" } }));
+    expect(badGoal.draft?.name).toBe("Support Lead");
+    expect(badGoal.draft?.goal).toBeUndefined();
+  });
+
   it("falls back to plain text when there is no JSON", () => {
     expect(parseBuilderReply("What should it do?")).toEqual({ reply: "What should it do?", draft: null });
   });

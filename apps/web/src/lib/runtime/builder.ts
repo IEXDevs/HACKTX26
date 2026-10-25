@@ -3,7 +3,7 @@
  * team as JSON. The draft is validated here; nothing is created until the
  * person publishes it through POST /api/agents/custom.
  */
-import { TOOL_MANIFEST } from "@agent-os/core";
+import { MODEL_BY_ID, TOOL_MANIFEST } from "@agent-os/core";
 import { createLiveGateway, liveGatewayAvailable } from "./gateway";
 import { parseBuilderReply } from "./builder-parse";
 
@@ -31,9 +31,9 @@ ${tools}
 Always answer with one JSON object and nothing else:
 {"reply": "what you say to the person", "draft": null}
 or, once you can propose:
-{"reply": "...", "draft": {"name": "...", "summary": "one sentence", "instructions": "the orchestrator's instructions", "complexity": "trivial|standard|complex|critical", "workers": [{"name": "...", "role": "worker|security", "instructions": "...", "complexity": "...", "tools": ["kb.search"]}]}}`;
+{"reply": "...", "draft": {"name": "...", "summary": "one sentence", "instructions": "the orchestrator's standing instructions", "goal": "the first concrete task to run, one or two sentences", "complexity": "trivial|standard|complex|critical", "workers": [{"name": "...", "role": "worker|security", "instructions": "...", "complexity": "...", "tools": ["kb.search"]}]}}`;
 
-export const BUILDER_MODEL = process.env.BUILDER_MODEL ?? "meta/muse-spark-1.3";
+export const BUILDER_MODEL = process.env.BUILDER_MODEL ?? "muse-spark-1.3";
 
 export async function askBuilder(history: BuilderTurn[]) {
   if (!liveGatewayAvailable()) {
@@ -49,6 +49,8 @@ export async function askBuilder(history: BuilderTurn[]) {
     tools: [],
     temperature: 0.3,
     maxOutputTokens: 4000,
+    // Muse returns empty completions without an explicit reasoning effort.
+    reasoningEffort: MODEL_BY_ID.get(BUILDER_MODEL)?.provider === "meta" ? "medium" : undefined,
   })) {
     if (chunk.type === "text") text += chunk.text;
     if (chunk.type === "usage") {

@@ -7,6 +7,8 @@ export const DraftSchema = z.object({
   name: z.string().trim().min(2).max(64),
   summary: z.string().trim().min(1).max(240),
   instructions: z.string().trim().min(20).max(3000),
+  // A bad goal only loses the prefill; it must not sink the whole draft.
+  goal: z.string().trim().min(8).max(2000).optional().catch(undefined),
   complexity: Complexity.catch("standard"),
   workers: z
     .array(

@@ -18,6 +18,7 @@ export default async function AgentsPage() {
         name: agent.name,
         summary: agent.summary,
         status: agent.status,
+        defaultGoal: agent.defaultGoal,
         role: agent.role,
         team: agents.filter((child) => child.parentAgentId === agent.id).length,
         runs: own.length,

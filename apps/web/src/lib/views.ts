@@ -165,7 +165,7 @@ export interface HomeView {
   needs: HomeNeed[];
   running: HomeRun[];
   finished: HomeFinished[];
-  agents: Array<{ id: string; name: string; status: string }>;
+  agents: Array<{ id: string; name: string; status: string; defaultGoal: string }>;
   scripted: boolean;
 }
 
@@ -235,7 +235,7 @@ export async function homeView(workspaceId: string): Promise<HomeView> {
     finished,
     agents: agents
       .filter((a) => a.parentAgentId === null)
-      .map((a) => ({ id: a.id, name: a.name, status: a.status })),
+      .map((a) => ({ id: a.id, name: a.name, status: a.status, defaultGoal: a.defaultGoal })),
     scripted: (process.env.MODEL_GATEWAY ?? "scripted") === "scripted",
   };
 }

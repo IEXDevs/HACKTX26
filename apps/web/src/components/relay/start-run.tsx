@@ -8,6 +8,8 @@ export interface RunnableAgent {
   id: string;
   name: string;
   status: string;
+  /** First task drafted with the agent. Prefills the goal. */
+  defaultGoal?: string;
 }
 
 /** "New run": pick an agent, describe the goal, and start it through POST /api/runs. */
@@ -24,9 +26,11 @@ export function StartRun({
 }) {
   const router = useRouter();
   const ready = agents.filter((a) => a.status === "active");
+  const goalFor = (id: string) => ready.find((a) => a.id === id)?.defaultGoal ?? "";
+  const firstId = initialAgentId ?? ready[0]?.id ?? "";
   const [open, setOpen] = useState(false),
-    [agentId, setAgentId] = useState(initialAgentId ?? ready[0]?.id ?? ""),
-    [goal, setGoal] = useState(""),
+    [agentId, setAgentId] = useState(firstId),
+    [goal, setGoal] = useState(goalFor(firstId)),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
 
@@ -43,7 +47,7 @@ export function StartRun({
       const value = await response.json();
       if (!response.ok) throw new Error(value.error ?? "The run could not start.");
       setOpen(false);
-      setGoal("");
+      setGoal(goalFor(agentId));
       router.push(`/runs/${value.runId}`);
       router.refresh();
     } catch (e) {
@@ -85,7 +89,15 @@ export function StartRun({
             </div>
             <label className="field">
               Agent
-              <select value={agentId} onChange={(e) => setAgentId(e.target.value)}>
+              <select
+                value={agentId}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  // Swap the prefill only if the person has not written their own goal.
+                  if (!goal.trim() || goal === goalFor(agentId)) setGoal(goalFor(next));
+                  setAgentId(next);
+                }}
+              >
                 {ready.map((agent) => (
                   <option key={agent.id} value={agent.id}>
                     {agent.name}

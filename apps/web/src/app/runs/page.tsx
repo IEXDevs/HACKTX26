@@ -15,7 +15,7 @@ export default async function RunsPage() {
       runs={runs.map(runTile)}
       agents={agents
         .filter((agent) => agent.parentAgentId === null)
-        .map((agent) => ({ id: agent.id, name: agent.name, status: agent.status }))}
+        .map((agent) => ({ id: agent.id, name: agent.name, status: agent.status, defaultGoal: agent.defaultGoal }))}
     />
   );
 }

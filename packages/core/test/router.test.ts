@@ -72,11 +72,13 @@ describe("routeModel", () => {
     expect(result.chosenModel.startsWith("selfhost/")).toBe(false);
   });
 
-  it("provisions Meta Model API models by task weight", () => {
+  it("provisions Spark 1.3 for everything but critical work", () => {
     expect(provisionMetaModel("critical")).toBe("muse-wonder-1.0");
+    expect(provisionMetaModel("complex")).toBe("muse-spark-1.3");
     expect(provisionMetaModel("standard")).toBe("muse-spark-1.3");
-    expect(provisionMetaModel("trivial")).toBe("muse-spark-1.1");
-    expect(provisionMetaModel("complex", ["muse-wonder-1.0"])).toBe("muse-spark-1.3");
+    expect(provisionMetaModel("trivial")).toBe("muse-spark-1.3");
+    expect(provisionMetaModel("critical", ["muse-wonder-1.0"])).toBe("muse-spark-1.3");
+    expect(MODEL_CATALOG.some((m) => m.id === "muse-spark-1.1" || m.id === "muse-spark-1.2")).toBe(false);
     const wonder = MODEL_CATALOG.find((m) => m.id === "muse-wonder-1.0");
     expect(wonder?.inputPerMTok).toBe(4);
     expect(wonder?.outputPerMTok).toBe(20);
@@ -84,6 +86,23 @@ describe("routeModel", () => {
     const spark = MODEL_CATALOG.find((m) => m.id === "muse-spark-1.3");
     expect(spark?.inputPerMTok).toBe(1.25);
     expect(spark?.outputPerMTok).toBe(4.25);
+  });
+
+  it("routes to Spark 1.3 when only Meta models are allowed, and Wonder only for critical work", () => {
+    const metaOnly = MODEL_CATALOG.filter((m) => m.provider !== "meta").map((m) => m.id);
+    const pick = (complexity: "trivial" | "standard" | "complex" | "critical") =>
+      routeModel({
+        complexity,
+        dataClass: "internal",
+        estimatedInputTokens: 4000,
+        estimatedOutputTokens: 900,
+        requiredCapabilities: ["tool_calling"],
+        deniedModelIds: metaOnly,
+      }).chosenModel;
+    expect(pick("trivial")).toBe("muse-spark-1.3");
+    expect(pick("standard")).toBe("muse-spark-1.3");
+    expect(pick("complex")).toBe("muse-spark-1.3");
+    expect(pick("critical")).toBe("muse-wonder-1.0");
   });
 
   it("fails loudly when nothing satisfies policy", () => {

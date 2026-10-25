@@ -64,6 +64,13 @@
       "when": 1792883400000,
       "tag": "0008_kb_documents",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1792883500000,
+      "tag": "0009_retire_old_spark",
+      "breakpoints": true
     }
   ]
 }

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowUp, Check, LoaderCircle } from "@/components/icons";
 import type { CaseHop, CaseMessage, CaseProposal, CaseRetest } from "@/lib/db/schema";
 import { AdvancedSwitch, useAdvanced } from "./advanced";
+import { RichText } from "./rich-text";
 
 export interface CaseView {
   id: string;
@@ -160,7 +161,7 @@ export function CaseReview({ view }: { view: CaseView }) {
               <div key={i} className="chat-builder">
                 <span className="chat-avatar" aria-hidden />
                 <div>
-                  <p>{m.text}</p>
+                  <RichText text={m.text} />
                 </div>
               </div>
             ) : (

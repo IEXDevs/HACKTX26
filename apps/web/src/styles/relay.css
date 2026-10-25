@@ -814,22 +814,23 @@
   padding: 0;
   list-style: none;
 }
-.run-feed li {
+/* Direct children only: agent messages contain their own lists and bold text. */
+.run-feed > li {
   display: grid;
   grid-template-columns: 72px 1fr;
   gap: 12px;
 }
-.run-feed time {
+.run-feed > li > time {
   padding-top: 2px;
   font-size: 12px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
-.run-feed b {
+.run-feed > li > div > b {
   font-size: 13px;
   font-weight: 600;
 }
-.run-feed p {
+.run-feed > li > div > p {
   margin: 2px 0 0;
   font-size: 14px;
   line-height: 1.55;
@@ -877,7 +878,7 @@
   justify-content: flex-end;
 }
 @media (max-width: 760px) {
-  .run-feed li {
+  .run-feed > li {
     grid-template-columns: 1fr;
     gap: 2px;
   }
@@ -1772,4 +1773,141 @@
     flex-direction: column;
     align-items: stretch;
   }
+}
+
+/* ---------- Agent output rendered as Markdown ---------- */
+.rich {
+  min-width: 0;
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.rich > :first-child {
+  margin-top: 0;
+}
+.rich > :last-child {
+  margin-bottom: 0;
+}
+.rich p,
+.rich ul,
+.rich ol,
+.rich pre,
+.rich table,
+.rich blockquote {
+  margin: 0 0 12px;
+}
+.rich h1,
+.rich h2,
+.rich h3,
+.rich h4 {
+  margin: 18px 0 8px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.2px;
+}
+.rich h1 {
+  font-size: 20px;
+}
+.rich h2 {
+  font-size: 18px;
+}
+.rich h3,
+.rich h4 {
+  font-size: 16px;
+}
+.rich ul,
+.rich ol {
+  padding-left: 22px;
+}
+/* Set explicitly: list-style is inherited from containers like .run-feed. */
+.rich ul {
+  list-style: disc;
+}
+.rich ol {
+  list-style: decimal;
+}
+.rich ul ul {
+  list-style: circle;
+}
+.rich li + li {
+  margin-top: 4px;
+}
+.rich a {
+  color: var(--green);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.rich code {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--soft-fill);
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+}
+.rich pre {
+  padding: 12px 14px;
+  overflow-x: auto;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--raised);
+}
+.rich pre code {
+  padding: 0;
+  background: none;
+  font-size: 13px;
+}
+.rich blockquote {
+  padding-left: 14px;
+  border-left: 3px solid var(--hairline-strong);
+  color: var(--ink-soft);
+}
+.rich table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.rich th,
+.rich td {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--hairline);
+  text-align: left;
+}
+.rich th {
+  font-weight: 600;
+}
+.rich hr {
+  margin: 16px 0;
+  border: 0;
+  border-top: 1px solid var(--hairline);
+}
+/* Containers like .card use pre-wrap for plain text; Markdown handles its own breaks. */
+div.rich p,
+div.rich li {
+  white-space: normal;
+}
+.rich.stopped {
+  color: var(--stopped);
+}
+.run-feed .rich {
+  margin-top: 2px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+.run-draft > div {
+  margin-top: 6px;
+}
+/* Keep the typing caret on the last line of the draft. */
+.run-draft .rich,
+.run-draft .rich > :last-child {
+  display: inline;
+}
+.run-draft .rich p {
+  margin: 0 0 8px;
+  font-family: inherit;
+  font-size: 14px;
 }

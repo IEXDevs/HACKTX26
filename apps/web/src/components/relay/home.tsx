@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowUpRight, ChevronDown } from "@/components/icons";
 import type { HomeRun, HomeView, StepState } from "@/lib/views";
 import { AdvancedSwitch, useAdvanced } from "./advanced";
+import { RichText } from "./rich-text";
 import { StartRun } from "./start-run";
 
 // Checked-off finished items hide from Home an hour after checking. Run history is untouched.
@@ -239,7 +240,7 @@ function RunBar({
                   <time>{o.at}</time>
                   <div>
                     <b>{o.who}</b>
-                    <p>{o.text}</p>
+                    <RichText text={o.text} />
                   </div>
                 </li>
               ))}
@@ -248,10 +249,10 @@ function RunBar({
           {run.draft && (
             <div className="run-draft" aria-live="polite">
               <span>{run.draft.who} is writing</span>
-              <p>
-                {run.draft.text}
+              <div>
+                <RichText text={run.draft.text} />
                 <i className="run-caret" aria-hidden="true" />
-              </p>
+              </div>
             </div>
           )}
           <div className="run-bar-foot">

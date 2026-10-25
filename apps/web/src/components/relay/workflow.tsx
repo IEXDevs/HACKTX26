@@ -5,7 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Archive, ArrowLeft, Bot, LoaderCircle, Play, Users } from "@/components/icons";
 import type { WorkflowNode, WorkflowView } from "@/lib/views";
+import { plainText } from "@/lib/plain-text";
 import { AdvancedSwitch, useAdvanced } from "./advanced";
+import { RichText } from "./rich-text";
 
 function countTeam(node: WorkflowNode): number {
   return node.children.reduce((sum, child) => sum + 1 + countTeam(child), 0);
@@ -191,9 +193,9 @@ export function Workflow({
             </div>
             <aside className="wf-panel">
               <h3>{node.name}</h3>
-              {node.job && <p>{node.job}</p>}
+              {node.job && <p>{plainText(node.job)}</p>}
               <small>Instructions</small>
-              <p>{node.instructions}</p>
+              <RichText text={node.instructions} className="wf-instructions" />
               <small>Can use</small>
               <p>{node.tools.length ? node.tools.join(", ") : "Text only"}</p>
               {advanced && (

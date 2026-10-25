@@ -408,3 +408,110 @@ export function routedModel(agent: AgentRow): string {
     return "No approved model";
   }
 }
+
+/* ---------- Workflows ---------- */
+
+/** A workflow is a top-level agent with its team, its standing task and its runs. */
+export interface WorkflowTile {
+  id: string;
+  name: string;
+  task: string;
+  label: string;
+  tone: RunTile["tone"];
+  group: RunTile["group"];
+  team: number;
+  runs: number;
+  edited: string;
+  archived: boolean;
+}
+
+export interface WorkflowNode {
+  id: string;
+  name: string;
+  role: string;
+  job: string;
+  instructions: string;
+  tools: string[];
+  children: WorkflowNode[];
+}
+
+export interface WorkflowView {
+  id: string;
+  name: string;
+  status: string;
+  task: string;
+  tree: WorkflowNode;
+  /** Every agent in the team, so activation can cover all of them. */
+  agentIds: string[];
+  runs: Array<{ id: string; label: string; when: string }>;
+}
+
+function teamOf(all: AgentRow[], rootId: string): AgentRow[] {
+  const found: AgentRow[] = [];
+  const walk = (id: string) => {
+    for (const child of all.filter((a) => a.parentAgentId === id)) {
+      found.push(child);
+      walk(child.id);
+    }
+  };
+  walk(rootId);
+  return found;
+}
+
+export async function workflowTiles(workspaceId: string): Promise<WorkflowTile[]> {
+  const [agents, runs] = await Promise.all([
+    listAgents(workspaceId),
+    listRuns(workspaceId, { limit: 1000 }),
+  ]);
+  return agents
+    .filter((agent) => agent.parentAgentId === null)
+    .map((agent) => {
+      const own = runs.filter((run) => run.agentId === agent.id);
+      const latest = own[0] ? runTile(own[0]) : null;
+      return {
+        id: agent.id,
+        name: agent.name,
+        task: latest?.goal || agent.defaultGoal || agent.summary,
+        label: latest ? `${latest.label}${latest.group === "recent" ? ` ${latest.when}` : ""}` : "Not run yet",
+        tone: latest?.tone ?? "",
+        group: latest?.group ?? "recent",
+        team: teamOf(agents, agent.id).length,
+        runs: own.length,
+        edited: relativeTime(agent.updatedAt),
+        archived: agent.status === "archived",
+      };
+    });
+}
+
+export async function workflowView(
+  workspaceId: string,
+  agentId: string,
+): Promise<WorkflowView | null> {
+  const [agents, runs] = await Promise.all([
+    listAgents(workspaceId),
+    listRuns(workspaceId, { limit: 200, agentId }),
+  ]);
+  const root = agents.find((agent) => agent.id === agentId && agent.parentAgentId === null);
+  if (!root) return null;
+  const node = (agent: AgentRow): WorkflowNode => ({
+    id: agent.id,
+    name: agent.name,
+    role: agent.role,
+    job: agent.summary,
+    instructions: agent.instructions,
+    tools: agent.allowedTools,
+    children: agents.filter((a) => a.parentAgentId === agent.id).map(node),
+  });
+  return {
+    id: root.id,
+    name: root.name,
+    status: root.status,
+    task: root.defaultGoal || runs[0]?.goal || "",
+    tree: node(root),
+    agentIds: [root.id, ...teamOf(agents, root.id).map((a) => a.id)],
+    runs: runs.map((run) => {
+      const tile = runTile(run);
+      return { id: run.id, label: tile.label, when: tile.when };
+    }),
+  };
+}

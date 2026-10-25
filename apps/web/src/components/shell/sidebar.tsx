@@ -26,6 +26,8 @@ interface NavItem {
   icon: ComponentType<{ size?: number | string; "aria-hidden"?: boolean }>;
   count?: number;
   exact?: boolean;
+  /** Other routes that light up this item. */
+  also?: string[];
 }
 
 export function Sidebar({
@@ -47,6 +49,7 @@ export function Sidebar({
   const main: NavItem[] = [
     { href: "/", label: "Home", icon: House, exact: true, count: pendingApprovals },
     { href: "/agents", label: "Agents", icon: Bot },
+    { href: "/workflows", label: "Workflows", icon: GitBranch, also: ["/graph"] },
     { href: "/runs", label: "Runs", icon: ListTree },
     { href: "/usage", label: "Usage", icon: Activity },
     { href: "/billing", label: "Billing", icon: CreditCard },
@@ -56,12 +59,13 @@ export function Sidebar({
     { href: "/evals", label: "Evaluations", icon: FlaskConical },
     { href: "/connectors", label: "Connectors", icon: Link2 },
     { href: "/policy", label: "Policy", icon: Scale },
-    { href: "/graph", label: "Agent graph", icon: GitBranch },
   ];
   const isActive = (item: NavItem) =>
     item.exact
       ? pathname === item.href
-      : pathname === item.href || pathname.startsWith(`${item.href}/`);
+      : [item.href, ...(item.also ?? [])].some(
+          (href) => pathname === href || pathname.startsWith(`${href}/`),
+        );
   const used = Math.min(1, spendTodayUsd / Math.max(dailyBudgetUsd, 0.01));
 
   const renderItem = (item: NavItem) => (

@@ -1356,6 +1356,20 @@ form.search {
 .bill-cost-row b { font-weight: 500; font-variant-numeric: tabular-nums; }
 .bill-cost-row > div { grid-column: 1 / -1; height: 4px; border-radius: 99px; background: var(--track-soft); }
 .bill-cost-row i { display: block; height: 100%; border-radius: inherit; background: var(--green); opacity: 0.65; }
+.bill-cost-detail + .bill-cost-detail { border-top: 1px solid var(--hairline); }
+.bill-cost-detail summary { cursor: pointer; list-style: none; }
+.bill-cost-detail summary::-webkit-details-marker { display: none; }
+.bill-cost-detail summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.bill-cost-chevron { display: inline-block; margin-left: 8px; color: var(--muted); transition: transform 120ms ease; }
+.bill-cost-detail[open] .bill-cost-chevron { transform: rotate(90deg); }
+.bill-cost-runs { margin: 0 0 14px; padding: 12px; background: var(--track-soft); border-radius: 4px; }
+.bill-cost-runs > p { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+.bill-cost-run, .bill-cost-total { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 10px 0; font-size: 13px; }
+.bill-cost-run > span { min-width: 0; overflow-wrap: anywhere; }
+.bill-cost-run small { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+.bill-cost-run b, .bill-cost-total b { flex: none; font-variant-numeric: tabular-nums; font-weight: 500; }
+.bill-cost-run:hover > span { color: var(--green); text-decoration: underline; }
+.bill-cost-total { border-top: 1px solid var(--hairline-strong); margin-top: 6px; padding-bottom: 0; }
 .bill-section { margin-top: 32px; }
 .bill-section-title { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 14px; }
 .bill-section-title > span { font-size: 13px; color: var(--muted); }

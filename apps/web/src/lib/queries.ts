@@ -17,6 +17,7 @@ import {
   runs,
   securityFindings,
   taskLog,
+  templateProposals,
   templates,
   triggers,
   users,
@@ -122,7 +123,7 @@ export async function getAgentDetail(agentId: string) {
   const agent = await getAgent(agentId);
   if (!agent) return null;
 
-  const [parent, children, blocks, agentRuns, suites, findings, agentTriggers, agentBudget] =
+  const [parent, children, blocks, agentRuns, suites, findings, agentTriggers, agentBudget, proposals] =
     await Promise.all([
       agent.parentAgentId ? getAgent(agent.parentAgentId) : Promise.resolve(null),
       db.select().from(agents).where(eq(agents.parentAgentId, agent.id)),
@@ -145,6 +146,11 @@ export async function getAgentDetail(agentId: string) {
         .from(budgetPolicies)
         .where(eq(budgetPolicies.agentId, agent.id))
         .limit(1),
+      db
+        .select()
+        .from(templateProposals)
+        .where(eq(templateProposals.parentAgentId, agent.id))
+        .orderBy(desc(templateProposals.createdAt)),
     ]);
 
   return {
@@ -157,6 +163,7 @@ export async function getAgentDetail(agentId: string) {
     findings,
     triggers: agentTriggers,
     budget: agentBudget[0] ?? null,
+    proposals,
   };
 }
 

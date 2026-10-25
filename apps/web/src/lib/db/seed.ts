@@ -5,6 +5,7 @@
  * Run rows and task-log rows are *derived* from the seeded event streams via the
  * core projection, so the seed cannot drift from the event protocol.
  */
+import { and, eq, ne, or } from "drizzle-orm";
 import {
   appendEvent,
   computeMetrics,
@@ -627,7 +628,7 @@ export async function seedDatabase(): Promise<void> {
       parentAgentId: "agt_incident_commander",
       summary: "Adversarially probes a target agent for injection, escalation, and exfiltration paths.",
       instructions:
-        "You are an offensive security agent. Probe a target agent's configuration for prompt injection through every retrieval path, capability escalation across the agent graph, and credential exfiltration. Every probe must be reproducible from the findings you publish. You may never use production credentials; if you need one, request it and expect denial — the denial is itself evidence.",
+        "You lead the red team. Do not run probes yourself. Delegate each vector to its own specialist: Injection Prober, Escalation Prober, and Egress Prober. They are created on first use. Every finding they publish must be reproducible. You may never use production credentials.",
       inheritedPromptBlockIds: ["pb_data_handling", "pb_escalation"],
       modelPolicy: { mode: "auto" as const, pinnedModelId: null, costSensitivity: 0.15, latencySensitivity: 0.1, floorComplexity: "critical" as const, deniedModelIds: [] },
       grants: [
@@ -719,6 +720,19 @@ export async function seedDatabase(): Promise<void> {
   ];
 
   await db.insert(agents).values(agentRows);
+
+  await db
+    .update(agents)
+    .set({ rank: "orchestrator", canSpawnSubagents: true })
+    .where(eq(agents.role, "orchestrator"));
+  await db
+    .update(agents)
+    .set({ rank: "intermediate", canSpawnSubagents: true })
+    .where(eq(agents.id, "agt_red_team"));
+  await db
+    .update(agents)
+    .set({ rank: "grunt", canSpawnSubagents: false, proposeTemplates: false })
+    .where(or(eq(agents.role, "worker"), and(eq(agents.role, "security"), ne(agents.id, "agt_red_team"))));
 
   /* -------------------------------------------------------------- templates */
   await db.insert(templates).values([

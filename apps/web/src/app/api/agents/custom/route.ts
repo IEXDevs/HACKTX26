@@ -31,6 +31,7 @@ export async function POST(request: NextRequest) {
         summary: draft.summary,
         instructions: draft.instructions,
         complexity: draft.complexity,
+        goal: draft.goal,
       },
       workers: draft.workers,
     },

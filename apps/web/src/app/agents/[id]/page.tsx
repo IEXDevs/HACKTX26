@@ -25,6 +25,7 @@ export default async function AgentPage({ params }: { params: Promise<{ id: stri
         name: agent.name,
         summary: agent.summary,
         instructions: agent.instructions,
+        defaultGoal: agent.defaultGoal,
         status: agent.status,
         parent: parent ? { id: parent.id, name: parent.name } : null,
         team: children.map((child) => ({

@@ -26,6 +26,8 @@ export interface GraphSpec {
     summary: string;
     instructions: string;
     complexity: TaskComplexity;
+    /** First task to dispatch. Stored as default_goal; New run prefills from it. */
+    goal?: string;
   };
   workers: Array<{
     name: string;
@@ -121,6 +123,7 @@ export async function createAgentGraph(options: {
     parentAgentId: null,
     summary: spec.orchestrator.summary,
     instructions: spec.orchestrator.instructions,
+    defaultGoal: spec.orchestrator.goal?.trim() ?? "",
     inheritedPromptBlockIds: inherited,
     modelPolicy: policyFor(spec.orchestrator.complexity, "orchestrator"),
     grants: grantsFor(ORCHESTRATOR_TOOLS),

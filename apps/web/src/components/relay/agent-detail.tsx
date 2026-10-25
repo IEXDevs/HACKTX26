@@ -13,6 +13,7 @@ export interface AgentDetailView {
   name: string;
   summary: string;
   instructions: string;
+  defaultGoal: string;
   status: string;
   parent: { id: string; name: string } | null;
   team: Array<{ id: string; name: string; summary: string; role: string; status: string }>;
@@ -95,7 +96,7 @@ export function AgentDetail({ agent }: { agent: AgentDetailView }) {
             <>
               {!agent.parent && (
                 <StartRun
-                  agents={[{ id: agent.id, name: agent.name, status: agent.status }]}
+                  agents={[{ id: agent.id, name: agent.name, status: agent.status, defaultGoal: agent.defaultGoal }]}
                   initialAgentId={agent.id}
                   label="Start run"
                 />

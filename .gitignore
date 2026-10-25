@@ -18,6 +18,9 @@ Thumbs.db
 .idea/
 
 dev.log
+.env
+.env.*
+!.env.example
 
 coverage/
 playwright-report/

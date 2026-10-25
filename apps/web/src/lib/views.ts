@@ -15,7 +15,7 @@ import {
 } from "@agent-os/core";
 import { getDb } from "./db/client";
 import { runEvents, runs, type AgentRow } from "./db/schema";
-import { duration, relativeTime } from "./format";
+import { duration, relativeTime, usd } from "./format";
 import { listUsageEvents, type CloudUsageRow } from "./observability";
 import { plainText } from "./plain-text";
 import {
@@ -369,6 +369,9 @@ export interface RunTile {
   group: "waiting" | "running" | "recent";
   when: string;
   detail: string;
+  duration: string;
+  spend: string;
+  startedMs: number;
 }
 
 export function runTile(run: RunListRow): RunTile {
@@ -393,6 +396,9 @@ export function runTile(run: RunListRow): RunTile {
     detail: `${(run.inputTokens + run.outputTokens).toLocaleString()} tokens · $${run.costUsd.toFixed(
       2,
     )}`,
+    duration: duration((run.endedAt?.getTime() ?? Date.now()) - run.startedAt.getTime()),
+    spend: usd(run.costUsd),
+    startedMs: run.startedAt.getTime(),
   };
 }
 

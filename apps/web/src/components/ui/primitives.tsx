@@ -1,5 +1,6 @@
 import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/cn";
+import { Check, LoaderCircle, X } from "@/components/icons";
 
 /* -------------------------------------------------------------------------- */
 /* Status                                                                     */
@@ -83,6 +84,7 @@ export function toneFor(status: string): Tone {
   return STATUS_TONES[status] ?? "muted";
 }
 
+/** A small glyph for a state: check, cross, "!" or a spinning arc. No colored dots. */
 export function StatusDot({
   status,
   tone,
@@ -94,19 +96,19 @@ export function StatusDot({
 }) {
   const resolved = tone ?? (status ? toneFor(status) : "muted");
   const live = status === "running" || status === "thinking" || status === "working";
-  return (
-    <span
-      aria-hidden
-      className={cn(
-        "inline-block size-1.5 shrink-0 rounded-full",
-        toneBg[resolved],
-        live && "animate-pulse-dot",
-        className,
-      )}
-    />
-  );
+  if (live) return <LoaderCircle size={12} className={cn("shrink-0 animate-spin", toneText[resolved], className)} />;
+  if (resolved === "ok") return <Check size={12} strokeWidth={2.2} className={cn("shrink-0", toneText.ok, className)} />;
+  if (resolved === "danger") return <X size={12} strokeWidth={2.2} className={cn("shrink-0", toneText.danger, className)} />;
+  if (resolved === "warn")
+    return (
+      <span aria-hidden className={cn("shrink-0 text-[11px] font-bold leading-none", toneText.warn, className)}>
+        !
+      </span>
+    );
+  return null;
 }
 
+/** A calm state label: soft pill, sentence case, an optional glyph. */
 export function StatusBadge({
   status,
   label,
@@ -119,16 +121,18 @@ export function StatusBadge({
   className?: string;
 }) {
   const resolved = tone ?? (status ? toneFor(status) : "muted");
+  const text = label ?? status?.replaceAll("_", " ") ?? "";
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-xs border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em]",
+        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-medium",
         toneSoft[resolved],
+        "border-transparent",
         className,
       )}
     >
-      <StatusDot status={status} tone={resolved} className="size-1" />
-      {label ?? status?.replaceAll("_", " ")}
+      <StatusDot status={status} tone={resolved} />
+      {text.charAt(0).toUpperCase() + text.slice(1).toLowerCase()}
     </span>
   );
 }

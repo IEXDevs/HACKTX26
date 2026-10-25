@@ -117,7 +117,7 @@ export const MODEL_CATALOG: readonly Model[] = [
     selfHosted: false,
   },
   {
-    id: "meta/muse-wonder-1.0",
+    id: "muse-wonder-1.0",
     label: "Muse Wonder 1.0",
     provider: "meta",
     tier: "frontier",
@@ -131,7 +131,7 @@ export const MODEL_CATALOG: readonly Model[] = [
     notes: "Meta Model API. Frontier planner; reasoning tokens count toward output.",
   },
   {
-    id: "meta/muse-spark-1.3",
+    id: "muse-spark-1.3",
     label: "Muse Spark 1.3",
     provider: "meta",
     tier: "balanced",
@@ -144,7 +144,7 @@ export const MODEL_CATALOG: readonly Model[] = [
     selfHosted: false,
   },
   {
-    id: "meta/muse-spark-1.1",
+    id: "muse-spark-1.1",
     label: "Muse Spark 1.1",
     provider: "meta",
     tier: "fast",

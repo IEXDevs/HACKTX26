@@ -15,6 +15,8 @@ import {
 } from "./queries";
 
 export interface GraphAgent {
+  /** Empty builder slot. Its plus button opens the existing-agent picker. */
+  placeholder?: boolean;
   id: string;
   name: string;
   role: string;

@@ -1,9 +1,21 @@
+/** Workers use a zero-based parent index; -1 (or no index) means the lead. */
+export function workerDepths(workers: readonly { parentIndex?: number }[]): number[] {
+  const depths: number[] = [];
+  for (const [index, worker] of workers.entries()) {
+    const parent = worker.parentIndex ?? -1;
+    if (!Number.isInteger(parent) || parent < -1 || parent >= index) {
+      throw new Error("Each worker must report to the lead or an earlier worker.");
+    }
+    const depth = parent === -1 ? 1 : depths[parent]! + 1;
+    if (depth > 3) throw new Error("The agent tree supports three levels below the lead.");
+    depths.push(depth);
+  }
+  return depths;
+}
+
 /**
  * The agents that belong with `id`: its top-level agent and everything below it.
- *
- * Publishing checks the team an agent is part of, not the whole workspace. One
- * team's problem, or a standalone agent like a team lead, must not stop an
- * unrelated agent from being published.
+ * Publishing validates this team rather than unrelated teams in the workspace.
  */
 export function treeContaining<T extends { id: string; parentAgentId: string | null }>(
   rows: readonly T[],

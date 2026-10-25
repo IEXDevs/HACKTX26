@@ -2,12 +2,16 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { createAgentGraph } from "@/lib/agent-factory";
 import { getWorkspaceUser } from "@/lib/queries";
-import { DraftSchema } from "@/lib/runtime/builder";
+import { DraftSchema } from "@/lib/runtime/builder-parse";
+import { workflowCreation, WorkflowModeSchema } from "@/lib/workflow-mode";
+import { BuilderConversationSchema } from "@/lib/builder-conversation";
 
 export const dynamic = "force-dynamic";
 
 const Body = z.object({
+  workflowMode: WorkflowModeSchema.optional(),
   draft: DraftSchema,
+  conversation: BuilderConversationSchema.optional(),
   dataClass: z.enum(["public", "internal", "confidential", "restricted"]).optional(),
   canSpawnSubagents: z.boolean().optional(),
   proposeTemplates: z.boolean().optional(),
@@ -20,18 +24,24 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "Expected { draft }.", issues: parsed.error.issues }, { status: 400 });
   }
   const { workspace, user } = await getWorkspaceUser();
-  const { draft } = parsed.data;
+  const settings = parsed.data.workflowMode
+    ? workflowCreation(parsed.data.workflowMode, parsed.data.draft)
+    : parsed.data;
+  const { draft, canSpawnSubagents, proposeTemplates } = settings;
   const result = await createAgentGraph({
     workspace,
     dataClass: parsed.data.dataClass,
-    canSpawnSubagents: parsed.data.canSpawnSubagents,
-    proposeTemplates: parsed.data.proposeTemplates,
+    canSpawnSubagents,
+    proposeTemplates,
+    builderConversation: parsed.data.conversation,
+    contextUpdatedBy: user?.id ?? null,
     actor: user?.email ?? "operator@local",
     auditAction: "agent.created",
     auditDetail: {
-      source: "builder",
-      canSpawnSubagents: parsed.data.canSpawnSubagents ?? true,
-      proposeTemplates: parsed.data.proposeTemplates ?? false,
+      source: parsed.data.workflowMode === "manual" ? "manual" : "builder",
+      workflowMode: parsed.data.workflowMode,
+      canSpawnSubagents: canSpawnSubagents ?? true,
+      proposeTemplates: proposeTemplates ?? false,
     },
     spec: {
       orchestrator: {

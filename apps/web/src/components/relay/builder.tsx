@@ -8,6 +8,7 @@ import { CHECK_MAX_USD, RED_TEAM_CATEGORIES } from "@/lib/loop/redteam-limits";
 import type { BuilderDraft } from "@/lib/runtime/builder-parse";
 import { plainText } from "@/lib/plain-text";
 import { RichText } from "./rich-text";
+import { WORKFLOW_MODES, type WorkflowMode } from "@/lib/workflow-mode";
 
 export interface BuilderTemplate {
   id: string;
@@ -27,8 +28,14 @@ interface Message {
  * Publish creates exactly the drafted team through POST /api/agents/custom
  * and activates it.
  */
-export function Builder({ templates }: { templates: BuilderTemplate[] }) {
+export function Builder({ templates, workflowMode, onBack }: {
+  templates: BuilderTemplate[];
+  workflowMode?: Exclude<WorkflowMode, "manual">;
+  onBack?: () => void;
+}) {
   const router = useRouter();
+  const workflow = Boolean(workflowMode);
+  const mode = WORKFLOW_MODES.find((option) => option.id === workflowMode);
   const [input, setInput] = useState(""),
     [messages, setMessages] = useState<Message[]>([]),
     [draft, setDraft] = useState<BuilderDraft | null>(null),
@@ -57,6 +64,7 @@ export function Builder({ templates }: { templates: BuilderTemplate[] }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          workflowMode,
           messages: history.map((m) => ({
             role: m.from === "you" ? "user" : "assistant",
             // Give the model its earlier drafts so edits build on them.
@@ -72,8 +80,9 @@ export function Builder({ templates }: { templates: BuilderTemplate[] }) {
         text: value.reply || "Here is the agent.",
         draft: value.draft ?? undefined,
       };
+      if (workflowMode === "dynamic" && reply.draft) reply.draft = { ...reply.draft, workers: [] };
       setMessages([...history, reply]);
-      if (value.draft) setDraft(value.draft);
+      if (reply.draft) setDraft(reply.draft);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -82,14 +91,16 @@ export function Builder({ templates }: { templates: BuilderTemplate[] }) {
   }
 
   async function create(publish: boolean) {
-    if (!draft) return;
+    if (!draft || thinking) return;
     setBusy(true);
     setError("");
     try {
       const response = await fetch("/api/agents/custom", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ draft, canSpawnSubagents, proposeTemplates }),
+        body: JSON.stringify({ draft, canSpawnSubagents, proposeTemplates, workflowMode,
+          conversation: messages.map((message) => ({ role: message.from === "you" ? "user" : "assistant", content: message.text })),
+        }),
       });
       const value = await response.json();
       if (!response.ok) throw new Error(value.error ?? "The agent was not created.");
@@ -110,7 +121,7 @@ export function Builder({ templates }: { templates: BuilderTemplate[] }) {
         setPublished({ id: value.orchestratorId, name: draft.name });
         return;
       }
-      router.push(`/agents/${value.orchestratorId}`);
+      router.push(`/${workflow ? "workflows" : "agents"}/${value.orchestratorId}`);
       router.refresh();
     } catch (e) {
       setError((e as Error).message);
@@ -132,7 +143,7 @@ export function Builder({ templates }: { templates: BuilderTemplate[] }) {
         }
       }
       // The workflow page shows the test runs as they happen.
-      router.push(redTeam ? `/workflows/${published.id}` : `/agents/${published.id}`);
+      router.push(`/${redTeam || workflow ? "workflows" : "agents"}/${published.id}`);
       router.refresh();
     } catch (e) {
       setError((e as Error).message);
@@ -145,12 +156,13 @@ export function Builder({ templates }: { templates: BuilderTemplate[] }) {
   return (
     <div className={"composer" + (chatting ? " chatting" : "")}>
       <div className="composer-bar">
-        <Link href="/agents" className="glass-pill">
-          <ArrowLeft size={16} />
-          Agents
-        </Link>
+        {onBack ? (
+          <button className="glass-pill" onClick={onBack}><ArrowLeft size={16} aria-hidden />Workflow modes</button>
+        ) : (
+          <Link href="/agents" className="glass-pill"><ArrowLeft size={16} />Agents</Link>
+        )}
         <div className="composer-bar-end">
-          <button className="glass-pill" disabled={busy || !draft} onClick={() => void create(false)}>
+          <button className="glass-pill" disabled={busy || thinking || !draft} onClick={() => void create(false)}>
             Save draft
           </button>
         </div>
@@ -171,7 +183,7 @@ export function Builder({ templates }: { templates: BuilderTemplate[] }) {
                     <RichText text={m.text} />
                     {m.draft && m.id === latest && (
                       <div className="draft-card">
-                        <span className="draft-card-label">Agent draft</span>
+                        <span className="draft-card-label">{workflow ? `${mode?.name} workflow draft` : "Agent draft"}</span>
                         <b>{m.draft.name}</b>
                         <span className="draft-card-role">{m.draft.summary}</span>
                         <RichText text={m.draft.instructions} />
@@ -187,7 +199,7 @@ export function Builder({ templates }: { templates: BuilderTemplate[] }) {
                             ))}
                           </ul>
                         )}
-                        <div className="draft-toggles">
+                        {workflow ? <p>{mode?.description}</p> : <div className="draft-toggles">
                           <label>
                             <input
                               type="checkbox"
@@ -204,10 +216,10 @@ export function Builder({ templates }: { templates: BuilderTemplate[] }) {
                             />
                             Propose child templates
                           </label>
-                        </div>
-                        <button className="composer-send" disabled={busy} onClick={() => void create(true)}>
+                        </div>}
+                        <button className="composer-send" disabled={busy || thinking} onClick={() => void create(true)}>
                           {busy ? <LoaderCircle size={16} className="animate-spin" /> : <ArrowUp size={16} />}
-                          Publish agent
+                          {workflow ? "Publish workflow" : "Publish agent"}
                         </button>
                       </div>
                     )}
@@ -249,14 +261,15 @@ export function Builder({ templates }: { templates: BuilderTemplate[] }) {
               <i className="orb-spark" />
               <i className="orb-spark" />
             </span>
-            <h1 className="composer-title">Create agent</h1>
+            <h1 className="composer-title">{workflow ? `${mode?.name} workflow` : "Create agent"}</h1>
+            {mode && <p className="workflow-mode-copy">{mode.description}</p>}
           </div>
           <Box
             value={input}
             onChange={setInput}
             onSubmit={() => void send()}
-            label="Describe the agent"
-            placeholder="Describe what this agent should do…"
+            label={workflow ? "Describe the workflow" : "Describe the agent"}
+            placeholder={workflow ? "Describe what this workflow should do…" : "Describe what this agent should do…"}
             submit="Start"
             disabled={thinking || !input.trim()}
             busy={thinking}

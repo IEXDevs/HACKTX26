@@ -52,6 +52,12 @@ export function isContextStub(content: string): boolean {
   return trimmed.length === 0 || trimmed.includes("(unknown — fill in on first run)");
 }
 
+/** A partially filled file can already contain notes that must survive hydration. */
+export function hasContextContent(content: string): boolean {
+  const normalized = content.replace(/\r\n/g, "\n").trim();
+  return normalized.length > 0 && normalized !== STUB.trim();
+}
+
 export interface ContextDirective {
   op: "include" | "remove";
   text: string;
@@ -130,7 +136,7 @@ export class WorkspaceContextFile {
   }
 
   write(content: string): { bytes: number } {
-    if (content.length > 256 * 1024) {
+    if (Buffer.byteLength(content, "utf8") > 256 * 1024) {
       throw new Error("CONTEXT.md is limited to 256 KB.");
     }
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
@@ -148,18 +154,17 @@ export class WorkspaceContextFile {
   promptBlock(): string {
     const content = this.read();
     const stub = isContextStub(content);
-    const body = stub
-      ? [
-          "The workspace CONTEXT.md is still a stub.",
+    const body = [
+      "Workspace CONTEXT.md (read this on your own; keep it current):",
+      "",
+      content.trim(),
+      ...(stub ? ["",
+          "The workspace CONTEXT.md still has unfinished sections.",
           "On this first run: inspect the repo (fs.list, README, package.json, kb.search)",
-          "and write a first draft with context.write covering tech stack, layout, and conventions.",
-          "If you cannot see the repo yet, start the file anyway and fill it in as you go.",
-        ].join(" ")
-      : [
-          "Workspace CONTEXT.md (read this on your own; keep it current):",
-          "",
-          content.trim(),
-        ].join("\n");
+          "and fill the missing tech stack, layout, and conventions with context.write.",
+          "Preserve existing builder context and operator notes while filling in the missing sections.",
+        ] : []),
+    ].join("\n");
     return [
       "",
       "",

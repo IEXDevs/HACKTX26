@@ -58,7 +58,7 @@ export function Workflows({ workflows }: { workflows: WorkflowTile[] }) {
       <div className="page-top">
         <h1>Workflows</h1>
         <div className="page-actions">
-          <Link href="/agents/new" className="btn primary">
+          <Link href="/workflows/new" className="btn primary">
             <Plus size={15} aria-hidden />
             New workflow
           </Link>

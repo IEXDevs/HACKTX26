@@ -1001,6 +1001,11 @@
   resize: vertical;
   line-height: 1.5;
 }
+.voice-field { position: relative; }
+.voice-field textarea { padding-right: 48px; }
+.voice-input { position: absolute; right: 10px; bottom: 10px; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--hairline); border-radius: 50%; background: var(--raised); color: var(--muted); cursor: pointer; }
+.voice-input:hover, .voice-input.recording { color: var(--green); border-color: var(--green); }
+.voice-input.recording { box-shadow: 0 0 0 4px var(--green-soft); }
 .field select:focus,
 .field textarea:focus,
 .field input:focus {

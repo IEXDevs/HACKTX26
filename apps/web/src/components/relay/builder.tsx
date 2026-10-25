@@ -7,6 +7,7 @@ import { ArrowLeft, ArrowUp, LoaderCircle, Users } from "@/components/icons";
 import type { BuilderDraft } from "@/lib/runtime/builder-parse";
 import { plainText } from "@/lib/plain-text";
 import { RichText } from "./rich-text";
+import { VoiceInput } from "@/components/ui/voice-input";
 
 export interface BuilderTemplate {
   id: string;
@@ -304,9 +305,9 @@ function Box({
           }}
         />
       </label>
+      <VoiceInput onStart={() => box.current?.focus()} onTranscript={(text) => onChange(`${value}${value ? " " : ""}${text}`)} disabled={busy} />
       <button type="submit" className="composer-send" disabled={disabled}>
         {busy ? <LoaderCircle size={16} className="animate-spin" /> : <ArrowUp size={16} />}
-        {submit}
       </button>
     </form>
   );

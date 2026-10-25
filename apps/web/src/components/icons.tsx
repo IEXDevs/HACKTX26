@@ -248,6 +248,8 @@ export const Pause = icon(
     <rect x="14" y="5" width="4" height="14" rx="1.5" />
   </>,
 );
+export const Mic = icon("Mic", <><path d="M12 4a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V7a3 3 0 0 0-3-3z" /><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M9 21h6" /></>);
+export const Square = icon("Square", <rect x="6" y="6" width="12" height="12" rx="2" />);
 export const LoaderCircle = icon(
   "LoaderCircle",
   <>

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { LoaderCircle, Play, X } from "@/components/icons";
+import { VoiceInput } from "@/components/ui/voice-input";
 
 export interface RunnableAgent {
   id: string;
@@ -107,12 +108,7 @@ export function StartRun({
             </label>
             <label className="field">
               What should it do?
-              <textarea
-                value={goal}
-                maxLength={4000}
-                placeholder="Describe the task in a sentence or two."
-                onChange={(e) => setGoal(e.target.value)}
-              />
+              <div className="voice-field"><textarea value={goal} maxLength={4000} placeholder="Describe the task in a sentence or two." onChange={(e) => setGoal(e.target.value)} /><VoiceInput onTranscript={(text) => setGoal((value) => `${value}${value ? " " : ""}${text}`)} /></div>
             </label>
             {error && <p className="error-text">{error}</p>}
             <div className="dialog-actions">

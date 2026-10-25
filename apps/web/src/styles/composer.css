@@ -148,7 +148,8 @@ button.glass-pill:hover:not(:disabled) {
 }
 .composer-send {
   height: 44px;
-  padding: 0 20px;
+  width: 44px;
+  padding: 0;
   border: 0;
   border-radius: 999px;
   background: var(--green);
@@ -156,7 +157,12 @@ button.glass-pill:hover:not(:disabled) {
   font-size: 15px;
   font-weight: 600;
   box-shadow: 0 8px 20px rgba(14, 59, 36, 0.24);
+  display: grid;
+  place-items: center;
 }
+.composer-send svg { display: block; width: 24px; height: 24px; margin: 0; }
+.composer-box > .voice-input { position: static; flex: none; width: 48px; height: 48px; border: 0; background: transparent; box-shadow: none; }
+.composer-box > .voice-input svg { width: 24px; height: 24px; }
 .composer-send:hover:not(:disabled) {
   background: var(--green-deep);
 }
@@ -234,6 +240,11 @@ button.glass-pill:hover:not(:disabled) {
   margin: 0;
   font-weight: 400;
 }
+.voice-field { position: relative; }
+.voice-field textarea { padding-right: 48px; }
+.voice-input { position: absolute; right: 10px; bottom: 10px; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--hairline); border-radius: 50%; background: var(--raised); color: var(--muted); cursor: pointer; }
+.voice-input:hover, .voice-input.recording { color: var(--green); border-color: var(--green); }
+.voice-input.recording { box-shadow: 0 0 0 4px var(--green-soft); }
 .composer.chatting {
   display: flex;
   flex-direction: column;
@@ -365,6 +376,7 @@ button.glass-pill:hover:not(:disabled) {
 .composer-send {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
 }
 .composer-send:disabled {

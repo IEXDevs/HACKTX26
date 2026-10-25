@@ -728,6 +728,7 @@ class RunEngine {
             step,
             messages,
             completion: text,
+            thinking,
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
             costUsd: Number(cost.toFixed(6)),

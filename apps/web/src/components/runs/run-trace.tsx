@@ -269,17 +269,27 @@ function buildActivity(events: readonly RunEvent[]): ActivityItem[] {
           expansion: p.reason ?? undefined,
         });
         break;
-      case "log":
+      case "log": {
         if (p.level === "debug") break;
+        const thinking = p.fields?.channel === "thinking";
         items.push({
           ...base,
           agentId: p.agentId ?? null,
-          kind: "policy",
-          icon: Terminal,
-          title: p.message,
-          tone: p.level === "error" ? "danger" : p.level === "warn" ? "warn" : "muted",
+          kind: thinking ? "messages" : "policy",
+          icon: thinking ? MessageSquare : Terminal,
+          title: thinking ? "Thinking" : p.message,
+          detail: thinking ? p.message : undefined,
+          tone: thinking
+            ? "muted"
+            : p.level === "error"
+              ? "danger"
+              : p.level === "warn"
+                ? "warn"
+                : "muted",
+          expansion: thinking ? p.message : undefined,
         });
         break;
+      }
       default:
         break;
     }

@@ -24,7 +24,14 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   if (!supabase) return null;
   const { data, error } = await supabase.auth.getUser();
   const email = data.user?.email;
-  if (error || !data.user || !email) return null;
+  if (error || !data.user || !email) {
+    // "Auth session missing!" is the signed-out case, not a failure.
+    if (error && !/session missing/i.test(error.message)) {
+      // eslint-disable-next-line no-console
+      console.warn("[auth] getSessionUser:", error.message);
+    }
+    return null;
+  }
   const user = data.user;
   return {
     id: user.id,
@@ -106,7 +113,9 @@ function hashHue(value: string): number {
 
 let demoUserPromise: Promise<void> | null = null;
 
-/** Create or reset the demo password user. No confirmation email. */
+/** Create the demo password user if it is missing. Never reset the password
+ * on an existing user — GoTrue revokes every session when password is in the
+ * update payload, which looks like "login does not stick". */
 export function ensureDemoUser(): Promise<void> {
   if (!demoUserPromise) {
     demoUserPromise = provisionDemoUser().catch((error) => {
@@ -118,29 +127,45 @@ export function ensureDemoUser(): Promise<void> {
   return demoUserPromise;
 }
 
-async function provisionDemoUser(): Promise<void> {
-  if (!observabilityEnabled()) return;
+const demoMetadata = { full_name: DEMO_LOGIN.name, username: DEMO_LOGIN.username };
+
+async function findDemoUser() {
   const admin = supabaseAdmin();
-  if (!admin) return;
+  if (!admin) return { admin: null, existing: null } as const;
   const email = emailFromLogin(DEMO_LOGIN.username);
   const { data, error } = await admin.auth.admin.listUsers({ page: 1, perPage: 1_000 });
   if (error) throw error;
-  const existing = data.users.find((user) => user.email?.toLowerCase() === email);
-  const metadata = { full_name: DEMO_LOGIN.name, username: DEMO_LOGIN.username };
-  if (existing) {
-    const { error: updateError } = await admin.auth.admin.updateUserById(existing.id, {
-      password: DEMO_LOGIN.password,
-      email_confirm: true,
-      user_metadata: metadata,
-    });
-    if (updateError) throw updateError;
-    return;
-  }
+  return {
+    admin,
+    existing: data.users.find((user) => user.email?.toLowerCase() === email) ?? null,
+  };
+}
+
+async function provisionDemoUser(): Promise<void> {
+  if (!observabilityEnabled()) return;
+  const { admin, existing } = await findDemoUser();
+  if (!admin || existing) return;
   const { error: createError } = await admin.auth.admin.createUser({
-    email,
+    email: emailFromLogin(DEMO_LOGIN.username),
     password: DEMO_LOGIN.password,
     email_confirm: true,
-    user_metadata: metadata,
+    user_metadata: demoMetadata,
   });
   if (createError) throw createError;
+}
+
+/** Repair the advertised demo password after a failed sign-in. */
+export async function resetDemoPassword(): Promise<void> {
+  if (!observabilityEnabled()) return;
+  const { admin, existing } = await findDemoUser();
+  if (!admin || !existing) {
+    await provisionDemoUser();
+    return;
+  }
+  const { error } = await admin.auth.admin.updateUserById(existing.id, {
+    password: DEMO_LOGIN.password,
+    email_confirm: true,
+    user_metadata: demoMetadata,
+  });
+  if (error) throw error;
 }

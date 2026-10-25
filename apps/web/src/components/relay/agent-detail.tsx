@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Bot, Pause, Play, ScrollText, ShieldCheck, Terminal } from "@/components/icons";
+import { ArrowLeft, ArrowUpRight, Bot, Pause, Play, ScrollText, ShieldCheck, Terminal } from "@/components/icons";
 import { TemplateProposals, type ProposalView } from "@/components/agents/template-proposals";
 import { plainText } from "@/lib/plain-text";
 import type { RunTile } from "@/lib/views";
@@ -131,6 +131,10 @@ export function AgentDetail({ agent }: { agent: AgentDetailView }) {
                   label="Start run"
                 />
               )}
+              <a href={`/voice/${agent.id}`} target="_blank" rel="noopener" className="btn">
+                Open voice line
+                <ArrowUpRight size={15} aria-hidden />
+              </a>
               <button className="btn" disabled={busy} onClick={() => void setStatus("paused")}>
                 <Pause size={15} aria-hidden />
                 Pause

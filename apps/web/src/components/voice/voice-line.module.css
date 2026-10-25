@@ -1,0 +1,123 @@
+/* The voice line is a standalone tab: hide the app sidebar while it is on screen. */
+:global(body):has(.root) :global(.shell-sidebar) {
+  display: none;
+}
+:global(body):has(.root) :global(.shell-main) {
+  margin-left: 0;
+}
+
+.root {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100dvh - 48px);
+  padding: 24px 0;
+  color: var(--ink);
+  text-align: center;
+}
+
+.name {
+  max-width: 100%;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -0.8px;
+  overflow-wrap: anywhere;
+}
+
+.state {
+  min-height: 20px;
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.sphere {
+  max-width: 76vw;
+  max-height: 76vw;
+  margin: 8px 0;
+}
+
+.transcript {
+  width: min(520px, 100%);
+  max-height: 200px;
+  margin: 0 0 20px;
+  padding: 10px 14px;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--glass-edge);
+  border-radius: 12px;
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  font-size: 13.5px;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.line {
+  margin: 0;
+  padding: 3px 0;
+}
+
+.partial {
+  opacity: 0.6;
+}
+
+.speaker {
+  margin-right: 6px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.booked {
+  margin: 0;
+  padding: 4px 0;
+  color: var(--green);
+  font-weight: 600;
+}
+
+.controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--green);
+  cursor: pointer;
+}
+
+.link {
+  font-size: 13.5px;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.link:hover {
+  color: var(--ink);
+}
+
+.root .error {
+  max-width: min(420px, 100%);
+  margin: 14px 0 0;
+}
+
+@media (max-width: 760px) {
+  .name {
+    font-size: 26px;
+  }
+}

@@ -21,12 +21,12 @@ export function nodesFromDraft(draft: BuilderDraft): DraftNode[] {
   ];
 }
 
-export function draftFromNodes(nodes: DraftNode[], summary: string, goal: string): BuilderDraft {
+export function draftFromNodes(nodes: DraftNode[], summary: string, goal: string, apps: string[] = []): BuilderDraft {
   const lead = nodes[0];
   if (!lead) throw new Error("Create the first agent before saving.");
   const workers = nodes.slice(1);
   return {
-    name: lead.name, summary, goal, instructions: lead.instructions, complexity: lead.complexity,
+    name: lead.name, summary, goal, instructions: lead.instructions, complexity: lead.complexity, apps,
     workers: workers.map((worker) => {
       const parentIndex = worker.parentId === lead.id ? -1 : workers.findIndex((parent) => parent.id === worker.parentId);
       if (parentIndex < 0 && worker.parentId !== lead.id) throw new Error("An agent is missing its parent.");

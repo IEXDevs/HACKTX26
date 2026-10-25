@@ -188,6 +188,20 @@ export const GitBranch = icon(
 /* ---------- Actions ---------- */
 
 export const Plus = icon("Plus", <path d="M12 5v14M5 12h14" />);
+export const Mic = icon(
+  "Mic",
+  <>
+    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+    <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3" />
+  </>,
+);
+export const Video = icon(
+  "Video",
+  <>
+    <path d="m16 13 5.2 3.5a.5.5 0 0 0 .8-.4V7.9a.5.5 0 0 0-.8-.4L16 10.5" />
+    <rect x="2" y="6" width="14" height="12" rx="2" />
+  </>,
+);
 export const X = icon("X", <path d="M6.5 6.5l11 11M17.5 6.5l-11 11" />);
 export const Check = icon("Check", <path d="M5 12.5 9.5 17 19 7.5" />);
 export const ArrowLeft = icon("ArrowLeft", <path d="M19 12H5M11 6l-6 6 6 6" />);

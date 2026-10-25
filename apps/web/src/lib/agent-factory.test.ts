@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAgentGraph } from "./agent-factory";
 import { getDb } from "./db/client";
-import { agents, workspaceContexts, workspaces } from "./db/schema";
+import { agents, connectorGrants, workspaceContexts, workspaces } from "./db/schema";
 import { env, newId } from "./env";
 import { hydrateContextFromStores } from "./connectors";
 import { isContextStub, WorkspaceContextFile } from "./runtime/workspace-context";
@@ -88,6 +88,28 @@ describe("saving nested agent trees", () => {
     expect(byName.get("Verifier")).toMatchObject({ parentAgentId: byName.get("Sources")!.id, rank: "grunt", canSpawnSubagents: false });
     expect(byName.get("Writer")?.parentAgentId).toBe(result.orchestratorId);
     expect(result.agentIds).toEqual([result.orchestratorId, ...spec.workers.map((item) => byName.get(item.name)!.id)]);
+  });
+
+  it("grants the draft's apps to the lead and every worker", async () => {
+    const result = await createAgentGraph({
+      workspace: await workspace(), spec: { ...spec, apps: ["GoogleCalendar", "gmail", "gmail"] },
+      actor: "test", auditAction: "agent.created", contextUpdatedBy: "operator_test",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const rows = await getDb().select().from(agents);
+    expect(rows).toHaveLength(spec.workers.length + 1);
+    for (const row of rows) expect(row.allowedConnectors).toEqual(["googlecalendar", "gmail"]);
+    const grants = await getDb().select().from(connectorGrants);
+    expect(grants).toHaveLength(rows.length * 2);
+    expect(new Set(grants.map((grant) => grant.agentId))).toEqual(new Set(result.agentIds));
+    expect(grants.every((grant) => grant.grantedBy === "operator_test")).toBe(true);
+  });
+
+  it("leaves connectors empty when the draft names no apps", async () => {
+    await createAgentGraph({ workspace: await workspace(), spec, actor: "test", auditAction: "agent.created" });
+    for (const row of await getDb().select().from(agents)) expect(row.allowedConnectors).toEqual([]);
+    expect(await getDb().select().from(connectorGrants)).toHaveLength(0);
   });
 
   it("rejects invalid topology before writing any agent", async () => {

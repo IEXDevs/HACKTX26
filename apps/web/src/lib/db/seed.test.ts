@@ -19,7 +19,9 @@ import {
   users,
   workspaces,
 } from "./schema";
-import { seedPlatform } from "./seed";
+import { DEALERSHIP_TEMPLATE_ID, ensurePlatformTemplates, seedPlatform } from "./seed";
+import { ensureBootstrapped } from "../bootstrap";
+import { eq } from "drizzle-orm";
 
 async function freshPlatform() {
   const g = globalThis as unknown as { __agentOsDb?: unknown };
@@ -71,5 +73,31 @@ describe("first boot", () => {
     ]) {
       expect(await db.select().from(table)).toHaveLength(0);
     }
+  });
+});
+
+describe("platform templates on an existing database", () => {
+  beforeEach(async () => {
+    await freshPlatform();
+  });
+
+  it("ships the dealership receptionist template once, however often boot runs", async () => {
+    const db = getDb();
+    await ensurePlatformTemplates();
+    await ensurePlatformTemplates();
+    const rows = await db.select().from(templates).where(eq(templates.id, DEALERSHIP_TEMPLATE_ID));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.requiredConnectors).toEqual(["googlecalendar"]);
+    expect(rows[0]?.graph.orchestrator.instructions).toContain("Monday to Saturday");
+  });
+
+  it("adds a missing template at boot without reseeding anything else", async () => {
+    const db = getDb();
+    await db.delete(templates).where(eq(templates.id, DEALERSHIP_TEMPLATE_ID));
+    const before = (await db.select().from(templates)).length;
+    await ensureBootstrapped();
+    expect((await db.select().from(templates)).length).toBe(before + 1);
+    expect(await db.select().from(workspaces)).toHaveLength(1);
+    expect(await db.select().from(users)).toHaveLength(0);
   });
 });

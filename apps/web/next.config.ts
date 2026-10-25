@@ -16,6 +16,8 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     optimizePackageImports: ["lucide-react"],
+    // The proxy buffers request bodies; workflow videos can be up to 200 MB.
+    proxyClientMaxBodySize: "210mb",
   },
 };
 

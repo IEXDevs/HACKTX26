@@ -1,0 +1,40 @@
+import { NextRequest } from "next/server";
+import { z } from "zod";
+import { createAgentGraph } from "@/lib/agent-factory";
+import { getWorkspaceContext } from "@/lib/queries";
+import { DraftSchema } from "@/lib/runtime/builder";
+
+export const dynamic = "force-dynamic";
+
+const Body = z.object({
+  draft: DraftSchema,
+  dataClass: z.enum(["public", "internal", "confidential", "restricted"]).optional(),
+});
+
+/** Creates a custom agent team from a builder draft. Agents start as drafts. */
+export async function POST(request: NextRequest) {
+  const parsed = Body.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
+    return Response.json({ error: "Expected { draft }.", issues: parsed.error.issues }, { status: 400 });
+  }
+  const { workspace, user } = await getWorkspaceContext();
+  const { draft } = parsed.data;
+  const result = await createAgentGraph({
+    workspace,
+    dataClass: parsed.data.dataClass,
+    actor: user?.email ?? "operator@local",
+    auditAction: "agent.created",
+    auditDetail: { source: "builder" },
+    spec: {
+      orchestrator: {
+        name: draft.name,
+        summary: draft.summary,
+        instructions: draft.instructions,
+        complexity: draft.complexity,
+      },
+      workers: draft.workers,
+    },
+  });
+  if (!result.ok) return Response.json(result, { status: 409 });
+  return Response.json(result, { status: 201 });
+}

@@ -24,7 +24,8 @@ export class OpenAiGateway implements ModelGateway {
     if (!this.apiKey) throw new Error("OPENAI_API_KEY is not configured.");
 
     const body = {
-      model: request.model,
+      // Catalog ids carry a provider prefix (meta/muse-spark-1.3); the API wants the bare name.
+      model: request.model.replace(/^[a-z0-9-]+\//, ""),
       stream: true,
       stream_options: { include_usage: true },
       temperature: request.temperature ?? 0.2,

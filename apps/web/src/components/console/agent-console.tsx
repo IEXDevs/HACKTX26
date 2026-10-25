@@ -15,7 +15,7 @@ import {
   Terminal,
   Wrench,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 import {
   Button,
   Divider,
@@ -308,7 +308,7 @@ export function AgentConsole({
       const response = await fetch("/api/runs", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ agentId, goal }),
+        body: JSON.stringify({ agentId, goal, mode: "live" }),
       });
       const payload = (await response.json()) as { runId?: string; error?: string };
       if (!response.ok || !payload.runId) {

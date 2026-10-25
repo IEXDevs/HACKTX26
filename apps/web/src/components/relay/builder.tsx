@@ -1,0 +1,291 @@
+"use client";
+
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, ArrowUp, LoaderCircle, Users } from "@/components/icons";
+import type { BuilderDraft } from "@/lib/runtime/builder-parse";
+
+export interface BuilderTemplate {
+  id: string;
+  name: string;
+  description: string;
+  outcome: string;
+}
+interface Message {
+  id: string;
+  from: "you" | "builder";
+  text: string;
+  draft?: BuilderDraft;
+}
+
+/**
+ * Live agent builder. Every reply comes from Muse through POST /api/builder.
+ * Publish creates exactly the drafted team through POST /api/agents/custom
+ * and activates it.
+ */
+export function Builder({ templates }: { templates: BuilderTemplate[] }) {
+  const router = useRouter();
+  const [input, setInput] = useState(""),
+    [messages, setMessages] = useState<Message[]>([]),
+    [draft, setDraft] = useState<BuilderDraft | null>(null),
+    [thinking, setThinking] = useState(false),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
+  const end = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (messages.length) end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages, thinking]);
+
+  async function send() {
+    const text = input.trim();
+    if (!text || thinking) return;
+    const history: Message[] = [...messages, { id: `y${messages.length}`, from: "you", text }];
+    setMessages(history);
+    setInput("");
+    setThinking(true);
+    setError("");
+    try {
+      const response = await fetch("/api/builder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: history.map((m) => ({
+            role: m.from === "you" ? "user" : "assistant",
+            // Give the model its earlier drafts so edits build on them.
+            content: m.draft ? JSON.stringify({ reply: m.text, draft: m.draft }) : m.text,
+          })),
+        }),
+      });
+      const value = await response.json();
+      if (!response.ok) throw new Error(value.error ?? "The builder did not answer.");
+      const reply: Message = {
+        id: `b${history.length}`,
+        from: "builder",
+        text: value.reply || "Here is the agent.",
+        draft: value.draft ?? undefined,
+      };
+      setMessages([...history, reply]);
+      if (value.draft) setDraft(value.draft);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setThinking(false);
+    }
+  }
+
+  async function create(publish: boolean) {
+    if (!draft) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch("/api/agents/custom", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ draft }),
+      });
+      const value = await response.json();
+      if (!response.ok) throw new Error(value.error ?? "The agent was not created.");
+      if (publish) {
+        for (const id of value.agentIds as string[]) {
+          const activate = await fetch(`/api/agents/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: "active" }),
+          });
+          if (!activate.ok) {
+            const problem = await activate.json().catch(() => ({}));
+            throw new Error(problem.error ?? "The agent was created but not published.");
+          }
+        }
+      }
+      router.push(`/agents/${value.orchestratorId}`);
+      router.refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const chatting = messages.length > 0;
+  const latest = [...messages].reverse().find((m) => m.draft)?.id;
+  return (
+    <div className={"composer" + (chatting ? " chatting" : "")}>
+      <div className="composer-bar">
+        <Link href="/agents" className="glass-pill">
+          <ArrowLeft size={16} />
+          Agents
+        </Link>
+        <div className="composer-bar-end">
+          <button className="glass-pill" disabled={busy || !draft} onClick={() => void create(false)}>
+            Save draft
+          </button>
+        </div>
+      </div>
+
+      {chatting ? (
+        <>
+          <div className="chat" aria-live="polite">
+            {messages.map((m) =>
+              m.from === "you" ? (
+                <div key={m.id} className="chat-you">
+                  <p>{m.text}</p>
+                </div>
+              ) : (
+                <div key={m.id} className="chat-builder">
+                  <span className="chat-avatar" aria-hidden />
+                  <div>
+                    <p>{m.text}</p>
+                    {m.draft && m.id === latest && (
+                      <div className="draft-card">
+                        <span className="draft-card-label">Agent draft</span>
+                        <b>{m.draft.name}</b>
+                        <span className="draft-card-role">{m.draft.summary}</span>
+                        <p>{m.draft.instructions}</p>
+                        {m.draft.workers.length > 0 && (
+                          <ul className="draft-team">
+                            {m.draft.workers.map((w) => (
+                              <li key={w.name}>
+                                <Users size={14} />
+                                <span>
+                                  <b>{w.name}</b> {w.instructions}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        <button className="composer-send" disabled={busy} onClick={() => void create(true)}>
+                          {busy ? <LoaderCircle size={16} className="animate-spin" /> : <ArrowUp size={16} />}
+                          Publish agent
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ),
+            )}
+            {thinking && (
+              <div className="chat-builder">
+                <span className="chat-avatar" aria-hidden />
+                <p className="chat-thinking">Thinking…</p>
+              </div>
+            )}
+            {error && <p className="error-text">{error}</p>}
+            <div ref={end} className="chat-end" />
+          </div>
+          <div className="composer-dock">
+            <Box
+              value={input}
+              onChange={setInput}
+              onSubmit={() => void send()}
+              label="Reply to the builder"
+              placeholder="Reply…"
+              submit="Send"
+              disabled={thinking || !input.trim()}
+              busy={thinking}
+              autoFocus
+            />
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="composer-hero">
+            <span className="composer-orb" aria-hidden />
+            <h1 className="composer-title">Create agent</h1>
+          </div>
+          <Box
+            value={input}
+            onChange={setInput}
+            onSubmit={() => void send()}
+            label="Describe the agent"
+            placeholder="Describe what this agent should do…"
+            submit="Start"
+            disabled={thinking || !input.trim()}
+            busy={thinking}
+          />
+          {error && <p className="error-text" style={{ marginTop: 12 }}>{error}</p>}
+          <div className="composer-templates">
+            {templates.slice(0, 6).map((t) => (
+              <button key={t.id} className="composer-card" onClick={() => setInput(t.description)}>
+                <span className="composer-card-top">
+                  <span className="composer-card-icon" aria-hidden>
+                    <Users size={16} />
+                  </span>
+                  <span className="composer-card-tag">Start from this</span>
+                </span>
+                <b>{t.name}</b>
+                <span className="composer-card-text">{t.outcome}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Box({
+  value,
+  onChange,
+  onSubmit,
+  label,
+  placeholder,
+  submit,
+  disabled,
+  busy,
+  autoFocus = false,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
+  label: string;
+  placeholder: string;
+  submit: string;
+  disabled: boolean;
+  busy: boolean;
+  autoFocus?: boolean;
+}) {
+  const box = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (autoFocus) box.current?.focus();
+  }, [autoFocus]);
+  // Grow downward with the text, up to a limit.
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 240) + "px";
+  }, [value]);
+  return (
+    <form
+      className="composer-box"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!disabled) onSubmit();
+      }}
+    >
+      <label className="composer-field">
+        <span className="sr-only">{label}</span>
+        <textarea
+          ref={box}
+          rows={1}
+          placeholder={placeholder}
+          maxLength={3000}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && !disabled) {
+              e.preventDefault();
+              onSubmit();
+            }
+          }}
+        />
+      </label>
+      <button type="submit" className="composer-send" disabled={disabled}>
+        {busy ? <LoaderCircle size={16} className="animate-spin" /> : <ArrowUp size={16} />}
+        {submit}
+      </button>
+    </form>
+  );
+}

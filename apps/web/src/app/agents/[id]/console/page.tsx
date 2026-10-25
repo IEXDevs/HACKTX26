@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, TerminalSquare } from "lucide-react";
+import { ArrowLeft, TerminalSquare } from "@/components/icons";
 import { projectRun } from "@agent-os/core";
 import { AgentConsole, type ConsoleToolCall } from "@/components/console/agent-console";
 import { PageHeader, StatusBadge } from "@/components/ui/primitives";

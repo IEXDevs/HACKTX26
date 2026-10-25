@@ -1,3 +1,0 @@
-# 0002. Focused Sponsor & MLH Integration Surface
-
-We scope external integrations strictly to **NMC2**, **Google Gemini API**, **Vultr Serverless Inference & Compute**, **Tiger Data (Timescale PostgreSQL + pgvector)**, **SerpApi**, and **Capital One Nessie**, explicitly dropping Solana and Snowflake. Every retained service powers a core pillar of the 12-component agent architecture (Gemini + Vultr for Data-Secure Model Routing; SerpApi + Nessie + pgvector for the 4 Connector types; Tiger Data for time-series Observability and Evaluation metrics), avoiding bolted-on dependencies and reducing 24-hour integration risk.

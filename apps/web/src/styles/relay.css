@@ -3408,47 +3408,47 @@ div.rich li {
 .tile-actions .btn {
   margin-left: 0;
 }
-.conn-panel-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  background: var(--scrim);
+.dialog-backdrop.conn-modal-backdrop {
+  background: rgb(8 20 14 / 0.28);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
-.conn-panel {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
+.conn-settings {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  width: min(380px, 100%);
-  padding: 22px 22px 28px;
-  border-left: 1px solid var(--glass-edge);
-  background: var(--glass-strong);
-  box-shadow: -18px 0 48px rgb(14 40 26 / 0.16);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-}
-.conn-panel header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   gap: 12px;
+  max-width: 560px;
+  max-height: min(720px, calc(100dvh - 32px));
+  overflow: auto;
 }
-.conn-panel h2 {
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: 22px;
-  font-weight: 600;
+.conn-settings .toolbar {
+  margin-bottom: 0;
 }
-.conn-panel p {
+.conn-settings-copy {
   margin: 0;
   font-size: 14px;
   line-height: 1.5;
   color: var(--muted);
 }
-.conn-panel .btn {
-  align-self: flex-start;
-  margin-top: 8px;
+.conn-settings-copy code {
+  font-size: 13px;
+}
+.conn-settings .field {
+  margin-bottom: 0;
+}
+.conn-settings-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.conn-settings-row .field {
+  flex: 1 1 180px;
+}
+.conn-settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.conn-settings .dialog-actions {
+  margin-top: 4px;
 }

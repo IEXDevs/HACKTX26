@@ -36,6 +36,7 @@ import { and, eq, gte } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import {
   agents,
+  approvals,
   budgetPolicies,
   promptBlocks,
   runs,
@@ -61,7 +62,7 @@ import {
 import { env, newId, serpApiEnabled } from "@/lib/env";
 import { recordModelTurn } from "@/lib/observability";
 import { redactSecrets } from "@/lib/secrets";
-import { createApprovalRequest, waitForApprovalDecision } from "./approvals";
+import { createApprovalRequest, waitForApprovalDecision, type ApprovalDecision } from "./approvals";
 import { RunLogger } from "./emitter";
 import { createLiveGateway, liveGatewayAvailable } from "./gateway";
 import { AGENT_EXECUTION_GUIDANCE, EMPTY_RESPONSE_GUIDANCE, LAST_TURN_GUIDANCE, REPORT_RETRY_GUIDANCE, leadExecutionGuidance } from "./execution-guidance";
@@ -98,7 +99,7 @@ import { cancelledRuns, HEARTBEAT_MS, liveRuns } from "./reaper";
 import { AgentSandbox } from "./sandbox";
 import { fileChildTemplateProposal } from "./template-proposals";
 import { InputPause, QuestionSchema, type AgentContinuation, type RunContinuation } from "./run-input";
-import { MotivatorReportSchema, motivatorFeedback, motivatorMessages, reviewWithMotivator, type MotivatorDecision, type MotivatorState } from "./motivator";
+import { MotivatorReportSchema, motivatorFeedback, motivatorMessages, reviewWithMotivator, type MotivatorDecision, type MotivatorState, type MotivatorReviewInput } from "./motivator";
 import { executeTool, type ToolContext } from "./tools";
 import { parseContextDirectives, WorkspaceContextFile } from "./workspace-context";
 import type { ModelGateway, ModelMessage, ToolSpec } from "./types";
@@ -640,7 +641,7 @@ class RunEngine {
     const messages: ModelMessage[] = restored?.messages ?? [
       {
         role: "system",
-        content: `${prompt.text}${specialistRoster(agent)}${delegationGuidance(agent)}${contextFile.promptBlock({ canWrite: held.has("context.write") })}${AGENT_EXECUTION_GUIDANCE}${leadExecutionGuidance(agent.rank)}${depth === 0 ? "\n\nYou work alongside an independent Motivator. When stuck, you must call motivator.report before stopping or asking the user. Report the exact blocker, concrete attempts, evidence, and remaining options. Wait for the motivator's decision, then act on its useful next steps. If only the user can unblock the goal, the motivator can pause the run with a question on the Agents dashboard. It also reviews proposed final answers so you cannot bypass it by calling an incomplete goal finished. The Motivator cannot grant access or override the operator or hard limits." : ""}`,
+        content: `${prompt.text}${specialistRoster(agent)}${delegationGuidance(agent)}${contextFile.promptBlock({ canWrite: held.has("context.write") })}${AGENT_EXECUTION_GUIDANCE}${leadExecutionGuidance(agent.rank)}${depth === 0 ? "\n\nYou work alongside an independent Motivator. When stuck, you must call motivator.report before stopping or asking the user. Report the exact blocker, concrete attempts, evidence, and remaining options. Wait for the motivator's decision, then act on its useful next steps. If only the user can unblock the goal, the motivator can pause the run with a question on the Agents dashboard. It also reviews proposed final answers so you cannot bypass it by calling an incomplete goal finished. In Approve for me mode, the runtime asks the Motivator to review permission for an already held action. Wait for the tool result; you cannot approve your own action. The Motivator cannot add tools or access or override the operator or hard limits." : ""}`,
       },
       {
         role: "user",
@@ -898,7 +899,7 @@ class RunEngine {
             return { status: "failed", summary: `${text.trim()}\n\n---\n\n**Incomplete report:** The model reached its output limit. The ending is missing; completion is unverified.` };
           }
           if (depth === 0 && agent.id === this.run.agentId) {
-            const decision = await this.#reviewExit(agent, "finish", text.trim(), messages, agent.maxSteps - step - 1);
+            const decision = await this.#reviewMotivator(agent, "finish", text.trim(), messages, agent.maxSteps - step - 1);
             if (decision.verdict === "continue" && step < agent.maxSteps - 1 && !this.#isHalted() && !this.#isCancelled()) {
               messages.push({ role: "assistant", content: text.trim() }, { role: "system", content: motivatorFeedback(decision) });
               reportRetry = false;
@@ -1027,15 +1028,18 @@ class RunEngine {
     await this.logger.emit({ type: "handoff", fromAgentId: this.run.agentId, toAgentId: this.#motivator.id, summary: "Dual-head run: the orchestrator acts; the motivator independently checks proposed exits and remaining options." }, this.#motivator.id);
   }
 
-  async #reviewExit(agent: AgentRow, proposal: "finish" | "ask_user" | "stuck", candidate: string, messages: ModelMessage[], remainingSteps?: number): Promise<MotivatorDecision> {
+  async #reviewMotivator(agent: AgentRow, proposal: MotivatorReviewInput["proposal"], candidate: string, messages: ModelMessage[], remainingSteps?: number, permission?: MotivatorReviewInput["permission"]): Promise<MotivatorDecision> {
     const motivator = this.#motivator!;
     if (this.#isCancelled()) return { verdict: "blocked", reason: "Stopped by the operator.", nextSteps: [] };
-    const input = { goal: this.run.goal, proposal, candidate,
+    const input = { goal: this.run.goal, proposal, candidate, permission,
       availableTools: [...heldToolNames(agent, this.#connectorsFor(agent), this.run.dataClass)],
       connectors: this.#connectorsFor(agent), messages, priorReviews: motivator.reviews,
       delegation: { canCreateChildren: agent.canSpawnSubagents, availableChildren: this.agentRows.filter((row) => row.parentAgentId === agent.id && row.status !== "archived").map((row) => row.name), closedRoster: closedRosterNames(agent) },
       dataClass: stricterDataClass(this.run.dataClass, agent.dataClass), remainingBudgetUsd: Math.max(0, this.run.budgetUsd - this.costUsd), remainingSteps };
     const catalog = MODEL_BY_ID.get(motivator.model)!;
+    if (proposal === "permission" && !catalog.allowedDataClasses.includes(input.dataClass)) {
+      return { verdict: "ask_user", reason: "The motivator's model cannot review this action's data classification. The user must decide.", question: `Approve ${permission!.tool}?`, nextSteps: [] };
+    }
     const projected = this.#live ? estimateCostUsd(catalog, Math.ceil(JSON.stringify(motivatorMessages(input)).length / 4), 2400) : 0;
     const budget = this.#ledger.canSpend(projected, [this.#runKey]);
     if (budget.kind === "halt") {
@@ -1043,7 +1047,7 @@ class RunEngine {
       await this.logger.emit({ type: "budget.halted", scope: "run", spentUsd: budget.spentUsd, limitUsd: budget.limitUsd });
       return { verdict: "blocked", reason: "The shared run budget has no room for the motivator review. Completion remains unverified.", nextSteps: [] };
     }
-    await this.logger.emit({ type: "handoff", fromAgentId: agent.id, toAgentId: motivator.id, summary: proposal === "stuck" ? "Orchestrator is stuck: review its blocker, attempts, evidence, and remaining options." : `Review proposed ${proposal === "finish" ? "completion or blocker" : "request for user input"}.` }, motivator.id);
+    await this.logger.emit({ type: "handoff", fromAgentId: agent.id, toAgentId: motivator.id, summary: proposal === "permission" ? `Review permission for ${agent.name} to use ${permission!.tool}.` : proposal === "stuck" ? "Orchestrator is stuck: review its blocker, attempts, evidence, and remaining options." : `Review proposed ${proposal === "finish" ? "completion or blocker" : "request for user input"}.` }, motivator.id);
     await this.logger.emit({ type: "agent.status", agentId: motivator.id, status: "thinking" }, motivator.id);
     let decision: MotivatorDecision;
     try {
@@ -1060,10 +1064,19 @@ class RunEngine {
           messages: review.messages, completion: review.completion, inputTokens: review.inputTokens, outputTokens: review.outputTokens, costUsd: spend.costUsd, dataClass: this.run.dataClass });
       }
     } catch (error) {
-      decision = { verdict: "blocked", reason: `The motivator could not complete its review: ${redactSecrets((error as Error).message)}. Completion remains unverified.`, nextSteps: [] };
+      const reason = `The motivator could not complete its review: ${redactSecrets((error as Error).message)}.`;
+      decision = proposal === "permission"
+        ? { verdict: "ask_user", reason, question: `Approve ${permission!.tool}?`, nextSteps: [] }
+        : { verdict: "blocked", reason: `${reason} Completion remains unverified.`, nextSteps: [] };
+    }
+    const afterReview = this.#ledger.canSpend(0, [this.#runKey]);
+    if (!this.#isCancelled() && afterReview.kind === "halt") {
+      await this.#setStatus("halted", afterReview.reason);
+      await this.logger.emit({ type: "budget.halted", scope: "run", spentUsd: afterReview.spentUsd, limitUsd: afterReview.limitUsd });
+      decision = { verdict: "blocked", reason: "The shared run budget was exhausted during the motivator review.", nextSteps: [] };
     }
     motivator.reviews.push(decision);
-    const feedback = `## ${decision.verdict === "continue" ? "Keep working" : decision.verdict === "complete" ? "Goal verified" : decision.verdict === "ask_user" ? "User input needed" : "No further verified path"}\n${decision.reason}${decision.nextSteps.length ? `\n\n${decision.nextSteps.map((step) => `- ${step}`).join("\n")}` : ""}${decision.question ? `\n\nQuestion: ${decision.question}` : ""}`;
+    const feedback = `## ${decision.verdict === "approve" ? "Action approved" : decision.verdict === "deny" ? "Action rejected" : decision.verdict === "continue" ? "Keep working" : decision.verdict === "complete" ? "Goal verified" : decision.verdict === "ask_user" ? "User input needed" : "No further verified path"}\n${decision.reason}${decision.nextSteps.length ? `\n\n${decision.nextSteps.map((step) => `- ${step}`).join("\n")}` : ""}${decision.question ? `\n\nQuestion: ${decision.question}` : ""}`;
     await this.logger.emit({ type: "agent.message", agentId: motivator.id, role: "assistant", text: redactSecrets(feedback) }, motivator.id);
     await this.logger.emit({ type: "handoff", fromAgentId: motivator.id, toAgentId: agent.id, summary: redactSecrets(feedback) }, agent.id);
     await this.logger.emit({ type: "agent.status", agentId: motivator.id, status: "idle" }, motivator.id);
@@ -1078,7 +1091,7 @@ class RunEngine {
     const report = MotivatorReportSchema.safeParse(call.args);
     if (!report.success) return { ok: false, preview: "", error: "motivator.report requires an exact blocker and at least one concrete attempt. Include the evidence and remaining options." };
     const frame = this.#frames.get(this.#frameKey(agent.id, taskId));
-    const decision = await this.#reviewExit(agent, "stuck", JSON.stringify(report.data), frame?.messages ?? [], Math.max(0, agent.maxSteps - (frame?.nextStep ?? 0)));
+    const decision = await this.#reviewMotivator(agent, "stuck", JSON.stringify(report.data), frame?.messages ?? [], Math.max(0, agent.maxSteps - (frame?.nextStep ?? 0)));
     if (decision.verdict === "ask_user" && !this.#isHalted() && !this.#isCancelled()) {
       this.#motivator!.approvedQuestions.push(call.id);
       return this.#askUser(agent, taskId, { id: call.id, args: { question: decision.question!, reason: decision.reason } });
@@ -1105,7 +1118,7 @@ class RunEngine {
     if (!request) {
       if (agent.id === this.run.agentId && this.#motivator && !this.#motivator.approvedQuestions.includes(call.id)) {
         const frame = this.#frames.get(this.#frameKey(agent.id, taskId));
-        const decision = await this.#reviewExit(agent, "ask_user", `${parsed.data.question}\n${parsed.data.reason}`, frame?.messages ?? [], Math.max(0, agent.maxSteps - (frame?.nextStep ?? 0)));
+        const decision = await this.#reviewMotivator(agent, "ask_user", `${parsed.data.question}\n${parsed.data.reason}`, frame?.messages ?? [], Math.max(0, agent.maxSteps - (frame?.nextStep ?? 0)));
         if (decision.verdict !== "ask_user" || this.#isHalted() || this.#isCancelled()) {
           return { ok: false, preview: motivatorFeedback(decision), error: decision.verdict === "continue" ? "The motivator found useful options before asking the user. Try the listed permitted actions." : "The motivator did not confirm a need for user input. Return an honest Markdown report if no useful work remains." };
         }
@@ -1229,17 +1242,20 @@ class RunEngine {
         })()
       : undefined;
 
-    const decision = evaluatePermission(
-      {
+    const permissionRequest = {
         resource: call.name,
         scopes,
         risk,
         agentGrants: agent.grants,
         path,
         host,
-      },
+    };
+    const [policy] = await getDb().select().from(workspaces).where(eq(workspaces.id, this.run.workspaceId));
+    if (!policy) return this.#toolFailure(agent, call.id, call.name, Date.now() - started, "Workspace policy is unavailable.");
+    const decision = evaluatePermission(
+      permissionRequest,
       undefined,
-      resolveActionEffects(this.workspace.actionEffects),
+      resolveActionEffects(policy.actionEffects),
     );
 
     if (decision.effect === "deny") {
@@ -1254,14 +1270,27 @@ class RunEngine {
 
     if (decision.effect === "require_approval") {
       const grantKey = `${agent.id}:${call.name}`;
-      const covered = (risk === "high" || risk === "critical") && this.#grantedHighRisk.has(grantKey);
+      const covered = policy.approvalMode === "request" && (risk === "high" || risk === "critical") && this.#grantedHighRisk.has(grantKey);
 
       if (!covered) {
+        let review: MotivatorDecision | null = null;
+        if (policy.approvalMode === "motivator") {
+          const frame = this.#frames.get(this.#frameKey(agent.id, taskId));
+          review = await this.#reviewMotivator(agent, "permission", `Permission required for ${call.name}: ${decision.reason}`, frame?.messages ?? [],
+            Math.max(0, agent.maxSteps - (frame?.nextStep ?? 0)), {
+              agentId: agent.id, agentName: agent.name, callId: call.id, tool: call.name,
+              args: JSON.parse(redactSecrets(JSON.stringify(call.args))), scopes, risk, policyReason: decision.reason,
+            });
+          if (this.#isCancelled() || this.#isHalted()) return this.#toolFailure(agent, call.id, call.name, Date.now() - started, "Run stopped before permission was resolved.");
+          // A user can revoke delegated approval while the model is reviewing.
+          const [latest] = await getDb().select().from(workspaces).where(eq(workspaces.id, this.run.workspaceId));
+          if (!latest || evaluatePermission(permissionRequest, undefined, resolveActionEffects(latest.actionEffects)).effect === "deny") {
+            return this.#toolFailure(agent, call.id, call.name, Date.now() - started, "The current workspace policy blocks this action.");
+          }
+          if (latest.approvalMode !== "motivator") review = null;
+        }
         const approvalId = newId("apr");
-        const reason =
-          risk === "high" || risk === "critical"
-            ? `${decision.reason} Risk is ${risk}, so this is a per-run human decision.`
-            : decision.reason;
+        const reason = redactSecrets(review ? `${decision.reason} Motivator review: ${review.reason}${review.question ? ` ${review.question}` : ""}` : decision.reason);
 
         await createApprovalRequest({
           id: approvalId,
@@ -1288,19 +1317,19 @@ class RunEngine {
           },
           agent.id,
         );
-        await this.#setStatus("awaiting_approval");
-        await this.logger.emit(
-          {
-            type: "log",
-            level: "warn",
-            message: `${agent.name} is waiting for approval to use ${call.name}.`,
-            agentId: agent.id,
-            fields: { approvalId, callId: call.id },
-          },
-          agent.id,
-        );
-
-        const resolution = await waitForApprovalDecision(approvalId);
+        const peerDecision = review?.verdict === "approve" || review?.verdict === "deny";
+        let resolution: ApprovalDecision;
+        if (review && peerDecision) {
+          resolution = { decision: review.verdict === "approve" ? "approved" : "denied", decidedBy: this.#motivator!.id, note: redactSecrets(review.reason) };
+          const [resolved] = await getDb().update(approvals).set({ status: resolution.decision, decidedBy: resolution.decidedBy, note: resolution.note, resolvedAt: new Date() })
+            .where(and(eq(approvals.id, approvalId), eq(approvals.status, "pending"))).returning();
+          if (!resolved) resolution = await waitForApprovalDecision(approvalId);
+        } else {
+          await this.#setStatus("awaiting_approval");
+          await this.logger.emit({ type: "log", level: "warn", message: `${agent.name} is waiting for your approval to use ${call.name}.${review ? ` Motivator: ${redactSecrets(review.reason)}` : ""}`,
+            agentId: agent.id, fields: { approvalId, callId: call.id } }, agent.id);
+          resolution = await waitForApprovalDecision(approvalId);
+        }
 
         await this.logger.emit(
           {
@@ -1327,7 +1356,8 @@ class RunEngine {
           },
         });
 
-        await this.#setStatus("running");
+        if (this.#isCancelled() || this.#isHalted()) return this.#toolFailure(agent, call.id, call.name, Date.now() - started, "Run stopped before the approved action could execute.");
+        if (!peerDecision) await this.#setStatus("running");
 
         if (resolution.decision !== "approved") {
           return this.#toolFailure(
@@ -1335,17 +1365,17 @@ class RunEngine {
             call.id,
             call.name,
             Date.now() - started,
-            `Denied by approval ${approvalId} (${resolution.decidedBy}). Do not retry in this run.`,
+            `Denied by approval ${approvalId} (${resolution.decidedBy}). ${resolution.note ?? ""} Do not retry in this run.`,
           );
         }
 
-        if (risk === "high") this.#grantedHighRisk.add(grantKey);
+        if (risk === "high" && !peerDecision) this.#grantedHighRisk.add(grantKey);
 
         await this.logger.emit(
           {
             type: "log",
             level: "info",
-            message: `${call.name} approved by ${resolution.decidedBy} for this run.`,
+            message: `${call.name} approved by ${resolution.decidedBy}${peerDecision ? " for this action" : " for this run"}.`,
             agentId: agent.id,
           },
           agent.id,

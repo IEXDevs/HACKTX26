@@ -32,6 +32,7 @@ export default async function MotivatorPage() {
         <div className="card">
           <p>The orchestrator reports its blocker, attempts, evidence, and remaining options when it gets stuck. The motivator reviews that report and gives concrete next actions. It also checks proposed final answers.</p>
           <p>When only the user can unblock the goal, it pauses the run and shows a question on Agents. The same run resumes after the answer. It respects user stops and the run’s budget and step limits.</p>
+          <p>With Approve for me enabled in Settings, it also reviews permission requests. It can approve the proposed action, reject it, or ask you to decide. It cannot add tools or override blocked actions.</p>
           <p>Motivator is required for each workflow. It runs alongside the orchestrator and cannot be archived or started on its own. Open a workflow map or run log to see its activity.</p>
         </div>
       </section>

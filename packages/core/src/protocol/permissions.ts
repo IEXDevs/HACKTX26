@@ -49,6 +49,9 @@ export const PolicyRuleSchema = z.object({
 export type PolicyRule = z.infer<typeof PolicyRuleSchema>;
 export type PolicyEffect = PolicyRule["effect"];
 
+export const ApprovalModeSchema = z.enum(["request", "motivator"]);
+export type ApprovalMode = z.infer<typeof ApprovalModeSchema>;
+
 /** The six operator-facing actions shown on Policy. Keys are tool resources. */
 export const ACTION_POLICIES = [
   { action: "Read files", resource: "fs.read", risk: "low" as const, scopes: ["read"] as const },

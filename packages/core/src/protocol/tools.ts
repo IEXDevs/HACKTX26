@@ -168,7 +168,7 @@ export const TOOL_MANIFEST: readonly ToolManifestEntry[] = [
   {
     name: "motivator.report",
     label: "Report a blocker to the motivator",
-    description: "Required when the orchestrator gets stuck. Report the blocker, concrete attempts, evidence, and remaining options to its motivator peer before stopping or asking the user. The motivator returns useful next actions or pauses the run for user input when only the user can unblock it. It cannot grant permissions or override hard limits.",
+    description: "Required when the orchestrator gets stuck. Report the blocker, concrete attempts, evidence, and remaining options to its motivator peer before stopping or asking the user. The motivator returns useful next actions or pauses the run for user input when only the user can unblock it. Permission reviews occur through the runtime only when the user enables Approve for me. It cannot add capabilities or override blocked actions or hard limits.",
     category: "meta", scopes: ["read"], risk: "low", sandboxedToAgentFs: false,
     argsHint: "{ blocker: string, attempts: string[], evidence?: string, remainingOptions?: string[] }",
   },

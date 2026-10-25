@@ -99,6 +99,13 @@
       "when": 1792883900000,
       "tag": "0013_restore_required_agents",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1792884000000,
+      "tag": "0014_motivator_permissions",
+      "breakpoints": true
     }
   ]
 }

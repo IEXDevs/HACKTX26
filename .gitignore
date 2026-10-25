@@ -5,10 +5,6 @@ build/
 dist/
 *.tsbuildinfo
 
-.env
-.env.local
-.env.*.local
-
 # Runtime sandbox + sqlite artifacts
 .runtime/
 *.db

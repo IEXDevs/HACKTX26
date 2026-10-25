@@ -9,6 +9,8 @@
  */
 import type { DataClass, RunEventPayload } from "@agent-os/core";
 import { and, desc, eq, like, or } from "drizzle-orm";
+import { executeComposioAction, normalizeToolkit, SERPAPI_TOOLKIT } from "@/lib/composio";
+import { persistContextFile } from "@/lib/connectors";
 import { getDb } from "@/lib/db/client";
 import {
   agents,
@@ -17,6 +19,7 @@ import {
   memories,
 } from "@/lib/db/schema";
 import { env, newId } from "@/lib/env";
+import { serpSearch } from "@/lib/serpapi";
 import { redactSecrets } from "@/lib/secrets";
 import { countKbDocuments, searchKnowledgeBase } from "./kb";
 import { RED_TEAM_FIXTURE_HOSTS, redTeamFixture } from "./redteam-fixtures";
@@ -34,6 +37,10 @@ export interface ToolContext {
   agentName: string;
   sandbox: AgentSandbox;
   dataClass: DataClass;
+  /** Composio / SerpAPI identity for the operator who started this run. */
+  operatorUserId?: string;
+  /** Toolkit slugs this agent may call on this run. */
+  allowedConnectors?: string[];
   /** Append a non-terminal side effect (file change, log) to the run stream. */
   emit: (payload: RunEventPayload) => Promise<void>;
 }
@@ -129,6 +136,9 @@ async function contextWrite(ctx: ToolContext, args: Record<string, unknown>): Pr
   } else {
     return fail("context.write requires content, include, or remove.");
   }
+  await persistContextFile(ctx.workspaceId, file.read(), ctx.operatorUserId ?? ctx.agentId).catch(
+    () => undefined,
+  );
   await ctx.emit({
     type: "file.changed",
     agentId: ctx.agentId,
@@ -381,6 +391,68 @@ async function taskHandoff(ctx: ToolContext, args: Record<string, unknown>): Pro
   return { ok: true, preview: `handoff from ${ctx.agentName}: ${clip(summary, 300)}` };
 }
 
+function actionArguments(args: Record<string, unknown>): Record<string, unknown> {
+  const nested = args.arguments;
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+    return nested as Record<string, unknown>;
+  }
+  const skip = new Set(["toolkit", "action", "arguments", "server", "tool"]);
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(args)) {
+    if (!skip.has(key)) out[key] = value;
+  }
+  return out;
+}
+
+async function connectorCall(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  const toolkit = normalizeToolkit(str(args, "toolkit") ?? str(args, "app") ?? "");
+  const action = str(args, "action") ?? str(args, "tool") ?? "";
+  if (!toolkit || !action) return fail("connector.call requires toolkit and action.");
+  if (toolkit === SERPAPI_TOOLKIT) return webSearch(ctx, args);
+  const allowed = ctx.allowedConnectors ?? [];
+  if (!allowed.includes(toolkit)) {
+    return fail(
+      `This agent is not granted "${toolkit}". Orchestrators use every app the operator linked; subagents need it in agent.delegate connectors.`,
+    );
+  }
+  if (!ctx.operatorUserId) return fail("No operator identity on this run, so connected apps cannot run.");
+  const result = await executeComposioAction({
+    userId: ctx.operatorUserId,
+    toolkit,
+    action,
+    arguments: actionArguments(args),
+  });
+  return {
+    ok: result.ok,
+    preview: clip(result.preview || (result.ok ? "ok" : "")),
+    ...(result.ok ? {} : { error: result.error }),
+  };
+}
+
+async function webSearch(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  if (ctx.dataClass === "confidential" || ctx.dataClass === "restricted") {
+    return fail("web.search is blocked for confidential and restricted runs.");
+  }
+  const allowed = ctx.allowedConnectors ?? [];
+  if (!allowed.includes(SERPAPI_TOOLKIT) && !allowed.includes("web")) {
+    return fail("This agent is not granted web.search. Pass connectors: [\"serpapi\"] on delegate.");
+  }
+  const query = str(args, "query") ?? str(args, "q");
+  if (!query) return fail("web.search requires a query.");
+  try {
+    const hits = await serpSearch({
+      query,
+      engine: str(args, "engine") ?? undefined,
+      num: num(args, "num") ?? undefined,
+    });
+    if (hits.length === 0) return { ok: true, preview: `No public results for “${query}”.` };
+    const lines = hits.map((hit, index) => `${index + 1}. ${hit.title}\n   ${hit.url}\n   ${hit.snippet}`);
+    return { ok: true, preview: clip(`${hits.length} results\n${lines.join("\n")}`, 4_000) };
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : "SerpAPI search failed.");
+  }
+}
+
 async function mcpCall(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const server = str(args, "server");
   const tool = str(args, "tool");
@@ -469,6 +541,10 @@ export async function executeTool(
       return secretUse(ctx, args);
     case "task.handoff":
       return taskHandoff(ctx, args);
+    case "connector.call":
+      return connectorCall(ctx, args);
+    case "web.search":
+      return webSearch(ctx, args);
     case "mcp.call":
       return mcpCall(ctx, args);
     default:

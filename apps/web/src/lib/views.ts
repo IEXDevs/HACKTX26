@@ -87,6 +87,8 @@ export function askFor(resource: string): string {
     "fs.delete": "Delete a file?",
     "http.fetch": "Reach an outside website?",
     "mcp.call": "Call an outside tool?",
+    "connector.call": "Call a connected app?",
+    "web.search": "Search the public web?",
     "cli.run": "Run a command-line tool?",
   };
   return asks[resource] ?? `Use ${resource}?`;

@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@agent-os/core": "workspace:*",
+    "@composio/core": "^0.27.0",
     "@supabase/ssr": "0.12.7",
     "@supabase/supabase-js": "2.118.0",
     "better-sqlite3": "13.0.3",

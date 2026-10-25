@@ -11,6 +11,7 @@ import {
   BudgetLedger,
   MODEL_BY_ID,
   TOOL_BY_NAME,
+  connectorActionRisk,
   estimateCostUsd,
   evaluatePermission,
   resolveActionEffects,
@@ -48,7 +49,14 @@ import {
   type Workspace,
 } from "@/lib/db/schema";
 import { writeAudit } from "@/lib/audit";
-import { env, newId } from "@/lib/env";
+import {
+  connectedToolkitsFor,
+  persistConnectorGrants,
+  refreshContextCatalog,
+  parseConnectorList,
+  SERPAPI_TOOLKIT,
+} from "@/lib/connectors";
+import { env, newId, serpApiEnabled } from "@/lib/env";
 import { recordModelTurn } from "@/lib/observability";
 import { redactSecrets } from "@/lib/secrets";
 import { createApprovalRequest, waitForApprovalDecision } from "./approvals";
@@ -100,6 +108,8 @@ interface RunnerOptions {
   triggerId?: string | null;
   /** "retest" for feedback-loop retests (lib/loop). */
   purpose?: "standard" | "retest";
+  /** Composio user id for connected apps (Supabase auth id or local:…). */
+  operatorUserId?: string | null;
 }
 
 const DATA_CLASS_RANK: Record<DataClass, number> = {
@@ -195,6 +205,7 @@ export async function createRun(options: RunnerOptions): Promise<string> {
     outputTokens: 0,
     mode,
     purpose: options.purpose ?? "standard",
+    operatorUserId: options.operatorUserId ?? null,
     startedAt: now,
     heartbeatAt: now,
     eventCount: 0,
@@ -275,6 +286,8 @@ class RunEngine {
   /** Helpers created during this run; they retire once their work is done. */
   readonly #spawnedGrunts = new Set<string>();
   readonly #grantedHighRisk = new Set<string>();
+  readonly #runConnectors = new Map<string, string[]>();
+  #orchestratorConnectors: string[] = [];
   readonly #budgetWrapUp = new Set<string>();
   readonly #downgraded = new Set<string>();
   readonly #live: boolean;
@@ -346,6 +359,7 @@ class RunEngine {
       );
 
       await this.#applyContextDirectives(root.id);
+      await this.#loadConnectors(root);
 
       const result = await this.#runAgent(root, null, 0, null);
       if (result.status === "succeeded") {
@@ -813,6 +827,11 @@ class RunEngine {
     if (agent.role === "orchestrator" || names.has("fs.write") || names.has("context.write")) {
       names.add("context.write");
     }
+    const connectors = this.#connectorsFor(agent);
+    if (connectors.length > 0) names.add("connector.call");
+    const publicWeb =
+      this.run.dataClass !== "confidential" && this.run.dataClass !== "restricted";
+    if (publicWeb && connectors.includes(SERPAPI_TOOLKIT)) names.add("web.search");
 
     return [...names]
       .map((name) => TOOL_BY_NAME.get(name) ?? CASE_TOOL_BY_NAME.get(name))
@@ -850,6 +869,12 @@ class RunEngine {
             rule: { type: "string" },
             reply: { type: "string" },
             removeTools: { type: "array", items: { type: "string" } },
+            toolkit: { type: "string" },
+            action: { type: "string" },
+            arguments: { type: "object" },
+            connectors: { type: "array", items: { type: "string" } },
+            engine: { type: "string" },
+            num: { type: "number" },
           },
           additionalProperties: true,
         },
@@ -871,7 +896,9 @@ class RunEngine {
       await this.logger.emit(payload, agent.id);
     };
 
-    const risk = manifest?.risk ?? "high";
+    const actionName = argsString(call.args, "action") ?? argsString(call.args, "tool") ?? "";
+    const risk =
+      call.name === "connector.call" ? connectorActionRisk(actionName) : (manifest?.risk ?? "high");
     const scopes = (manifest?.scopes ?? ["read"]) as Scope[];
 
     await this.logger.emit(
@@ -904,7 +931,11 @@ class RunEngine {
       ? mayUseCaseTool(agent, call.name)
       : (call.name === "agent.delegate" && mayDelegate(agent)) ||
         (call.name === "security.report" && agent.role === "security" && agent.team !== "blue") ||
-        agent.allowedTools.includes(call.name);
+        (call.name === "connector.call"
+          ? this.#connectorsFor(agent).length > 0
+          : call.name === "web.search"
+            ? this.#connectorsFor(agent).includes(SERPAPI_TOOLKIT)
+            : agent.allowedTools.includes(call.name));
 
     if (!roleAllowed) {
       return this.#toolFailure(
@@ -976,14 +1007,13 @@ class RunEngine {
 
     if (decision.effect === "require_approval") {
       const grantKey = `${agent.id}:${call.name}`;
-      const covered =
-        manifest.risk === "high" && this.#grantedHighRisk.has(grantKey);
+      const covered = (risk === "high" || risk === "critical") && this.#grantedHighRisk.has(grantKey);
 
       if (!covered) {
         const approvalId = newId("apr");
         const reason =
-          manifest.risk === "high" || manifest.risk === "critical"
-            ? `${decision.reason} Risk is ${manifest.risk}, so this is a per-run human decision.`
+          risk === "high" || risk === "critical"
+            ? `${decision.reason} Risk is ${risk}, so this is a per-run human decision.`
             : decision.reason;
 
         await createApprovalRequest({
@@ -994,7 +1024,7 @@ class RunEngine {
           callId: call.id,
           resource: call.name,
           scopes: manifest.scopes,
-          risk: manifest.risk,
+          risk,
           reason,
         });
 
@@ -1006,7 +1036,7 @@ class RunEngine {
             callId: call.id,
             resource: call.name,
             scopes: manifest.scopes,
-            risk: manifest.risk,
+            risk,
             reason,
           },
           agent.id,
@@ -1101,6 +1131,8 @@ class RunEngine {
         agentName: agent.name,
         sandbox,
         dataClass: this.run.dataClass,
+        operatorUserId: this.run.operatorUserId ?? undefined,
+        allowedConnectors: this.#connectorsFor(agent),
         emit: emitAsAgent,
       };
       try {
@@ -1193,13 +1225,19 @@ class RunEngine {
           error: `${agent.name} does not have dynamic subagent creation turned on.`,
         };
       } else {
-        child = await this.#spawnGrunt(agent, requested, task, call.args.tools);
+        child = await this.#spawnGrunt(agent, requested, task, call.args.tools, call.args.connectors);
       }
     }
 
     if (child.id === agent.id) {
       return { ok: false, preview: "", error: "An agent cannot delegate to itself." };
     }
+    const granted = parseConnectorList(call.args.connectors).filter((slug) =>
+      this.#connectorsFor(agent).includes(slug),
+    );
+    this.#runConnectors.set(child.id, granted);
+    child.allowedConnectors = granted;
+    await persistConnectorGrants(this.run.workspaceId, child.id, granted, agent.id);
     if (child.status === "archived" && child.parentAgentId === agent.id) {
       // A helper that stopped earlier comes back for new work.
       const revived = await reactivateHelper(child);
@@ -1398,6 +1436,7 @@ class RunEngine {
     name: string,
     task: string,
     requestedTools: unknown,
+    requestedConnectors?: unknown,
   ): Promise<AgentRow> {
     const now = new Date();
     const id = newId("agt");
@@ -1414,7 +1453,12 @@ class RunEngine {
     const requested = Array.isArray(requestedTools)
       ? requestedTools.filter((tool): tool is string => typeof tool === "string")
       : undefined;
+    const granted = parseConnectorList(requestedConnectors).filter((slug) =>
+      this.#connectorsFor(parent).includes(slug),
+    );
     const tools = gruntTools(parent.allowedTools, requested);
+    if (granted.length > 0) tools.push("connector.call");
+    if (granted.includes(SERPAPI_TOOLKIT)) tools.push("web.search");
 
     const { row: created, created: isNew } = await insertHelperAgent({
         id,
@@ -1441,6 +1485,7 @@ class RunEngine {
         ),
         grants: grantsForSpecialist(tools),
         allowedTools: tools,
+        allowedConnectors: granted,
         complexity: complexityForTask(task),
         maxSteps: 6,
         dataClass: parent.dataClass,
@@ -1453,6 +1498,8 @@ class RunEngine {
 
     this.#spawnedGrunts.add(created.id);
     if (!this.agentRows.some((row) => row.id === created.id)) this.agentRows.push(created);
+    this.#runConnectors.set(created.id, granted);
+    await persistConnectorGrants(this.run.workspaceId, created.id, granted, parent.id);
     if (!isNew) return created;
     await this.logger.emit(
       {
@@ -1701,6 +1748,45 @@ class RunEngine {
         agentId,
       );
     }
+  }
+
+  async #loadConnectors(root: AgentRow): Promise<void> {
+    const operatorId = this.run.operatorUserId;
+    if (!operatorId) {
+      this.#orchestratorConnectors = serpApiEnabled() ? [SERPAPI_TOOLKIT] : [];
+      return;
+    }
+    try {
+      this.#orchestratorConnectors = await connectedToolkitsFor(this.run.workspaceId, operatorId);
+      await refreshContextCatalog(this.run.workspaceId, operatorId);
+    } catch (error) {
+      this.#orchestratorConnectors = serpApiEnabled() ? [SERPAPI_TOOLKIT] : [];
+      await this.logger.emit(
+        {
+          type: "log",
+          level: "warn",
+          message: `Could not refresh connected apps: ${error instanceof Error ? error.message : "unknown error"}`,
+          agentId: root.id,
+        },
+        root.id,
+      );
+    }
+    if (this.#orchestratorConnectors.length > 0) {
+      await this.logger.emit(
+        {
+          type: "log",
+          level: "info",
+          message: `Connected apps for this run: ${this.#orchestratorConnectors.join(", ")}`,
+          agentId: root.id,
+        },
+        root.id,
+      );
+    }
+  }
+
+  #connectorsFor(agent: AgentRow): string[] {
+    if (agent.role === "orchestrator") return this.#orchestratorConnectors;
+    return this.#runConnectors.get(agent.id) ?? [];
   }
 
   async #maybeSpawnAdversarialSwarm(root: AgentRow): Promise<void> {

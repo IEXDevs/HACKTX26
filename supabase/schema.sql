@@ -154,3 +154,67 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
+
+-- Connector catalog, per-user Composio links, grants, and CONTEXT.md.
+create table if not exists public.connector_catalog (
+  toolkit text primary key,
+  name text not null,
+  description text not null default '',
+  logo_url text,
+  category text,
+  auth_schemes jsonb not null default '[]'::jsonb,
+  popular boolean not null default false,
+  metadata jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.connected_accounts (
+  id text primary key,
+  workspace_id text not null,
+  user_id text not null,
+  toolkit text not null,
+  toolkit_name text not null,
+  composio_account_id text,
+  auth_config_id text,
+  status text not null default 'disconnected',
+  scopes jsonb not null default '[]'::jsonb,
+  metadata jsonb not null default '{}'::jsonb,
+  last_sync_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (workspace_id, user_id, toolkit)
+);
+
+create table if not exists public.connector_grants (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id text not null,
+  agent_id text not null,
+  toolkit text not null,
+  granted_by text,
+  created_at timestamptz not null default now(),
+  unique (agent_id, toolkit)
+);
+
+create table if not exists public.workspace_contexts (
+  workspace_id text primary key,
+  content text not null,
+  updated_by text,
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists connected_accounts_user_idx
+  on public.connected_accounts (workspace_id, user_id);
+create index if not exists connector_grants_agent_idx
+  on public.connector_grants (agent_id);
+
+alter table public.connector_catalog enable row level security;
+alter table public.connected_accounts enable row level security;
+alter table public.connector_grants enable row level security;
+alter table public.workspace_contexts enable row level security;
+
+grant select, insert, update, delete on table
+  public.connector_catalog,
+  public.connected_accounts,
+  public.connector_grants,
+  public.workspace_contexts
+  to service_role;

@@ -10,6 +10,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 export const CONTEXT_FILENAME = "CONTEXT.md";
+export const CONNECTORS_START = "<!-- astronom-connectors:start -->";
+export const CONNECTORS_END = "<!-- astronom-connectors:end -->";
 
 const STUB = [
   "# Workspace context",
@@ -90,6 +92,19 @@ export function applyContextDirective(content: string, directive: ContextDirecti
     return `${body.replace(/^(##\s+Operator notes\s*)$/m, `$1\n- ${note}`).trimEnd()}\n`;
   }
   return `${body}\n\n## Operator notes\n- ${note}\n`;
+}
+
+/** Replace (or append) the generated connected-tools block. Agents should not edit it. */
+export function upsertConnectedToolsSection(content: string, body: string): string {
+  const block = `${CONNECTORS_START}\n${body.trim()}\n${CONNECTORS_END}\n`;
+  const start = content.indexOf(CONNECTORS_START);
+  const end = content.indexOf(CONNECTORS_END);
+  if (start >= 0 && end >= start) {
+    const after = content.slice(end + CONNECTORS_END.length).replace(/^\r?\n/, "");
+    return `${content.slice(0, start)}${block}${after}`;
+  }
+  const trimmed = (content.trimEnd() || STUB.trimEnd());
+  return `${trimmed}\n\n${block}`;
 }
 
 export class WorkspaceContextFile {

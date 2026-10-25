@@ -38,7 +38,7 @@ export interface GraphSpec {
   }>;
 }
 
-const ORCHESTRATOR_TOOLS = [
+export const ORCHESTRATOR_TOOLS = [
   "kb.search",
   "fs.read",
   "fs.write",
@@ -46,6 +46,8 @@ const ORCHESTRATOR_TOOLS = [
   "memory.write",
   "context.read",
   "context.write",
+  "connector.call",
+  "web.search",
 ];
 
 export function slugify(value: string): string {

@@ -1,26 +1,27 @@
 "use client";
 
-import { useState, type ComponentType } from "react";
+import { useMemo, useState, type ComponentType } from "react";
 import { useRouter } from "next/navigation";
 import {
   Check,
-  Database,
   Globe,
   KeyRound,
   LoaderCircle,
   Plug,
   Search,
-  Terminal,
   type IconProps,
 } from "@/components/icons";
 
-export interface ConnectorCard {
-  id: string;
+export interface ConnectorView {
+  slug: string;
   name: string;
-  kind: "mcp" | "api" | "cli" | "rag" | "web";
   description: string;
-  status: "connected" | "degraded" | "disconnected";
-  synced: string | null;
+  logoUrl: string | null;
+  category: string | null;
+  popular: boolean;
+  builtin: boolean;
+  status: "connected" | "pending" | "disconnected" | "error";
+  connected: boolean;
 }
 export interface KeyRow {
   id: string;
@@ -33,11 +34,6 @@ export interface DocHit {
   id: string;
   title: string;
   snippet: string;
-}
-export interface ToolRow {
-  name: string;
-  label: string;
-  risk: string;
 }
 export interface DocRow {
   id: string;
@@ -54,44 +50,140 @@ const classWord: Record<string, string> = {
   restricted: "Restricted",
 };
 
-const kindIcon: Record<ConnectorCard["kind"], ComponentType<IconProps>> = {
-  mcp: Plug,
-  api: Globe,
-  cli: Terminal,
-  rag: Database,
-  web: Search,
-};
-const kindWord: Record<ConnectorCard["kind"], string> = {
-  mcp: "Tool server",
-  api: "Service",
-  cli: "Command line",
-  rag: "Documents",
-  web: "Web search",
+const statusWord: Record<ConnectorView["status"], string> = {
+  connected: "Connected",
+  pending: "Waiting on you",
+  disconnected: "Not connected",
+  error: "Needs attention",
 };
 
+function KindIcon({ slug, logoUrl }: { slug: string; logoUrl: string | null }) {
+  if (logoUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={logoUrl} alt="" width={18} height={18} className="conn-logo" />
+    );
+  }
+  const Icon: ComponentType<IconProps> = slug === "serpapi" ? Search : slug === "github" ? Plug : Globe;
+  return (
+    <span className="tile-icon" aria-hidden>
+      <Icon size={18} />
+    </span>
+  );
+}
+
+function initialMessage(composio: boolean, linked?: string): string | null {
+  if (linked === "1") return "App linked. Agents on your next run can use it.";
+  if (linked === "0") return "Could not finish linking. Try Connect again.";
+  if (!composio) return "Set COMPOSIO_API_KEY in .env.local to link apps. Search still works over the popular catalog.";
+  return null;
+}
+
 export function ConnectorsView({
-  connectors,
-  keys,
+  initial,
   query,
+  composio,
+  serpapi,
+  linked,
+  keys,
+  docQuery,
   hits,
   documents,
 }: {
-  connectors: ConnectorCard[];
-  keys: KeyRow[];
+  initial: ConnectorView[];
   query: string;
+  composio: boolean;
+  serpapi: boolean;
+  linked?: string;
+  keys: KeyRow[];
+  docQuery: string;
   hits: DocHit[];
   documents: DocRow[];
-  tools: ToolRow[];
 }) {
   const router = useRouter();
-  const [search, setSearch] = useState(query),
-    [checked, setChecked] = useState<Record<string, "ok" | "failed">>({}),
-    [busy, setBusy] = useState<string | null>(null),
-    [title, setTitle] = useState(""),
-    [text, setText] = useState(""),
-    [dataClass, setDataClass] = useState("internal"),
-    [saving, setSaving] = useState(false),
-    [docError, setDocError] = useState<string | null>(null);
+  const [search, setSearch] = useState(query);
+  const [docSearch, setDocSearch] = useState(docQuery);
+  const [rows, setRows] = useState(initial);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(initialMessage(composio, linked));
+  const [checked, setChecked] = useState<Record<string, "ok" | "failed">>({});
+  const [title, setTitle] = useState("");
+  const [text, setText] = useState("");
+  const [dataClass, setDataClass] = useState("internal");
+  const [saving, setSaving] = useState(false);
+  const [docError, setDocError] = useState<string | null>(null);
+
+  const connected = useMemo(() => rows.filter((row) => row.connected), [rows]);
+  const popular = useMemo(
+    () => rows.filter((row) => row.popular && !row.connected),
+    [rows],
+  );
+  const rest = useMemo(
+    () => rows.filter((row) => !row.popular && !row.connected),
+    [rows],
+  );
+
+  function pushQuery(nextApp: string, nextDoc: string) {
+    const params = new URLSearchParams();
+    if (nextApp) params.set("q", nextApp);
+    if (nextDoc) params.set("doc", nextDoc);
+    const qs = params.toString();
+    router.push(qs ? `/connectors?${qs}` : "/connectors");
+  }
+
+  async function refresh(nextQuery = search) {
+    const url = nextQuery.trim()
+      ? `/api/connectors?q=${encodeURIComponent(nextQuery.trim())}`
+      : "/api/connectors";
+    const response = await fetch(url);
+    const value = (await response.json().catch(() => ({}))) as { connectors?: ConnectorView[] };
+    if (Array.isArray(value.connectors)) setRows(value.connectors);
+  }
+
+  async function connect(slug: string, builtin: boolean) {
+    if (builtin) {
+      setMessage(
+        serpapi
+          ? "Web search is already on for agents in this workspace."
+          : "Set SERPAPI_API_KEY in .env.local to enable web search for agents.",
+      );
+      return;
+    }
+    setBusy(slug);
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/connectors/${encodeURIComponent(slug)}/connect`, {
+        method: "POST",
+      });
+      const value = (await response.json().catch(() => ({}))) as { redirectUrl?: string; error?: string };
+      if (!response.ok || !value.redirectUrl) {
+        setMessage(value.error ?? "Could not start the connect flow.");
+        return;
+      }
+      window.location.assign(value.redirectUrl);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function disconnect(slug: string) {
+    setBusy(slug);
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/connectors/${encodeURIComponent(slug)}/disconnect`, {
+        method: "POST",
+      });
+      const value = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        setMessage(value.error ?? "Could not disconnect.");
+        return;
+      }
+      await refresh();
+      router.refresh();
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function addDocument() {
     setSaving(true);
@@ -140,43 +232,96 @@ export function ConnectorsView({
     }
   }
 
+  function Card({ connector }: { connector: ConnectorView }) {
+    const actionLabel = connector.builtin
+      ? connector.connected
+        ? "Ready"
+        : "Needs key"
+      : connector.connected
+        ? "Disconnect"
+        : "Connect";
+    return (
+      <article className="tile" key={connector.slug} style={{ minHeight: 150 }}>
+        <div className="tile-main">
+          <KindIcon slug={connector.slug} logoUrl={connector.logoUrl} />
+          <b>{connector.name}</b>
+          <p>{connector.description || connector.category || connector.slug}</p>
+        </div>
+        <footer className="tile-foot">
+          <span className={`conn-state ${connector.status === "connected" ? "connected" : connector.status === "error" ? "degraded" : ""}`}>
+            {connector.status === "connected" ? <Check size={13} strokeWidth={2.2} /> : null}
+            {statusWord[connector.status]}
+          </span>
+          <button
+            className="btn small"
+            disabled={busy === connector.slug || (connector.builtin && connector.connected)}
+            onClick={() =>
+              void (connector.connected && !connector.builtin
+                ? disconnect(connector.slug)
+                : connect(connector.slug, connector.builtin))
+            }
+          >
+            {busy === connector.slug && <LoaderCircle size={14} className="animate-spin" />}
+            {actionLabel}
+          </button>
+        </footer>
+      </article>
+    );
+  }
+
   return (
     <div className="page">
       <div className="page-top">
         <h1>Connectors</h1>
       </div>
 
-      {connectors.length === 0 && <p className="empty">No connectors yet.</p>}
-      <div className="tile-grid">
-        {connectors.map((c) => {
-          const Icon = kindIcon[c.kind];
-          return (
-            <article className="tile" key={c.id} style={{ minHeight: 150 }}>
-              <div className="tile-main">
-                <span className="tile-icon" aria-hidden>
-                  <Icon size={18} />
-                </span>
-                <b>{c.name}</b>
-                <p>{kindWord[c.kind]}</p>
-              </div>
-              <footer className="tile-foot">
-                <span className={`conn-state ${c.status}`}>
-                  {c.status === "connected" ? (
-                    <>
-                      <Check size={13} strokeWidth={2.2} />
-                      {c.synced ? `Synced ${c.synced}` : "Ready"}
-                    </>
-                  ) : c.status === "degraded" ? (
-                    "Having trouble"
-                  ) : (
-                    "Not connected"
-                  )}
-                </span>
-              </footer>
-            </article>
-          );
-        })}
-      </div>
+      <form
+        className="search conn-search"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const next = search.trim();
+          pushQuery(next, docSearch.trim());
+          void refresh(next);
+        }}
+      >
+        <Search size={16} />
+        <label className="sr-only" htmlFor="connector-search">
+          Search apps
+        </label>
+        <input
+          id="connector-search"
+          type="search"
+          placeholder="Search GitHub, Gmail, Slack, Notion…"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+      </form>
+
+      {message ? <p className="detail conn-note">{message}</p> : null}
+
+      {connected.length > 0 ? (
+        <section>
+          <h2>Linked</h2>
+          <div className="tile-grid spaced">
+            {connected.map((connector) => (
+              <Card key={connector.slug} connector={connector} />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <section>
+        <h2>{query ? "Matches" : "Popular"}</h2>
+        {popular.length || rest.length ? (
+          <div className="tile-grid spaced">
+            {(query ? [...popular, ...rest] : popular).map((connector) => (
+              <Card key={connector.slug} connector={connector} />
+            ))}
+          </div>
+        ) : (
+          <p className="empty">Nothing matches “{query}”.</p>
+        )}
+      </section>
 
       <div className="page-split">
       <section>
@@ -225,7 +370,7 @@ export function ConnectorsView({
           className="search"
           onSubmit={(e) => {
             e.preventDefault();
-            router.push(search.trim() ? `/connectors?q=${encodeURIComponent(search.trim())}` : "/connectors");
+            pushQuery(search.trim(), docSearch.trim());
           }}
         >
           <Search size={16} />
@@ -236,11 +381,11 @@ export function ConnectorsView({
             id="doc-search"
             type="search"
             placeholder="What do agents know about…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={docSearch}
+            onChange={(e) => setDocSearch(e.target.value)}
           />
         </form>
-        {query && (
+        {docQuery && (
           <ul className="list" style={{ marginTop: 12 }}>
             {hits.length ? (
               hits.map((h) => (
@@ -254,7 +399,7 @@ export function ConnectorsView({
             ) : (
               <li>
                 <div>
-                  <small>Nothing matches “{query}”.</small>
+                  <small>Nothing matches “{docQuery}”.</small>
                 </div>
               </li>
             )}

@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
+import { getSessionUser } from "@/lib/auth";
+import { operatorIdFor, persistContextFile } from "@/lib/connectors";
 import { getDb } from "@/lib/db/client";
 import { auditLog } from "@/lib/db/schema";
 import { env, newId } from "@/lib/env";
@@ -22,7 +24,7 @@ function fileForWorkspace(workspaceId: string) {
 }
 
 export async function GET() {
-  const workspace = await requireWorkspace();
+  const { workspace } = await getWorkspaceUser();
   const file = fileForWorkspace(workspace.id);
   const content = file.ensure();
   return Response.json({
@@ -55,6 +57,8 @@ export async function POST(request: NextRequest) {
   }
 
   const { user } = await getWorkspaceUser();
+  const session = await getSessionUser();
+  await persistContextFile(workspace.id, content, operatorIdFor(session?.id, user?.id));
   await getDb().insert(auditLog).values({
     id: newId("aud"),
     workspaceId: workspace.id,

@@ -25,15 +25,13 @@ import {
   type RunEvent,
   type RunEventPayload,
 } from "@agent-os/core";
+import { seedPopularCatalog } from "../connectors";
 import { getDb } from "./client";
-import { sealSecret, secretHint } from "../secrets";
 import {
   agents,
   approvals,
   auditLog,
   budgetPolicies,
-  connectors,
-  credentials,
   evalRuns,
   evalSuites,
   memories,
@@ -561,7 +559,7 @@ async function seed(demo: boolean): Promise<void> {
         { resource: "memory.*", scopes: ["read" as const, "write" as const] },
         { resource: "fs.read", scopes: ["read" as const] },
       ],
-      allowedTools: ["kb.search", "memory.search", "memory.write", "fs.read", "fs.write", "task.handoff", "context.read", "context.write"],
+      allowedTools: ["kb.search", "memory.search", "memory.write", "fs.read", "fs.write", "task.handoff", "context.read", "context.write", "connector.call", "web.search"],
       complexity: "complex" as const,
       maxSteps: 14,
       dataClass: "internal" as const,
@@ -708,7 +706,7 @@ async function seed(demo: boolean): Promise<void> {
         { resource: "http.fetch", scopes: ["net" as const, "read" as const] },
         { resource: "fs.read", scopes: ["read" as const] },
       ],
-      allowedTools: ["http.fetch", "fs.read", "kb.search", "memory.write"],
+      allowedTools: ["http.fetch", "fs.read", "kb.search", "memory.write", "connector.call", "web.search"],
       complexity: "complex" as const,
       maxSteps: 10,
       dataClass: "internal" as const,
@@ -731,7 +729,7 @@ async function seed(demo: boolean): Promise<void> {
       inheritedPromptBlockIds: ["pb_data_handling", "pb_escalation"],
       modelPolicy: { mode: "auto" as const, pinnedModelId: null, costSensitivity: 0.5, latencySensitivity: 0.3, floorComplexity: "complex" as const, deniedModelIds: [] },
       grants: [{ resource: "kb.search", scopes: ["read" as const] }],
-      allowedTools: ["kb.search", "fs.read", "fs.write", "memory.write"],
+      allowedTools: ["kb.search", "fs.read", "fs.write", "memory.write", "connector.call"],
       complexity: "complex" as const,
       maxSteps: 10,
       dataClass: "confidential" as const,
@@ -754,7 +752,7 @@ async function seed(demo: boolean): Promise<void> {
       inheritedPromptBlockIds: ["pb_data_handling"],
       modelPolicy: { mode: "pinned" as const, pinnedModelId: "muse-spark-1.3", costSensitivity: 0.9, latencySensitivity: 0.1, floorComplexity: "standard" as const, deniedModelIds: [] },
       grants: [{ resource: "shell.exec", scopes: ["execute" as const] }],
-      allowedTools: ["shell.exec", "fs.read", "fs.write", "memory.write"],
+      allowedTools: ["shell.exec", "fs.read", "fs.write", "memory.write", "connector.call"],
       complexity: "standard" as const,
       maxSteps: 6,
       dataClass: "confidential" as const,
@@ -815,7 +813,7 @@ async function seed(demo: boolean): Promise<void> {
           { name: "Red Team", role: "security", instructions: "Probe the orchestrator for injection and escalation.", complexity: "critical", tools: ["http.fetch", "fs.write"] },
         ],
       },
-      requiredConnectors: ["kb", "github"],
+      requiredConnectors: ["github", "serpapi"],
       tags: ["on-call", "sre", "runbooks"],
       estimatedMinutes: 6,
       builtin: true,
@@ -835,7 +833,7 @@ async function seed(demo: boolean): Promise<void> {
           { name: "Egress Prober", role: "worker", instructions: "Attempt credential and data egress; expect and record denials.", complexity: "complex", tools: ["secret.use", "http.fetch"] },
         ],
       },
-      requiredConnectors: ["kb", "web"],
+      requiredConnectors: ["serpapi"],
       tags: ["red-team", "guardrails", "eval"],
       estimatedMinutes: 9,
       builtin: true,
@@ -874,7 +872,7 @@ async function seed(demo: boolean): Promise<void> {
           { name: "Risk Scorer", role: "worker", instructions: "Score each clause against the standard position.", complexity: "standard", tools: ["kb.search"] },
         ],
       },
-      requiredConnectors: ["kb"],
+      requiredConnectors: ["notion"],
       tags: ["legal", "rag", "confidential"],
       estimatedMinutes: 7,
       builtin: true,
@@ -894,7 +892,7 @@ async function seed(demo: boolean): Promise<void> {
           { name: "Responder", role: "worker", instructions: "Draft a first response grounded in the knowledge base.", complexity: "standard", tools: ["kb.search", "memory.search"] },
         ],
       },
-      requiredConnectors: ["kb", "zendesk"],
+      requiredConnectors: ["zendesk", "gmail"],
       tags: ["support", "rag"],
       estimatedMinutes: 3,
       builtin: true,
@@ -914,13 +912,15 @@ async function seed(demo: boolean): Promise<void> {
           { name: "Verifier", role: "worker", instructions: "Check every claim against a retrieved chunk.", complexity: "standard", tools: ["kb.search", "memory.search"] },
         ],
       },
-      requiredConnectors: ["kb"],
+      requiredConnectors: [],
       tags: ["rag", "internal"],
       estimatedMinutes: 2,
       builtin: true,
       createdAt: new Date(now - 62 * 24 * HOUR),
     },
   ]);
+
+  await seedPopularCatalog();
 
   if (!demo) {
     await db.insert(budgetPolicies).values([
@@ -930,24 +930,6 @@ async function seed(demo: boolean): Promise<void> {
     ]);
     return;
   }
-
-  /* ------------------------------------------------------------- connectors */
-  await db.insert(connectors).values([
-    { id: "con_github", workspaceId: WS, name: "GitHub", kind: "mcp", provider: "github-mcp", description: "Repos, pull requests, and Actions status via the GitHub MCP server.", config: { server: "github", repos: ["astronom/api", "astronom/web"], scopes: ["repo:read", "pr:write"] }, status: "connected", lastSyncAt: new Date(now - 4 * 60 * 1000), createdAt: new Date(now - 100 * 24 * HOUR) },
-    { id: "con_datadog", workspaceId: WS, name: "Datadog", kind: "api", provider: "datadog", description: "Metrics, monitors, and log queries for the platform services.", config: { site: "datadoghq.com", queryScope: "service:astronom-*" }, status: "connected", lastSyncAt: new Date(now - 2 * 60 * 1000), createdAt: new Date(now - 100 * 24 * HOUR) },
-    { id: "con_kb", workspaceId: WS, name: "Internal knowledge base", kind: "rag", provider: "pgvector", description: "Runbooks, ADRs, and legal documents, chunked with provenance.", config: { embeddingModel: "selfhost/bge-large", collections: ["runbooks", "adr", "legal"], chunkSize: 800, overlap: 120 }, status: "connected", lastSyncAt: new Date(now - 18 * 60 * 1000), createdAt: new Date(now - 100 * 24 * HOUR) },
-    { id: "con_okta", workspaceId: WS, name: "Okta admin CLI", kind: "cli", provider: "okta-cli", description: "Read-only user and group lookups. Write commands are blocked by policy.", config: { binary: "okta", allowedSubcommands: ["get", "list"] }, status: "degraded", lastSyncAt: new Date(now - 3 * HOUR), createdAt: new Date(now - 90 * 24 * HOUR) },
-    { id: "con_web", workspaceId: WS, name: "Web search", kind: "web", provider: "tavily", description: "External search, restricted to public data classes.", config: { maxResults: 5, blockedDataClasses: ["confidential", "restricted"] }, status: "connected", lastSyncAt: new Date(now - 30 * 60 * 1000), createdAt: new Date(now - 80 * 24 * HOUR) },
-  ]);
-
-  const ghToken = "ghp_9f4c2ab7de11c04a8b3f6e2d7a1c5b9e0f3d4a2c";
-  const ddKey = "dd_api_7c1e4b9a2f6d8c0e5a3b1d9f7c2e4a6b8d0f1c3e";
-  const oktaToken = "00x7Kq2mNp9rSt4vWx1yZ6aB8cD3eF5gH0iJ";
-  await db.insert(credentials).values([
-    { id: "cred_github", workspaceId: WS, connectorId: "con_github", name: "GitHub App token", ...sealSecret(ghToken), hint: secretHint(ghToken), scopes: ["repo:read", "pr:write"], createdBy: "Sid Chevvan", createdAt: new Date(now - 99 * 24 * HOUR), lastUsedAt: new Date(now - 41 * 60 * 1000), rotatedAt: new Date(now - 12 * 24 * HOUR) },
-    { id: "cred_datadog", workspaceId: WS, connectorId: "con_datadog", name: "Datadog API key", ...sealSecret(ddKey), hint: secretHint(ddKey), scopes: ["metrics:read", "logs:read"], createdBy: "Maya Okonkwo", createdAt: new Date(now - 98 * 24 * HOUR), lastUsedAt: new Date(now - 2 * HOUR), rotatedAt: new Date(now - 30 * 24 * HOUR) },
-    { id: "cred_okta", workspaceId: WS, connectorId: "con_okta", name: "Okta read-only token", ...sealSecret(oktaToken), hint: secretHint(oktaToken), scopes: ["users:read", "groups:read"], createdBy: "Dev Patel", createdAt: new Date(now - 60 * 24 * HOUR), lastUsedAt: new Date(now - 3 * 24 * HOUR) },
-  ]);
 
   /* ------------------------------------------------------------------ runs */
   for (const spec of RUN_SPECS) {

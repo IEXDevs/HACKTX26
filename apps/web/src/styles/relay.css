@@ -2665,3 +2665,21 @@ div.rich li {
     max-width: none;
   }
 }
+
+.conn-search {
+  margin: 0 0 18px;
+  max-width: 560px;
+}
+.conn-note {
+  margin: 0 0 18px;
+  color: var(--muted);
+}
+.conn-logo {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+.tile-foot .btn {
+  margin-left: auto;
+}

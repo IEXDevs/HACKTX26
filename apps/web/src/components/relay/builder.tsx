@@ -119,6 +119,7 @@ export function Builder({ templates, workflowMode, onBack }: {
     setMessages(history);
     setInput("");
     setThinking("Thinking…");
+    setDraft(null);
     setError("");
     try {
       const response = await fetch("/api/builder", {
@@ -145,7 +146,7 @@ export function Builder({ templates, workflowMode, onBack }: {
       };
       if (workflowMode === "dynamic" && reply.draft) reply.draft = { ...reply.draft, workers: [] };
       setMessages([...history, reply]);
-      if (reply.draft) setDraft(reply.draft);
+      setDraft(reply.draft ?? null);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -226,7 +227,7 @@ export function Builder({ templates, workflowMode, onBack }: {
 
   async function create(publish: boolean, options: { checkNow?: boolean } = {}): Promise<boolean> {
     const current = latest.current.draft;
-    if (!current) return false;
+    if (!current || busy) return false;
     setBusy(true);
     setError("");
     try {
@@ -358,7 +359,7 @@ export function Builder({ templates, workflowMode, onBack }: {
         {onBack ? (
           <button className="glass-pill" onClick={onBack}><ArrowLeft size={16} aria-hidden />Workflow modes</button>
         ) : (
-          <Link href="/agents" className="glass-pill"><ArrowLeft size={16} />Agents</Link>
+          <Link href="/agents/library" className="glass-pill"><Users size={16} aria-hidden />View agents</Link>
         )}
         <div className="composer-bar-end">
           <button className="glass-pill" disabled={busy || Boolean(thinking) || !draft} onClick={() => void create(false)}>
@@ -390,7 +391,7 @@ export function Builder({ templates, workflowMode, onBack }: {
                       </p>
                     )}
                     {m.text && <RichText text={m.text} />}
-                    {m.draft && m.id === latestDraft && (
+                    {m.draft && draft && m.id === latestDraft && (
                       <div className="draft-card">
                         <span className="draft-card-label">{workflow ? `${mode?.name} workflow draft` : "Agent draft"}</span>
                         <b>{m.draft.name}</b>

@@ -92,7 +92,7 @@ export function TemplateProposals({ proposals }: { proposals: ProposalView[] }) 
                     </button>
                   </div>
                 ) : proposal.templateId ? (
-                  <Link href="/agents/new" className="btn small" style={{ marginTop: 10 }}>
+                  <Link href="/" className="btn small" style={{ marginTop: 10 }}>
                     Saved to the builder gallery
                   </Link>
                 ) : null}

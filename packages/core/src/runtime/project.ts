@@ -21,6 +21,7 @@ export interface ProjectedAgent {
   id: string;
   name: string;
   role: AgentRole;
+  purpose?: "motivator";
   parentAgentId: string | null;
   model: string;
   status: AgentRuntimeStatus;
@@ -230,6 +231,16 @@ function applyEventInPlace(next: RunProjection, event: RunEvent): void {
   const p = event.payload;
 
   switch (p.type) {
+    case "input.requested": {
+      next.status = "awaiting_input";
+      const agent = next.agents.get(p.agentId);
+      if (agent) agent.status = "blocked";
+      break;
+    }
+    case "input.answered": {
+      next.status = "running";
+      break;
+    }
     case "run.started": {
       next.goal = p.goal;
       next.trigger = p.trigger;
@@ -252,6 +263,7 @@ function applyEventInPlace(next: RunProjection, event: RunEvent): void {
         id: p.agentId,
         name: p.name,
         role: p.role,
+        purpose: p.purpose,
         parentAgentId: p.parentAgentId,
         model: p.model,
         status: "idle",

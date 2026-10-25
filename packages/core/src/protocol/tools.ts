@@ -159,6 +159,20 @@ export const TOOL_MANIFEST: readonly ToolManifestEntry[] = [
     sandboxedToAgentFs: false,
   },
   {
+    name: "user.ask",
+    label: "Ask the user",
+    description: "Pause this run and ask the operator for missing information or a decision on the Agents dashboard. Use only after checking permitted solutions. Pass a clear question and the reason it blocks progress. The run resumes with the answer. Never request passwords, API keys, or tokens; ask the user to connect an account through Connectors instead. This does not grant permissions or replace approval requests.",
+    category: "meta", scopes: ["read"], risk: "low", sandboxedToAgentFs: false,
+    argsHint: "{ question: string, reason: string }",
+  },
+  {
+    name: "motivator.report",
+    label: "Report a blocker to the motivator",
+    description: "Required when the orchestrator gets stuck. Report the blocker, concrete attempts, evidence, and remaining options to its motivator peer before stopping or asking the user. The motivator returns useful next actions or pauses the run for user input when only the user can unblock it. Permission reviews occur through the runtime only when the user enables Approve for me. It cannot add capabilities or override blocked actions or hard limits.",
+    category: "meta", scopes: ["read"], risk: "low", sandboxedToAgentFs: false,
+    argsHint: "{ blocker: string, attempts: string[], evidence?: string, remainingOptions?: string[] }",
+  },
+  {
     name: "agent.delegate",
     label: "Delegate",
     description:

@@ -50,6 +50,7 @@ describe("workflows from existing agents", () => {
   it("shows an empty selection as a placeholder and rejects saving it", () => {
     const node = { id: "lead", parentId: null, agentId: null };
     expect(selectionGraph([node], [])[0]).toMatchObject({ id: "lead", placeholder: true, name: "Choose agent" });
+    expect(selectionGraph([node], [])[1]).toMatchObject({ kind: "motivator", name: "Motivator", parentAgentId: null, placeholder: false, tools: [] });
     expect(WorkflowSelectionSchema.safeParse({ name: "Empty", mode: "manual", nodes: [node] }).success).toBe(false);
   });
 

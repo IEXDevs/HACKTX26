@@ -15,6 +15,15 @@ function ledger(limitUsd: number, hardStop = true) {
 }
 
 describe("BudgetLedger", () => {
+  it("preserves earlier spend when a run resumes", () => {
+    const l = ledger(1);
+    l.restore("run:1", 0.9);
+    expect(l.spentUsd).toBeCloseTo(0.9);
+    expect(l.canSpend(0.2, ["run:1"]).kind).toBe("halt");
+    l.restore("run:1", 0.9);
+    expect(l.spentUsd).toBeCloseTo(0.9);
+    expect(() => l.restore("run:1", -1)).toThrow();
+  });
   it("allows spend under the ceiling", () => {
     const l = ledger(1);
     expect(l.canSpend(0.1, ["run:1", "agent:a"]).kind).toBe("allow");

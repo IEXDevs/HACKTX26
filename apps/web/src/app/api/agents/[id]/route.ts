@@ -7,6 +7,7 @@ import { getDb } from "@/lib/db/client";
 import { agents, auditLog } from "@/lib/db/schema";
 import { newId } from "@/lib/env";
 import { getWorkspaceUser, requireWorkspace } from "@/lib/queries";
+import { requiredAgentName } from "@/lib/required-agents";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +60,11 @@ export async function PATCH(
   const [agent] = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
   if (!agent || agent.workspaceId !== workspace.id) {
     return Response.json({ error: "Agent not found." }, { status: 404 });
+  }
+
+  const required = requiredAgentName(agent.id);
+  if (parsed.data.status === "archived" && required) {
+    return Response.json({ error: `${required} is required for platform functionality and cannot be archived.` }, { status: 409 });
   }
 
   if (parsed.data.status === "active") {

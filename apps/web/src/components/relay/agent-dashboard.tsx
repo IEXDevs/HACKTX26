@@ -3,13 +3,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowUpRight, ChevronDown } from "@/components/icons";
+import { ArrowUpRight, ChevronDown, Users } from "@/components/icons";
 import type { HomeRun, HomeView, StepState } from "@/lib/views";
 import { LogStream } from "./log-stream";
-import { StartRun } from "./start-run";
+import { InputRequest } from "./input-request";
 import { useAutoRefresh } from "./use-auto-refresh";
 
-// Checked-off finished items hide from Home an hour after checking. Run history is untouched.
+// Checked-off finished items hide from the dashboard an hour after checking. Run history is untouched.
 const checkedKey = "relay-home-checked";
 const hideAfter = 60 * 60 * 1000;
 function useChecked() {
@@ -51,7 +51,7 @@ const stateLabel: Record<StepState, string> = {
   failed: "Stopped",
 };
 
-export function Home({ data }: { data: HomeView }) {
+export function AgentDashboard({ data }: { data: HomeView }) {
   const router = useRouter();
   const [open, setOpen] = useState<string[]>([]),
     [deciding, setDeciding] = useState<string | null>(null),
@@ -61,7 +61,7 @@ export function Home({ data }: { data: HomeView }) {
   const crossedOff = finished.filter((f) => checked[f.id]).map((f) => f.id);
 
   // Live runs change quickly; re-read the page while any are active.
-  useAutoRefresh(data.running.length > 0, 3000);
+  useAutoRefresh(data.running.length > 0 || data.needs.length > 0, 3000);
 
   async function decide(id: string, decision: "approved" | "denied") {
     setDeciding(id);
@@ -89,9 +89,12 @@ export function Home({ data }: { data: HomeView }) {
   return (
     <div className="page">
       <div className="page-top">
-        <h1>Home</h1>
+        <h1>Agents</h1>
         <div className="page-actions">
-          <StartRun agents={data.agents} />
+          <Link href="/agents/library" className="btn">
+            <Users size={15} aria-hidden />
+            View agents
+          </Link>
         </div>
       </div>
 
@@ -102,6 +105,7 @@ export function Home({ data }: { data: HomeView }) {
           <h2 id="needs-title">Needs you · {data.needs.length}</h2>
           <div className="needs-grid">
             {data.needs.map((n) => (
+              n.kind === "input" ? <InputRequest key={n.id} request={n} /> :
               <article key={n.id} className="need-card">
                 <header>
                   <span>{n.workflow}</span>

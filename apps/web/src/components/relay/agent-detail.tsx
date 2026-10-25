@@ -17,11 +17,10 @@ export interface AgentDetailView {
   instructions: string;
   defaultGoal: string;
   status: string;
-  rank: string;
   canSpawnSubagents: boolean;
   proposeTemplates: boolean;
   parent: { id: string; name: string } | null;
-  team: Array<{ id: string; name: string; summary: string; role: string; rank: string; status: string }>;
+  team: Array<{ id: string; name: string; summary: string; role: string; status: string }>;
   proposals: ProposalView[];
   runs: RunTile[];
   advanced: {
@@ -78,7 +77,7 @@ export function AgentDetail({ agent }: { agent: AgentDetailView }) {
   return (
     <div className="composer">
       <div className="composer-bar">
-        <Link href={agent.parent ? `/agents/${agent.parent.id}` : "/agents"} className="glass-pill">
+        <Link href={agent.parent ? `/agents/${agent.parent.id}` : "/agents/library"} className="glass-pill">
           <ArrowLeft size={16} aria-hidden />
           {agent.parent ? agent.parent.name : "Agents"}
         </Link>
@@ -116,7 +115,7 @@ export function AgentDetail({ agent }: { agent: AgentDetailView }) {
           <h1 className="composer-title">{agent.name}</h1>
           <p className="composer-summary">
             {agent.status !== "active" ? `${statusWord[agent.status]}. ` : ""}
-            {agent.rank}. Dynamic subagents {agent.canSpawnSubagents ? "on" : "off"}. Template proposals{" "}
+            Dynamic subagents {agent.canSpawnSubagents ? "on" : "off"}. Template proposals{" "}
             {agent.proposeTemplates ? "on" : "off"}.
             {agent.summary ? ` ${plainText(agent.summary)}` : ""}
           </p>
@@ -227,7 +226,7 @@ export function AgentDetail({ agent }: { agent: AgentDetailView }) {
                   </span>
                   <b>{member.name}</b>
                   <p>
-                    {member.rank}. {member.summary || "No summary yet."}
+                    {member.summary || "No summary yet."}
                   </p>
                 </Link>
               </article>

@@ -15,6 +15,7 @@ import { createLiveGateway, liveGatewayAvailable } from "./gateway";
 import { parseBuilderReply, parseSearchRequest } from "./builder-parse";
 import type { ModelGateway, ModelMessage } from "./types";
 import { workflowBuilderGuidance, type WorkflowMode } from "../workflow-mode";
+import { DRAFT_EXECUTION_REQUIREMENTS } from "./execution-guidance";
 
 export { DraftSchema, parseBuilderReply, parseSearchRequest, type BuilderDraft } from "./builder-parse";
 export type { WebSearchHit } from "../serpapi";
@@ -60,8 +61,11 @@ export const BUILDER_SYSTEM = `You design AI agents for an internal agent platfo
 Talk with the person to understand the job, then propose an agent.
 
 Rules:
-- Keep each reply to one to three short, plain sentences. No lists, no markdown.
-- Ask at most two clarifying questions in total, one at a time. If the request is already clear, propose right away.
+- Keep the JSON reply field to one to three short, plain sentences. No lists or Markdown in that field. The agent's own final reports use Markdown.
+- Before the first draft, understand the desired outcome and what counts as done, the inputs or connected apps and their scope, the output format and destination, and important limits or actions that need approval.
+- Start with a short discovery exchange. Ask one or two focused questions about the most important missing details per reply. Usually two or three exchanges are enough. Use details already given; do not repeat answered questions or turn this into a long questionnaire.
+- Do not propose a draft on the first reply. If the initial brief covers the important details, briefly confirm the intended scope and assumptions and ask whether anything should change. Wait for the person's answer before presenting a draft with Publish.
+- On later replies, ask about any remaining detail that materially changes the agent's work. When the job is clear enough, state reasonable assumptions and return the draft. If the person asks you to choose defaults, do so instead of continuing to question them.
 - When you propose, design one orchestrator and zero to four workers. Give each worker one clear job.
 - Only use tools from this list, by exact name:
 ${BUILDER_RULES.tools}
@@ -71,6 +75,7 @@ ${BUILDER_RULES.apps}
 ${BUILDER_RULES.realTools}
 ${BUILDER_RULES.voiceLine}
 - After proposing, apply any change the person asks for and return the full updated draft.
+- ${DRAFT_EXECUTION_REQUIREMENTS}
 
 To search the web, answer with only {"search": "query"}. You get the results, then answer as usual. At most ${MAX_BUILDER_SEARCHES} searches per message.
 
@@ -132,9 +137,17 @@ export async function askBuilder(
   }
   const gateway = opts?.gateway ?? createLiveGateway();
   const search = opts?.search ?? builderSearch;
-  const system = opts?.workflowMode
-    ? `${BUILDER_SYSTEM}\n\n${workflowBuilderGuidance(opts.workflowMode)}`
+  const needsDiscovery = !opts?.draft && history.filter((turn) => turn.role === "user").length < 2;
+  const baseSystem = opts?.workflowMode
+    ? `${BUILDER_SYSTEM}
+
+${workflowBuilderGuidance(opts.workflowMode)}`
     : BUILDER_SYSTEM;
+  const system = needsDiscovery
+    ? `${baseSystem}
+
+This is the initial discovery reply. Return draft: null and ask about the most important missing details. Do not offer Publish yet.`
+    : baseSystem;
   const messages: ModelMessage[] = [
     { role: "system", content: system },
     ...history.slice(0, -1),
@@ -155,8 +168,14 @@ export async function askBuilder(
     if (!query || round > MAX_BUILDER_SEARCHES) {
       const parsed = parseBuilderReply(text);
       // A search request on the last round has no reply to show.
-      const reply = query ? FALLBACK_REPLY : parsed.reply;
-      return { reply, draft: parsed.draft, searches, model: BUILDER_MODEL, inputTokens, outputTokens };
+      let reply = query ? FALLBACK_REPLY : parsed.reply;
+      let draft = parsed.draft;
+      // A premature model draft must not expose Publish before the person can add details.
+      if (needsDiscovery && draft) {
+        draft = null;
+        reply = "Before I draft it, which sources or apps should it use, and what should the finished result look like? Include any important limits on what it can do.";
+      }
+      return { reply, draft, searches, model: BUILDER_MODEL, inputTokens, outputTokens };
     }
     messages.push({ role: "assistant", content: text });
     if (attempts >= MAX_BUILDER_SEARCHES) {

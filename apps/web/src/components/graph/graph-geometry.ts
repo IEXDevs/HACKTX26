@@ -15,11 +15,29 @@ export interface LayoutNode {
   r: number;
   /** Width the caption needs under the node. */
   labelWidth: number;
+  /** A required peer sits beside this agent instead of taking a tree level. */
+  peerOf?: string;
+}
+
+const nodeWidth = (node: LayoutNode) => Math.max(node.r * 2, node.labelWidth);
+
+/** Keep peers horizontal even after a saved layout or a drag moves their lead. */
+export function alignPeers(nodes: readonly LayoutNode[], positions: Map<string, V2>, spacing = 1): void {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const rightEdges = new Map<string, number>();
+  for (const peer of nodes) {
+    const lead = peer.peerOf ? byId.get(peer.peerOf) : undefined;
+    const at = lead ? positions.get(lead.id) : undefined;
+    if (!lead || !at) continue;
+    const left = (rightEdges.get(lead.id) ?? at.x + nodeWidth(lead) / 2) + 64 * spacing;
+    positions.set(peer.id, { x: left + nodeWidth(peer) / 2, y: at.y });
+    rightEdges.set(lead.id, left + nodeWidth(peer));
+  }
 }
 
 /** Node size follows its role and how heavy its work is. */
 export function nodeRadius(role: string, complexity: string): number {
-  let r = role === "orchestrator" ? 40 : role === "security" ? 32 : 30;
+  let r = role === "orchestrator" || role === "motivator" ? 40 : role === "security" ? 32 : 30;
   if (complexity === "critical") r += 6;
   else if (complexity === "complex" || complexity === "high") r += 3;
   else if (complexity === "trivial" || complexity === "low") r -= 2;
@@ -38,8 +56,9 @@ export function estimateLabelWidth(name: string, px = 14): number {
  */
 export function tidyLayout(nodes: readonly LayoutNode[], spacing = 1): Map<string, V2> {
   const byId = new Map(nodes.map((n) => [n.id, n]));
+  const primary = nodes.filter((n) => !n.peerOf || !byId.has(n.peerOf));
   const kids = new Map<string, LayoutNode[]>();
-  for (const n of nodes) {
+  for (const n of primary) {
     if (!n.parentAgentId || !byId.has(n.parentAgentId) || n.parentAgentId === n.id) continue;
     const list = kids.get(n.parentAgentId) ?? [];
     list.push(n);
@@ -51,7 +70,8 @@ export function tidyLayout(nodes: readonly LayoutNode[], spacing = 1): Map<strin
   const maxR = Math.max(30, ...nodes.map((n) => n.r));
   const level = (maxR * 2 + 92) * spacing;
 
-  const own = (n: LayoutNode) => Math.max(n.r * 2, n.labelWidth);
+  const own = (n: LayoutNode) => nodeWidth(n) + 2 * nodes.filter((peer) => peer.peerOf === n.id)
+    .reduce((width, peer) => width + 64 * spacing + nodeWidth(peer), 0);
   const widths = new Map<string, number>();
   const visiting = new Set<string>();
   const width = (n: LayoutNode): number => {
@@ -82,19 +102,20 @@ export function tidyLayout(nodes: readonly LayoutNode[], spacing = 1): Map<strin
     }
   };
 
-  const roots = nodes.filter((n) => !n.parentAgentId || !byId.has(n.parentAgentId));
+  const roots = primary.filter((n) => !n.parentAgentId || !byId.has(n.parentAgentId));
   let left = 0;
   for (const root of roots) {
     place(root, left, 0);
     left += width(root) + gapX * 2;
   }
   // Anything only reachable through a loop still gets a spot.
-  for (const n of nodes) {
+  for (const n of primary) {
     if (out.has(n.id)) continue;
     place(n, left, 0);
     left += width(n) + gapX * 2;
   }
 
+  alignPeers(nodes, out, spacing);
   const xs = [...out.values()].map((p) => p.x);
   const mid = xs.length ? (Math.min(...xs) + Math.max(...xs)) / 2 : 0;
   for (const p of out.values()) p.x -= mid;
@@ -103,6 +124,15 @@ export function tidyLayout(nodes: readonly LayoutNode[], spacing = 1): Map<strin
 
 /** Cubic Bézier as four points. */
 export type Cubic = [V2, V2, V2, V2];
+
+/** Straight peer link, from one side rim to the other. */
+export function sideCurve(a: V2, ra: number, b: V2, rb: number): Cubic {
+  const direction = b.x >= a.x ? 1 : -1;
+  const start = { x: a.x + ra * direction, y: a.y };
+  const end = { x: b.x - rb * direction, y: b.y };
+  return [start, { x: start.x + (end.x - start.x) / 3, y: start.y },
+    { x: start.x + (end.x - start.x) * 2 / 3, y: end.y }, end];
+}
 
 /**
  * An S-shaped edge from the rim of `a` to the rim of `b`. It leaves and enters

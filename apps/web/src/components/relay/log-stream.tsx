@@ -24,7 +24,7 @@ export function LogStream({
   agentHref?: (agentId: string) => string;
   limit?: number;
 }) {
-  const visible = limit ? rows.slice(-limit) : rows;
+  const visible = [...(limit ? rows.slice(-limit) : rows)].reverse();
   if (visible.length === 0) return <p className="log-empty">{empty}</p>;
   return (
     <ol className="log-stream">

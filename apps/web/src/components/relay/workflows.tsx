@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Archive, Plus, Search } from "@/components/icons";
 import type { WorkflowTile } from "@/lib/views";
+import { canArchiveAgent } from "@/lib/required-agents";
 import { useAutoRefresh } from "./use-auto-refresh";
 
 /** Workflows index: one tile per top-level agent, grouped by its latest run. */
@@ -107,7 +108,7 @@ export function Workflows({ workflows }: { workflows: WorkflowTile[] }) {
                     <span>
                       {w.team ? `Team of ${w.team + 1} agents` : "Single agent"}
                     </span>
-                    <button
+                    {(w.archived || canArchiveAgent(w.id)) && <button
                       className="icon-btn"
                       aria-label={`${w.archived ? "Restore" : "Archive"} ${w.name}`}
                       title={w.archived ? "Restore" : "Archive"}
@@ -115,7 +116,7 @@ export function Workflows({ workflows }: { workflows: WorkflowTile[] }) {
                       onClick={() => void toggleArchive(w)}
                     >
                       <Archive size={16} />
-                    </button>
+                    </button>}
                   </footer>
                 </article>
               ))}

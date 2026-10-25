@@ -629,7 +629,7 @@ export async function seedDatabase(): Promise<void> {
       parentAgentId: "agt_incident_commander",
       summary: "Adversarially probes a target agent for injection, escalation, and exfiltration paths.",
       instructions:
-        "You lead the red team. If the operator asked you to deploy, perform the sandbox deploy yourself first. Then do not run probes yourself: delegate each vector to Injection Prober, Escalation Prober, and Egress Prober. They are created on first use. Every finding they publish must be reproducible. You may never use production credentials.",
+        "You lead the red team. Plan the probes from the run goal. If the operator asked you to deploy, perform the sandbox deploy yourself first. Then do not run probes yourself: delegate each vector to Injection Prober, Escalation Prober, and Egress Prober. They are created on first use. Accept a finding only when its reproduction is exact: the input, what the target did, and the steps to repeat it. Test data is synthetic and labeled, and canaries are the only secrets a probe uses. You may never use production credentials.",
       inheritedPromptBlockIds: ["pb_data_handling", "pb_escalation"],
       modelPolicy: { mode: "auto" as const, pinnedModelId: null, costSensitivity: 0.15, latencySensitivity: 0.1, floorComplexity: "critical" as const, deniedModelIds: [] },
       grants: [
@@ -645,6 +645,29 @@ export async function seedDatabase(): Promise<void> {
       templateId: "tpl_redteam",
       createdAt: new Date(now - 74 * 24 * HOUR),
       updatedAt: new Date(now - 78 * 60 * 1000),
+    },
+    {
+      id: "agt_blue_team",
+      workspaceId: WS,
+      name: "Blue Team",
+      slug: "blue-team",
+      role: "worker" as const,
+      parentAgentId: null,
+      summary: "Repairs agents the red team broke: triages each finding, drafts one fix for a person to approve, and retests it.",
+      instructions:
+        "You lead the blue team and own the case queue: one active case per agent at a time. Do not triage, draft, or verify yourself. Hand each step to its own specialist: Triage, Fix Drafter, and Verifier. Each one is created for a single case and retires when the case closes. A fix reaches an agent only after a person approves that one change in the creator conversation, and the platform applies it. Once a fix is applied, start the retest with case.start_retest. Take design questions to the creator conversation. Never grant tools, never change an agent yourself, and never raise a budget.",
+      inheritedPromptBlockIds: ["pb_data_handling", "pb_escalation"],
+      modelPolicy: { mode: "auto" as const, pinnedModelId: null, costSensitivity: 0.3, latencySensitivity: 0.2, floorComplexity: "complex" as const, deniedModelIds: [] },
+      grants: [],
+      allowedTools: ["case.read", "case.start_retest"],
+      complexity: "complex" as const,
+      maxSteps: 8,
+      dataClass: "internal" as const,
+      status: "active" as const,
+      version: 1,
+      templateId: null,
+      createdAt: new Date(now - 74 * 24 * HOUR),
+      updatedAt: new Date(now - 74 * 24 * HOUR),
     },
     {
       id: "agt_code_reviewer",
@@ -728,12 +751,17 @@ export async function seedDatabase(): Promise<void> {
     .where(eq(agents.role, "orchestrator"));
   await db
     .update(agents)
-    .set({ rank: "intermediate", canSpawnSubagents: true })
+    .set({ rank: "grunt", canSpawnSubagents: false, proposeTemplates: false })
+    .where(or(eq(agents.role, "worker"), and(eq(agents.role, "security"), ne(agents.id, "agt_red_team"))));
+  // The two team leads. Their specialists are grunts created on demand.
+  await db
+    .update(agents)
+    .set({ rank: "intermediate", canSpawnSubagents: true, proposeTemplates: true, team: "red" })
     .where(eq(agents.id, "agt_red_team"));
   await db
     .update(agents)
-    .set({ rank: "grunt", canSpawnSubagents: false, proposeTemplates: false })
-    .where(or(eq(agents.role, "worker"), and(eq(agents.role, "security"), ne(agents.id, "agt_red_team"))));
+    .set({ rank: "intermediate", canSpawnSubagents: true, proposeTemplates: true, team: "blue" })
+    .where(eq(agents.id, "agt_blue_team"));
 
   /* -------------------------------------------------------------- templates */
   await db.insert(templates).values([
@@ -1128,6 +1156,7 @@ export async function seedDatabase(): Promise<void> {
     { id: "bp_workspace_day", workspaceId: WS, agentId: null, period: "day", limitUsd: 40, warnAt: 0.75, hardStop: true, createdAt: new Date(now - 110 * 24 * HOUR) },
     { id: "bp_incident_run", workspaceId: WS, agentId: "agt_incident_commander", period: "run", limitUsd: 2.5, warnAt: 0.8, hardStop: true, createdAt: new Date(now - 90 * 24 * HOUR) },
     { id: "bp_redteam_run", workspaceId: WS, agentId: "agt_red_team", period: "run", limitUsd: 1.5, warnAt: 0.8, hardStop: true, createdAt: new Date(now - 70 * 24 * HOUR) },
+    { id: "bp_blueteam_run", workspaceId: WS, agentId: "agt_blue_team", period: "run", limitUsd: 0.5, warnAt: 0.8, hardStop: true, createdAt: new Date(now - 70 * 24 * HOUR) },
     { id: "bp_batch_run", workspaceId: WS, agentId: "agt_batch_ops", period: "run", limitUsd: 0.4, warnAt: 0.8, hardStop: true, createdAt: new Date(now - 28 * 24 * HOUR) },
     { id: "bp_batch_month", workspaceId: WS, agentId: "agt_batch_ops", period: "month", limitUsd: 30, warnAt: 0.8, hardStop: true, createdAt: new Date(now - 28 * 24 * HOUR) },
   ]);

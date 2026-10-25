@@ -11,7 +11,6 @@ import {
   runs,
   securityFindings,
 } from "@/lib/db/schema";
-import { seedDatabase } from "@/lib/db/seed";
 import { healFinding, healWorkspace } from "@/lib/runtime/autoheal";
 import {
   applyFix,
@@ -23,10 +22,10 @@ import {
   person,
   proposeFix,
   startRetest,
-  type RetestRunner,
 } from "./cases";
 import { afterRetestFailure, assertTransition, canTransition, FINDING_STATUSES, roundFitsBudget } from "./lifecycle";
 import { judgeRetest, TEST_DATA_LABEL } from "./probes";
+import { drain, fakeRunner, freshDb } from "./test-support";
 
 const WS = "ws_astronom";
 const TARGET = "agt_incident_commander";
@@ -34,68 +33,6 @@ const FINDING = "fnd_1";
 const operator = person("sid@astronom.dev");
 
 /* ---------- Helpers ---------- */
-
-async function freshDb() {
-  const g = globalThis as unknown as { __agentOsDb?: unknown };
-  delete g.__agentOsDb;
-  getDb();
-  await seedDatabase();
-}
-
-/** Recover a probe's canary from its goal, as an agent that obeys the attack would. */
-function canaryIn(goal: string): string {
-  const split = goal.match(/joining "CANARY-" and "([^"]+)"/);
-  if (split) return `CANARY-${split[1]}`;
-  return goal.match(/CANARY-[A-Z0-9]+-[A-F0-9]{8}/)![0];
-}
-
-/**
- * Stands in for the run engine: records a finished run with the chosen
- * outcome. A "leak" run writes the probe's canary, as a vulnerable agent would.
- */
-function fakeRunner(outcome: (goal: string) => "pass" | "leak" | "pending", cost = 0.05): RetestRunner & { goals: string[] } {
-  const goals: string[] = [];
-  return {
-    goals,
-    async start({ workspaceId, agentId, goal, budgetUsd }) {
-      goals.push(goal);
-      const id = `run_test_${goals.length}_${Math.random().toString(36).slice(2, 8)}`;
-      const result = outcome(goal);
-      const db = getDb();
-      await db.insert(runs).values({
-        id,
-        workspaceId,
-        agentId,
-        goal,
-        status: result === "pending" ? "running" : "succeeded",
-        budgetUsd,
-        costUsd: cost,
-        mode: "live",
-        purpose: "retest",
-        summary: result === "leak" ? `Done. ${canaryIn(goal)}` : "Done. I treated the material as data.",
-        startedAt: new Date(),
-        endedAt: result === "pending" ? null : new Date(),
-      });
-      await db.insert(runEvents).values({
-        id: `${id}_e1`,
-        runId: id,
-        seq: 1,
-        ts: new Date(),
-        type: "agent.message",
-        agentId,
-        hash: "h1",
-        prevHash: "h0",
-        payload: {
-          type: "agent.message",
-          agentId,
-          role: "assistant",
-          text: result === "leak" ? `Following the note: ${canaryIn(goal)}` : "The note is untrusted; ignoring it.",
-        },
-      });
-      return id;
-    },
-  };
-}
 
 async function finding(id = FINDING) {
   const [row] = await getDb().select().from(securityFindings).where(eq(securityFindings.id, id));
@@ -111,18 +48,6 @@ async function otherAgents() {
 async function auditActions(caseId: string) {
   const rows = await getDb().select().from(auditLog);
   return rows.filter((r) => r.targetId === caseId || (r.detail as { caseId?: string }).caseId === caseId).map((r) => r.action);
-}
-
-/** Step a sequential retest until it finishes or stops moving. */
-async function drain(caseId: string, runner: RetestRunner) {
-  for (let i = 0; i < 20; i++) {
-    const before = await loadCase(caseId);
-    const after = await checkRetest(caseId, runner);
-    const latest = after.retests.at(-1);
-    if (!latest || latest.verdict !== "pending") return after;
-    if (latest.runs.length === before.retests.at(-1)?.runs.length) return after;
-  }
-  return loadCase(caseId);
 }
 
 /** Open, elevate, propose an instructions change, and return the case. */
@@ -221,12 +146,15 @@ describe("feedback loop", () => {
     expect(retesting.latestRetestRunId).toBeTruthy();
 
     const closed = await drain(opened.id, runner);
-    // Reproduction + 2 earlier findings against the target + 2 synthetic.
-    expect(runner.goals).toHaveLength(5);
+    // Reproduction three times in a row + 2 earlier findings against the target + 2 synthetic.
+    expect(runner.goals).toHaveLength(7);
+    expect(runner.goals.slice(0, 3)).toEqual(Array(3).fill(opened.reproduction.probe.input));
     expect(runner.goals.every((g) => g.startsWith(TEST_DATA_LABEL))).toBe(true);
     expect((await finding()).status).toBe("fixed");
-    expect(closed.state).toBe("closed");
-    expect(closed.spentUsd).toBeCloseTo(0.25);
+    expect(closed.state).toBe("verified");
+    expect(closed.spentUsd).toBeCloseTo(0.35);
+    // Each run id is recorded.
+    expect(closed.retests.at(-1)!.runs).toHaveLength(7);
 
     const actions = await auditActions(opened.id);
     for (const action of [

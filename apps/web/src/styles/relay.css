@@ -2546,6 +2546,16 @@ a.run-bar-track {
 }
 
 /* ---------- Agent output rendered as Markdown ---------- */
+.input-request form { margin-top: 12px; }
+.input-request textarea { width: 100%; resize: vertical; min-height: 84px; padding: 10px 12px; border: 1px solid var(--glass-edge); border-radius: 8px; background: var(--raised); color: var(--ink); font: inherit; font-size: 13px; }
+.input-request textarea:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.run-report {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 14px;
+  background: var(--glass);
+}
 .rich {
   min-width: 0;
   font-size: 15px;

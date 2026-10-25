@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { GraphAgent } from "./graph-data";
 import { workerDepths } from "./agent-tree";
 import { WorkflowModeSchema } from "./workflow-mode";
+import { motivatorPreview } from "./graph-motivator";
 
 export interface LibraryAgent {
   id: string;
@@ -50,7 +51,7 @@ export const WorkflowSelectionSchema = z.object({
 export type WorkflowSelection = z.infer<typeof WorkflowSelectionSchema>;
 
 export function selectionGraph(slots: WorkflowSlot[], library: LibraryAgent[]): GraphAgent[] {
-  return slots.map((slot) => {
+  const nodes: GraphAgent[] = slots.map((slot) => {
     const agent = library.find((item) => item.id === slot.agentId);
     const role = agent?.role === "security" ? "security" : slot.parentId ? "worker" : "orchestrator";
     return {
@@ -63,6 +64,7 @@ export function selectionGraph(slots: WorkflowSlot[], library: LibraryAgent[]): 
       rank: slot.parentId ? "grunt" : "orchestrator", createdAt: "",
     };
   });
+  return nodes[0] ? [...nodes, motivatorPreview(nodes[0])] : nodes;
 }
 
 export function removeSlotBranch(slots: WorkflowSlot[], id: string): WorkflowSlot[] {

@@ -39,6 +39,8 @@ import {
   budgetPolicies,
   promptBlocks,
   runs,
+  inputRequests,
+  runCheckpoints,
   securityFindings,
   taskLog,
   triggers,
@@ -62,6 +64,7 @@ import { redactSecrets } from "@/lib/secrets";
 import { createApprovalRequest, waitForApprovalDecision } from "./approvals";
 import { RunLogger } from "./emitter";
 import { createLiveGateway, liveGatewayAvailable } from "./gateway";
+import { AGENT_EXECUTION_GUIDANCE, EMPTY_RESPONSE_GUIDANCE, LAST_TURN_GUIDANCE, REPORT_RETRY_GUIDANCE, leadExecutionGuidance } from "./execution-guidance";
 import { ScriptedGateway } from "./gateway-scripted";
 import { CASE_TOOL_BY_NAME, executeCaseTool } from "@/lib/loop/case-tools";
 import {
@@ -94,6 +97,8 @@ import { AgentLifecycle, type AgentOutcome } from "./lifecycle";
 import { cancelledRuns, HEARTBEAT_MS, liveRuns } from "./reaper";
 import { AgentSandbox } from "./sandbox";
 import { fileChildTemplateProposal } from "./template-proposals";
+import { InputPause, QuestionSchema, type AgentContinuation, type RunContinuation } from "./run-input";
+import { MotivatorReportSchema, motivatorFeedback, motivatorMessages, reviewWithMotivator, type MotivatorDecision, type MotivatorState } from "./motivator";
 import { executeTool, type ToolContext } from "./tools";
 import { parseContextDirectives, WorkspaceContextFile } from "./workspace-context";
 import type { ModelGateway, ModelMessage, ToolSpec } from "./types";
@@ -238,6 +243,31 @@ export async function cancelRun(runId: string): Promise<void> {
     return;
   }
   cancelledRuns().add(runId);
+  if (run.status === "awaiting_input" && !liveRuns().has(runId)) {
+    const [checkpoint] = await db.select().from(runCheckpoints).where(eq(runCheckpoints.runId, runId));
+    const endedAt = new Date();
+    const claimed = db.transaction((tx) => {
+      const row = tx.update(runs).set({ status: "cancelled", failureReason: "Stopped by the operator.", summary: "Run cancelled while waiting for input.", endedAt })
+        .where(and(eq(runs.id, runId), eq(runs.status, "awaiting_input"))).returning({ id: runs.id }).get();
+      if (!row) return false;
+      tx.update(inputRequests).set({ status: "cancelled" }).where(and(eq(inputRequests.runId, runId), eq(inputRequests.status, "pending"))).run();
+      tx.delete(runCheckpoints).where(eq(runCheckpoints.runId, runId)).run();
+      return true;
+    });
+    if (claimed) {
+      const logger = await RunLogger.open(runId);
+      for (const id of new Set([...(checkpoint?.state.frames.map(([, frame]) => frame.agentId) ?? [run.agentId]),
+        ...(checkpoint?.state.motivator ? [checkpoint.state.motivator.id] : [])])) {
+        await logger.emit({ type: "agent.status", agentId: id, status: "failed" }, id);
+      }
+      for (const [, frame] of checkpoint?.state.frames ?? []) {
+        if (frame.taskId) await logger.emit({ type: "task.updated", taskId: frame.taskId, status: "failed", note: "Stopped by the operator." }, frame.agentId);
+      }
+      await logger.emit({ type: "run.completed", status: "cancelled", summary: "Run cancelled while waiting for input.", reason: "Stopped by the operator.", totalCostUsd: run.costUsd, durationMs: Math.max(1, endedAt.getTime() - run.startedAt.getTime()) });
+      cancelledRuns().delete(runId);
+      return;
+    }
+  }
   await db
     .update(runs)
     .set({ status: "cancelled", failureReason: "Stopped by the operator." })
@@ -249,9 +279,17 @@ export async function cancelRun(runId: string): Promise<void> {
 /* -------------------------------------------------------------------------- */
 
 export async function executeRun(runId: string): Promise<void> {
+  if (liveRuns().has(runId)) return;
+  liveRuns().add(runId);
+  try { await executeRunOnce(runId); }
+  finally { liveRuns().delete(runId); cancelledRuns().delete(runId); }
+}
+
+async function executeRunOnce(runId: string): Promise<void> {
   const db = getDb();
   const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
   if (!run) throw new Error(`Run ${runId} does not exist.`);
+  if (run.status === "awaiting_input" || run.endedAt) return;
 
   const [workspace] = await db
     .select()
@@ -266,10 +304,10 @@ export async function executeRun(runId: string): Promise<void> {
   ]);
 
   const logger = await RunLogger.open(runId);
-  const engine = new RunEngine(run, workspace, agentRows, blocks, logger);
+  const [checkpoint] = await db.select().from(runCheckpoints).where(eq(runCheckpoints.runId, runId));
+  const engine = new RunEngine(run, workspace, agentRows, blocks, logger, checkpoint?.state);
 
   // The heartbeat tells the reaper this process is still running the run.
-  liveRuns().add(runId);
   const beat = () =>
     db.update(runs).set({ heartbeatAt: new Date() }).where(eq(runs.id, runId)).catch(() => undefined);
   await beat();
@@ -279,8 +317,6 @@ export async function executeRun(runId: string): Promise<void> {
     await engine.execute();
   } finally {
     clearInterval(timer);
-    liveRuns().delete(runId);
-    cancelledRuns().delete(runId);
   }
 }
 
@@ -298,6 +334,10 @@ class RunEngine {
   #orchestratorConnectors: string[] = [];
   readonly #budgetWrapUp = new Set<string>();
   readonly #downgraded = new Set<string>();
+  readonly #frames = new Map<string, AgentContinuation>();
+  readonly #delegations = new Map<string, string>();
+  #rootResult?: AgentResult;
+  #motivator?: MotivatorState;
   readonly #live: boolean;
   readonly #liveGateway: ModelGateway | null;
   #inputTokens = 0;
@@ -310,6 +350,7 @@ class RunEngine {
     private readonly agentRows: AgentRow[],
     private readonly blocks: PromptBlockRow[],
     private readonly logger: RunLogger,
+    private readonly continuation?: RunContinuation,
   ) {
     this.#runKey = `run:${run.id}`;
     this.#ledger = new BudgetLedger([
@@ -318,6 +359,20 @@ class RunEngine {
     this.#scenario = detectScenario(run.goal);
     this.#live = run.mode === "live" && liveGatewayAvailable();
     this.#liveGateway = this.#live ? createLiveGateway() : null;
+    if (continuation) {
+      this.#motivator = continuation.motivator;
+      this.#rootResult = continuation.rootResult;
+      this.#ledger.restore(this.#runKey, run.costUsd);
+      this.#inputTokens = run.inputTokens;
+      this.#outputTokens = run.outputTokens;
+      for (const entry of continuation.frames) this.#frames.set(...entry);
+      for (const entry of continuation.delegations) this.#delegations.set(...entry);
+      for (const entry of continuation.connectors) this.#runConnectors.set(...entry);
+      for (const id of continuation.spawned) this.#spawned.add(id);
+      for (const id of continuation.grunts) this.#spawnedGrunts.add(id);
+      for (const grant of continuation.highRiskGrants) this.#grantedHighRisk.add(grant);
+      for (const id of continuation.budgetWrapUp) this.#budgetWrapUp.add(id);
+    }
   }
 
   private get costUsd(): number {
@@ -340,7 +395,7 @@ class RunEngine {
     }
 
     try {
-      await this.logger.emit(
+      if (!this.continuation) await this.logger.emit(
         {
           type: "run.started",
           goal: this.run.goal,
@@ -366,10 +421,11 @@ class RunEngine {
         root.id,
       );
 
-      await this.#applyContextDirectives(root.id);
+      if (!this.continuation) await this.#applyContextDirectives(root.id);
       await this.#loadConnectors(root);
 
-      const result = await this.#runAgent(root, null, 0, null);
+      const result = this.#rootResult ?? await this.#runAgent(root, null, 0, null);
+      this.#rootResult = result;
       if (result.status === "succeeded") {
         await this.#maybeSpawnAdversarialSwarm(root);
       }
@@ -401,6 +457,22 @@ class RunEngine {
       );
       await this.#finish(status, summary, reason);
     } catch (error) {
+      if (error instanceof InputPause) {
+        const state: RunContinuation = {
+          motivator: this.#motivator,
+          rootResult: this.#rootResult,
+          frames: [...this.#frames], delegations: [...this.#delegations],
+          spawned: [...this.#spawned], grunts: [...this.#spawnedGrunts], highRiskGrants: [...this.#grantedHighRisk],
+          connectors: [...this.#runConnectors], budgetWrapUp: [...this.#budgetWrapUp],
+        };
+        if (this.#motivator) await this.logger.emit({ type: "agent.status", agentId: this.#motivator.id, status: "blocked" }, this.#motivator.id);
+        getDb().transaction((tx) => {
+          tx.insert(runCheckpoints).values({ runId: this.run.id, state, updatedAt: new Date() })
+            .onConflictDoUpdate({ target: runCheckpoints.runId, set: { state, updatedAt: new Date() } }).run();
+          tx.update(runs).set({ status: "awaiting_input", heartbeatAt: new Date() }).where(eq(runs.id, this.run.id)).run();
+        });
+        return;
+      }
       const message = (error as Error).message;
       const reason = redactSecrets(message).slice(0, 900);
       await this.logger.emit({ type: "log", level: "error", message: reason }, this.run.agentId);
@@ -432,12 +504,19 @@ class RunEngine {
   ): Promise<AgentResult> {
     this.#lifecycle.start(agent.id, delegatorId);
     let outcome: AgentOutcome = "failed";
+    let paused = false;
     try {
       const result = await this.#runAgentSteps(agent, taskId, depth, parentTask);
       outcome = result.status === "succeeded" ? "done" : "failed";
       return result;
+    } catch (error) {
+      paused = error instanceof InputPause;
+      throw error;
     } finally {
-      await this.#terminate(this.#lifecycle.finish(agent.id, outcome));
+      if (!paused) {
+        this.#frames.delete(this.#frameKey(agent.id, taskId));
+        await this.#terminate(this.#lifecycle.finish(agent.id, outcome));
+      }
     }
   }
 
@@ -462,6 +541,7 @@ class RunEngine {
   /** At run end, nothing is left working: terminate whatever is still open. */
   async #endAll(outcome: AgentOutcome): Promise<void> {
     await this.#terminate(this.#lifecycle.terminateAll(outcome));
+    if (this.#motivator) await this.logger.emit({ type: "agent.status", agentId: this.#motivator.id, status: outcome === "done" ? "done" : "failed" }, this.#motivator.id);
   }
 
   async #runAgentSteps(
@@ -519,6 +599,8 @@ class RunEngine {
       );
     }
 
+    if (depth === 0 && agent.id === this.run.agentId) await this.#startMotivator(model);
+
     await this.logger.emit(
       {
         type: "router.decision",
@@ -554,10 +636,11 @@ class RunEngine {
     contextFile.ensure();
     const held = heldToolNames(agent, this.#connectorsFor(agent), this.run.dataClass);
 
-    const messages: ModelMessage[] = [
+    const restored = this.#frames.get(this.#frameKey(agent.id, taskId));
+    const messages: ModelMessage[] = restored?.messages ?? [
       {
         role: "system",
-        content: `${prompt.text}${specialistRoster(agent)}${delegationGuidance(agent)}${contextFile.promptBlock({ canWrite: held.has("context.write") })}`,
+        content: `${prompt.text}${specialistRoster(agent)}${delegationGuidance(agent)}${contextFile.promptBlock({ canWrite: held.has("context.write") })}${AGENT_EXECUTION_GUIDANCE}${leadExecutionGuidance(agent.rank)}${depth === 0 ? "\n\nYou work alongside an independent Motivator. When stuck, you must call motivator.report before stopping or asking the user. Report the exact blocker, concrete attempts, evidence, and remaining options. Wait for the motivator's decision, then act on its useful next steps. If only the user can unblock the goal, the motivator can pause the run with a question on the Agents dashboard. It also reviews proposed final answers so you cannot bypass it by calling an incomplete goal finished. The Motivator cannot grant access or override the operator or hard limits." : ""}`,
       },
       {
         role: "user",
@@ -565,12 +648,15 @@ class RunEngine {
           depth === 0
             ? this.run.goal
             : parentTask ??
-              "Complete the delegated task and return a short, factual summary.",
+              "Complete the delegated task, verify the result, and return a Markdown summary of findings.",
       },
     ];
 
     const tools = this.#toolSpecs(agent);
-    let lastText = "";
+    let lastText = restored?.lastText ?? "";
+    let emptyTurns = restored?.emptyTurns ?? 0;
+    let reportRetry = restored?.reportRetry ?? false;
+    if (restored) await this.#executeCalls(agent, sandbox, depth, restored);
 
     const baseModel =
       MODEL_BY_ID.get(model) ?? {
@@ -593,7 +679,7 @@ class RunEngine {
       agent.id,
     );
 
-    for (let step = 0; step < agent.maxSteps; step++) {
+    for (let step = restored?.nextStep ?? 0; step < agent.maxSteps; step++) {
       if (this.#isCancelled()) {
         this.#status = "cancelled";
         return { status: "failed", summary: "Stopped by the operator." };
@@ -647,7 +733,7 @@ class RunEngine {
             role: "system",
             content:
               `Budget guardrail: ${Math.round(utilization * 100)}% of this run's ceiling is spent. ` +
-              "Finish with what is already known, avoid optional tool calls, and return a concise answer under budget.",
+              "Prioritize the remaining essential work, avoid optional tool calls, and reserve enough budget for the final Markdown summary. State any unfinished work. The hard budget ceiling still applies.",
           });
           await this.logger.emit(
             {
@@ -691,15 +777,19 @@ class RunEngine {
 
       let text = "";
       let thinking = "";
+      let cutOff = false;
       let usage: { inputTokens: number; outputTokens: number } | null = null;
       const calls: Array<{ id: string; name: string; args: Record<string, unknown> }> = [];
+      // Reserve the last step for findings instead of ending on a tool's progress message.
+      const reportOnly = agent.maxSteps > 1 && step === agent.maxSteps - 1;
+      if (reportOnly) messages.push({ role: "system", content: LAST_TURN_GUIDANCE });
 
       for await (const chunk of gateway.complete({
         model: stepModel,
         messages,
-        tools,
+        tools: reportOnly || reportRetry ? [] : tools,
         temperature: 0.2,
-        maxOutputTokens: 1_600,
+        maxOutputTokens: emptyTurns > 0 || reportRetry ? 3_200 : 1_600,
         // Muse models return empty completions on chat completions without an
         // explicit reasoning effort; other providers ignore the field.
         reasoningEffort:
@@ -709,6 +799,7 @@ class RunEngine {
         if (chunk.type === "thinking") thinking += chunk.text;
         if (chunk.type === "usage") usage = chunk;
         if (chunk.type === "tool_call") calls.push(chunk.call);
+        if (chunk.type === "done" && chunk.stopReason === "length") cutOff = true;
       }
 
       if (usage && (usage.inputTokens > 0 || usage.outputTokens > 0)) {
@@ -797,9 +888,47 @@ class RunEngine {
       }
 
       if (calls.length === 0) {
-        if (text.trim()) messages.push({ role: "assistant", content: text.trim() });
-        break;
+        if (text.trim()) {
+          if (cutOff) {
+            if (!reportRetry && step < agent.maxSteps - 1) {
+              reportRetry = true;
+              messages.push({ role: "assistant", content: text.trim() }, { role: "system", content: REPORT_RETRY_GUIDANCE });
+              continue;
+            }
+            return { status: "failed", summary: `${text.trim()}\n\n---\n\n**Incomplete report:** The model reached its output limit. The ending is missing; completion is unverified.` };
+          }
+          if (depth === 0 && agent.id === this.run.agentId) {
+            const decision = await this.#reviewExit(agent, "finish", text.trim(), messages, agent.maxSteps - step - 1);
+            if (decision.verdict === "continue" && step < agent.maxSteps - 1 && !this.#isHalted() && !this.#isCancelled()) {
+              messages.push({ role: "assistant", content: text.trim() }, { role: "system", content: motivatorFeedback(decision) });
+              reportRetry = false;
+              continue;
+            }
+            if (decision.verdict === "ask_user" && step < agent.maxSteps - 1 && !this.#isHalted() && !this.#isCancelled()) {
+              const call = { id: newId("call"), name: "user.ask", args: { question: decision.question!, reason: decision.reason } };
+              this.#motivator!.approvedQuestions.push(call.id);
+              messages.push({ role: "assistant", content: text.trim(), toolCalls: [call] });
+              const frame: AgentContinuation = { agentId: agent.id, taskId, nextStep: step + 1, messages, calls: [call], nextCall: 0, lastText, emptyTurns, reportRetry: false };
+              this.#frames.set(this.#frameKey(agent.id, taskId), frame);
+              await this.#executeCalls(agent, sandbox, depth, frame);
+            }
+            if (decision.verdict !== "complete") {
+              return { status: "failed", summary: `${text.trim()}\n\n## Motivator review\n${decision.reason}\n${decision.nextSteps.length ? `\nRemaining options:\n${decision.nextSteps.map((action) => `- ${action}`).join("\n")}` : ""}${step === agent.maxSteps - 1 && decision.verdict !== "blocked" ? "\nThe step limit prevents further work on this run." : ""}` };
+            }
+          }
+          return { status: "succeeded", summary: text.trim() };
+        }
+        if (++emptyTurns < 2 && step < agent.maxSteps - 1) {
+          messages.push({ role: "system", content: EMPTY_RESPONSE_GUIDANCE });
+          continue;
+        }
+        return {
+          status: "failed",
+          summary: "# Findings\n\n## Outcome\nThe agent could not produce a final report.\n\n## Findings\nThe model returned no text or tool calls. See the run log for any earlier tool results.\n\n## Verification\nCompletion is unverified.\n\n## Remaining work\nResume the goal after checking the model response limits.",
+        };
       }
+
+      if (reportOnly || reportRetry) break;
 
       // One assistant turn can request several tools. Both provider adapters
       // need the whole set on a single assistant message.
@@ -813,23 +942,23 @@ class RunEngine {
         })),
       });
 
-      for (const call of calls) {
-        const result = await this.#handleToolCall(agent, sandbox, taskId, call, depth);
-
-        messages.push({
-          role: "tool",
-          toolCallId: call.id,
-          toolName: call.name,
-          content: result.ok ? result.preview : `ERROR: ${result.error ?? "tool failed"}`,
-        });
-      }
+      const frame: AgentContinuation = { agentId: agent.id, taskId, nextStep: step + 1, messages, calls, nextCall: 0, lastText, emptyTurns, reportRetry };
+      this.#frames.set(this.#frameKey(agent.id, taskId), frame);
+      await this.#executeCalls(agent, sandbox, depth, frame);
     }
 
-    return { status: "succeeded", summary: lastText || `${agent.name} finished.` };
+    return {
+      status: "failed",
+      summary: "# Findings\n\n## Outcome\nThe agent reached its step limit before returning a final report.\n\n## Findings\n" +
+        (lastText ? `Last progress message (completion is unverified):\n\n${lastText}` : "No findings were returned.") +
+        "\n\n## Verification\nThe goal was not verified as complete.\n\n## Remaining work\nReview the tool results and resume the unfinished work.",
+    };
   }
 
   #toolSpecs(agent: AgentRow): ToolSpec[] {
     const names = heldToolNames(agent, this.#connectorsFor(agent), this.run.dataClass);
+    if (agent.id === this.run.agentId) names.add("motivator.report");
+    else names.delete("motivator.report");
 
     return [...names]
       .map((name) => TOOL_BY_NAME.get(name) ?? CASE_TOOL_BY_NAME.get(name))
@@ -846,6 +975,12 @@ class RunEngine {
             command: { type: "string" },
             url: { type: "string" },
             query: { type: "string" },
+            question: { type: "string" },
+            reason: { type: "string" },
+            blocker: { type: "string" },
+            attempts: { type: "array", items: { type: "string" } },
+            evidence: { type: "string" },
+            remainingOptions: { type: "array", items: { type: "string" } },
             credential: { type: "string" },
             agent: { type: "string" },
             title: { type: "string" },
@@ -860,7 +995,6 @@ class RunEngine {
             severity: { type: "string" },
             category: { type: "string" },
             detail: { type: "string" },
-            evidence: { type: "string" },
             remediation: { type: "string" },
             case: { type: "string" },
             note: { type: "string" },
@@ -876,12 +1010,123 @@ class RunEngine {
             num: { type: "number" },
           },
           additionalProperties: true,
-          ...(entry.name === "agent.delegate" ? { required: ["agent", "task"] } : {}),
+          ...(entry.name === "agent.delegate" ? { required: ["agent", "task"] } : entry.name === "user.ask" ? { required: ["question", "reason"] } : entry.name === "motivator.report" ? { required: ["blocker", "attempts"] } : {}),
         },
       }));
   }
 
   /* ------------------------------------------------------------------- tool */
+
+  async #startMotivator(model: string): Promise<void> {
+    this.#motivator ??= { id: `mot_${this.run.id}`, model, reviews: [], approvedQuestions: [] };
+    this.#motivator.model = model;
+    if (this.#spawned.has(this.#motivator.id)) return;
+    this.#spawned.add(this.#motivator.id);
+    await this.logger.emit({ type: "agent.spawned", agentId: this.#motivator.id, parentAgentId: null, name: "Motivator", role: "worker", purpose: "motivator", model: this.#motivator.model }, this.#motivator.id);
+    await this.logger.emit({ type: "agent.status", agentId: this.#motivator.id, status: "idle" }, this.#motivator.id);
+    await this.logger.emit({ type: "handoff", fromAgentId: this.run.agentId, toAgentId: this.#motivator.id, summary: "Dual-head run: the orchestrator acts; the motivator independently checks proposed exits and remaining options." }, this.#motivator.id);
+  }
+
+  async #reviewExit(agent: AgentRow, proposal: "finish" | "ask_user" | "stuck", candidate: string, messages: ModelMessage[], remainingSteps?: number): Promise<MotivatorDecision> {
+    const motivator = this.#motivator!;
+    if (this.#isCancelled()) return { verdict: "blocked", reason: "Stopped by the operator.", nextSteps: [] };
+    const input = { goal: this.run.goal, proposal, candidate,
+      availableTools: [...heldToolNames(agent, this.#connectorsFor(agent), this.run.dataClass)],
+      connectors: this.#connectorsFor(agent), messages, priorReviews: motivator.reviews,
+      delegation: { canCreateChildren: agent.canSpawnSubagents, availableChildren: this.agentRows.filter((row) => row.parentAgentId === agent.id && row.status !== "archived").map((row) => row.name), closedRoster: closedRosterNames(agent) },
+      dataClass: stricterDataClass(this.run.dataClass, agent.dataClass), remainingBudgetUsd: Math.max(0, this.run.budgetUsd - this.costUsd), remainingSteps };
+    const catalog = MODEL_BY_ID.get(motivator.model)!;
+    const projected = this.#live ? estimateCostUsd(catalog, Math.ceil(JSON.stringify(motivatorMessages(input)).length / 4), 2400) : 0;
+    const budget = this.#ledger.canSpend(projected, [this.#runKey]);
+    if (budget.kind === "halt") {
+      await this.#setStatus("halted", budget.reason);
+      await this.logger.emit({ type: "budget.halted", scope: "run", spentUsd: budget.spentUsd, limitUsd: budget.limitUsd });
+      return { verdict: "blocked", reason: "The shared run budget has no room for the motivator review. Completion remains unverified.", nextSteps: [] };
+    }
+    await this.logger.emit({ type: "handoff", fromAgentId: agent.id, toAgentId: motivator.id, summary: proposal === "stuck" ? "Orchestrator is stuck: review its blocker, attempts, evidence, and remaining options." : `Review proposed ${proposal === "finish" ? "completion or blocker" : "request for user input"}.` }, motivator.id);
+    await this.logger.emit({ type: "agent.status", agentId: motivator.id, status: "thinking" }, motivator.id);
+    let decision: MotivatorDecision;
+    try {
+      const review = await reviewWithMotivator(input, { model: motivator.model, gateway: this.#liveGateway,
+        reasoningEffort: catalog?.provider === "meta" ? "medium" : undefined });
+      decision = review.decision;
+      if (review.inputTokens > 0 || review.outputTokens > 0) {
+        const spend = this.#ledger.record({ model: catalog, inputTokens: review.inputTokens, outputTokens: review.outputTokens, keys: [this.#runKey] });
+        this.#inputTokens += review.inputTokens; this.#outputTokens += review.outputTokens;
+        await this.logger.emit({ type: "model.usage", agentId: motivator.id, model: motivator.model, inputTokens: review.inputTokens, outputTokens: review.outputTokens, costUsd: spend.costUsd }, motivator.id);
+        await this.#persistProgress();
+        if (this.#live) await recordModelTurn({ workspaceId: this.run.workspaceId, source: "run", runId: this.run.id,
+          agentId: motivator.id, agentName: "Motivator", model: motivator.model, step: motivator.reviews.length,
+          messages: review.messages, completion: review.completion, inputTokens: review.inputTokens, outputTokens: review.outputTokens, costUsd: spend.costUsd, dataClass: this.run.dataClass });
+      }
+    } catch (error) {
+      decision = { verdict: "blocked", reason: `The motivator could not complete its review: ${redactSecrets((error as Error).message)}. Completion remains unverified.`, nextSteps: [] };
+    }
+    motivator.reviews.push(decision);
+    const feedback = `## ${decision.verdict === "continue" ? "Keep working" : decision.verdict === "complete" ? "Goal verified" : decision.verdict === "ask_user" ? "User input needed" : "No further verified path"}\n${decision.reason}${decision.nextSteps.length ? `\n\n${decision.nextSteps.map((step) => `- ${step}`).join("\n")}` : ""}${decision.question ? `\n\nQuestion: ${decision.question}` : ""}`;
+    await this.logger.emit({ type: "agent.message", agentId: motivator.id, role: "assistant", text: redactSecrets(feedback) }, motivator.id);
+    await this.logger.emit({ type: "handoff", fromAgentId: motivator.id, toAgentId: agent.id, summary: redactSecrets(feedback) }, agent.id);
+    await this.logger.emit({ type: "agent.status", agentId: motivator.id, status: "idle" }, motivator.id);
+    return decision;
+  }
+
+  #frameKey(agentId: string, taskId: string | null): string { return `${agentId}:${taskId ?? "root"}`; }
+
+  async #reportToMotivator(agent: AgentRow, taskId: string | null, call: { id: string; args: Record<string, unknown> }) {
+    const [pending] = await getDb().select().from(inputRequests).where(and(eq(inputRequests.runId, this.run.id), eq(inputRequests.callId, call.id)));
+    if (pending) return this.#askUser(agent, taskId, { id: call.id, args: { question: pending.question, reason: pending.reason } });
+    const report = MotivatorReportSchema.safeParse(call.args);
+    if (!report.success) return { ok: false, preview: "", error: "motivator.report requires an exact blocker and at least one concrete attempt. Include the evidence and remaining options." };
+    const frame = this.#frames.get(this.#frameKey(agent.id, taskId));
+    const decision = await this.#reviewExit(agent, "stuck", JSON.stringify(report.data), frame?.messages ?? [], Math.max(0, agent.maxSteps - (frame?.nextStep ?? 0)));
+    if (decision.verdict === "ask_user" && !this.#isHalted() && !this.#isCancelled()) {
+      this.#motivator!.approvedQuestions.push(call.id);
+      return this.#askUser(agent, taskId, { id: call.id, args: { question: decision.question!, reason: decision.reason } });
+    }
+    return { ok: true, preview: motivatorFeedback(decision) };
+  }
+
+  async #executeCalls(agent: AgentRow, sandbox: AgentSandbox, depth: number, frame: AgentContinuation): Promise<void> {
+    while (frame.nextCall < frame.calls.length) {
+      if (this.#isCancelled()) return;
+      const call = frame.calls[frame.nextCall]!;
+      const result = await this.#handleToolCall(agent, sandbox, frame.taskId, call, depth);
+      frame.messages.push({ role: "tool", toolCallId: call.id, toolName: call.name,
+        content: result.ok ? result.preview : [`ERROR: ${result.error ?? "tool failed"}`, result.preview].filter(Boolean).join("\n\n") });
+      frame.nextCall++;
+    }
+  }
+
+  async #askUser(agent: AgentRow, taskId: string | null, call: { id: string; args: Record<string, unknown> }) {
+    const parsed = QuestionSchema.safeParse(call.args);
+    if (!parsed.success) return { ok: false, preview: "", error: "user.ask requires a clear question and reason." };
+    const db = getDb();
+    let [request] = await db.select().from(inputRequests).where(and(eq(inputRequests.runId, this.run.id), eq(inputRequests.callId, call.id)));
+    if (!request) {
+      if (agent.id === this.run.agentId && this.#motivator && !this.#motivator.approvedQuestions.includes(call.id)) {
+        const frame = this.#frames.get(this.#frameKey(agent.id, taskId));
+        const decision = await this.#reviewExit(agent, "ask_user", `${parsed.data.question}\n${parsed.data.reason}`, frame?.messages ?? [], Math.max(0, agent.maxSteps - (frame?.nextStep ?? 0)));
+        if (decision.verdict !== "ask_user" || this.#isHalted() || this.#isCancelled()) {
+          return { ok: false, preview: motivatorFeedback(decision), error: decision.verdict === "continue" ? "The motivator found useful options before asking the user. Try the listed permitted actions." : "The motivator did not confirm a need for user input. Return an honest Markdown report if no useful work remains." };
+        }
+        parsed.data.question = decision.question!;
+      }
+      [request] = await db.insert(inputRequests).values({
+        id: newId("inp"), workspaceId: this.run.workspaceId, runId: this.run.id, agentId: agent.id, callId: call.id,
+        question: redactSecrets(parsed.data.question), reason: redactSecrets(parsed.data.reason), requestedAt: new Date(),
+      }).returning();
+      await this.logger.emit({ type: "input.requested", requestId: request!.id, agentId: agent.id, callId: call.id, question: request!.question, reason: request!.reason }, agent.id);
+    }
+    if (request!.status === "answered") {
+      await this.logger.emit({ type: "input.answered", requestId: request!.id, agentId: agent.id, answer: request!.answer!, answeredBy: request!.answeredBy ?? "operator" }, agent.id);
+      if (taskId) await this.logger.emit({ type: "task.updated", taskId, status: "running" }, agent.id);
+      return { ok: true, preview: `Operator reply: ${request!.answer}\nContinue the original goal using this answer. Approval and capability rules still apply.` };
+    }
+    if (request!.status === "cancelled") return { ok: false, preview: "", error: "The input request was cancelled." };
+    if (taskId) await this.logger.emit({ type: "task.updated", taskId, status: "blocked", note: request!.question }, agent.id);
+    await this.logger.emit({ type: "agent.status", agentId: agent.id, status: "blocked" }, agent.id);
+    throw new InputPause();
+  }
 
   async #handleToolCall(
     agent: AgentRow,
@@ -929,6 +1174,8 @@ class RunEngine {
     // Neither can be granted by an agent. The set here is the same one the
     // model saw in its tool list, so a denial cannot follow an advertisement.
     const held = heldToolNames(agent, this.#connectorsFor(agent), this.run.dataClass);
+    if (agent.id === this.run.agentId) held.add("motivator.report");
+    else held.delete("motivator.report");
     if (!held.has(call.name)) {
       return this.#toolFailure(
         agent,
@@ -937,6 +1184,14 @@ class RunEngine {
         0,
         `${agent.name} does not hold the "${call.name}" capability.`,
       );
+    }
+
+    // Asking the operator is a platform control, not a permission grant.
+    if (call.name === "user.ask" || call.name === "motivator.report") {
+      const result = call.name === "user.ask" ? await this.#askUser(agent, taskId, call) : await this.#reportToMotivator(agent, taskId, call);
+      await this.logger.emit({ type: "tool.completed", callId: call.id, agentId: agent.id, tool: call.name, ok: result.ok,
+        durationMs: Math.max(1, Date.now() - started), resultPreview: redactSecrets(result.preview), error: result.error }, agent.id);
+      return result;
     }
 
     // A security agent may never hold a production credential. The denial is
@@ -1179,9 +1434,11 @@ class RunEngine {
     const nameMatch = (row: AgentRow) =>
       row.name.toLowerCase() === normalised || row.id === requested || row.slug === normalised;
 
-    let child = this.agentRows.find((row) => row.parentAgentId === agent.id && nameMatch(row));
+    const existingTaskId = this.#delegations.get(call.id);
+    const savedChild = existingTaskId ? [...this.#frames.values()].find((frame) => frame.taskId === existingTaskId)?.agentId : undefined;
+    let child = savedChild ? this.agentRows.find((row) => row.id === savedChild) : this.agentRows.find((row) => row.parentAgentId === agent.id && nameMatch(row));
 
-    if (isBlueLead(agent)) {
+    if (isBlueLead(agent) && !existingTaskId) {
       const assigned = await this.#delegateCaseWork(agent, requested, call.args);
       if ("error" in assigned) return { ok: false, preview: "", error: assigned.error };
       child = assigned.child;
@@ -1255,8 +1512,9 @@ class RunEngine {
     };
     child.complexity = complexity;
 
-    const childTaskId = newId("tsk");
-    await this.logger.emit(
+    const childTaskId = existingTaskId ?? newId("tsk");
+    this.#delegations.set(call.id, childTaskId);
+    if (!existingTaskId) await this.logger.emit(
       {
         type: "task.created",
         taskId: childTaskId,
@@ -1267,7 +1525,7 @@ class RunEngine {
       },
       child.id,
     );
-    await this.logger.emit(
+    if (!existingTaskId) await this.logger.emit(
       {
         type: "task.updated",
         taskId: childTaskId,
@@ -1275,7 +1533,7 @@ class RunEngine {
       },
       child.id,
     );
-    await this.logger.emit(
+    if (!existingTaskId) await this.logger.emit(
       {
         type: "handoff",
         fromAgentId: agent.id,
@@ -1308,7 +1566,7 @@ class RunEngine {
 
     return {
       ok: result.status === "succeeded",
-      preview: `Report from ${child.name} to ${agent.name} (${childTaskId}) ${result.status} in ${Date.now() - started}ms\n${redactSecrets(result.summary).slice(0, 900)}`,
+      preview: `Report from ${child.name} to ${agent.name} (${childTaskId}) ${result.status} in ${Date.now() - started}ms\n${redactSecrets(result.summary).slice(0, 6000)}`,
       ...(result.status === "succeeded" ? {} : { error: `${child.name} did not complete.` }),
     };
   }
@@ -1831,12 +2089,15 @@ class RunEngine {
     }
 
     const lead = await this.#ensureRedTeamLead(root);
-    const childTaskId = newId("tsk");
+    const swarmKey = `${root.id}:adversarial-swarm`;
+    const existingTaskId = this.#delegations.get(swarmKey);
+    const childTaskId = existingTaskId ?? newId("tsk");
+    this.#delegations.set(swarmKey, childTaskId);
     const brief = wantsDeploy(this.run.goal)
       ? "The parent just finished. Deploy the change in this workspace yourself, then stand up Injection Prober, Escalation Prober, and Egress Prober and return their findings."
       : "The parent just finished. Stand up Injection Prober, Escalation Prober, and Egress Prober against the work that landed and return their findings.";
 
-    await this.logger.emit(
+    if (!existingTaskId) await this.logger.emit(
       {
         type: "task.created",
         taskId: childTaskId,
@@ -1847,8 +2108,8 @@ class RunEngine {
       },
       lead.id,
     );
-    await this.logger.emit({ type: "task.updated", taskId: childTaskId, status: "running" }, lead.id);
-    await this.logger.emit(
+    if (!existingTaskId) await this.logger.emit({ type: "task.updated", taskId: childTaskId, status: "running" }, lead.id);
+    if (!existingTaskId) await this.logger.emit(
       {
         type: "handoff",
         fromAgentId: root.id,
@@ -1944,6 +2205,8 @@ class RunEngine {
 
   async #finish(status: RunStatus, summary: string, reason: string | null): Promise<void> {
     const db = getDb();
+    await db.delete(runCheckpoints).where(eq(runCheckpoints.runId, this.run.id));
+    await db.update(inputRequests).set({ status: "cancelled" }).where(and(eq(inputRequests.runId, this.run.id), eq(inputRequests.status, "pending")));
     const endedAt = new Date();
     await db
       .update(runs)

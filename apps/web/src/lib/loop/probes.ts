@@ -161,7 +161,7 @@ export function authoredText(events: EventLike[]): string[] {
   return out;
 }
 
-const PENDING = new Set(["queued", "running", "awaiting_approval"]);
+const PENDING = new Set(["queued", "running", "awaiting_approval", "awaiting_input"]);
 
 export type RetestVerdict =
   | { verdict: "pending" }

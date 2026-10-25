@@ -1,8 +1,12 @@
-import { Home } from "@/components/relay/home";
-import { requireWorkspace } from "@/lib/queries";
-import { homeView } from "@/lib/views";
+import { Builder, type BuilderTemplate } from "@/components/relay/builder";
+import { listTemplates } from "@/lib/queries";
 
 export default async function HomePage() {
-  const workspace = await requireWorkspace();
-  return <Home data={await homeView(workspace.id)} />;
+  const templates: BuilderTemplate[] = (await listTemplates()).map((template) => ({
+    id: template.id,
+    name: template.name,
+    description: template.description,
+    outcome: template.outcome,
+  }));
+  return <Builder templates={templates} />;
 }

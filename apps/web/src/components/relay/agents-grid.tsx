@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Bot, Plus, Search, ShieldCheck } from "@/components/icons";
+import { ArrowLeft, Bot, Search, ShieldCheck } from "@/components/icons";
 import { StartRun } from "./start-run";
 
 export interface AgentTile {
+  builtin?: boolean;
   id: string;
   name: string;
   summary: string;
@@ -27,7 +27,6 @@ const statusWord: Record<string, string> = {
 };
 
 export function AgentsGrid({ agents }: { agents: AgentTile[] }) {
-  const router = useRouter();
   const [search, setSearch] = useState("");
   const visible = agents.filter((a) =>
     [a.name, a.summary].join(" ").toLowerCase().includes(search.toLowerCase()),
@@ -35,12 +34,12 @@ export function AgentsGrid({ agents }: { agents: AgentTile[] }) {
   return (
     <div className="page">
       <div className="page-top">
-        <h1>Agents</h1>
+        <h1>All agents</h1>
         <div className="page-actions">
-          <button className="btn primary" onClick={() => router.push("/agents/new")}>
-            <Plus size={15} aria-hidden />
-            New agent
-          </button>
+          <Link href="/agents" className="btn">
+            <ArrowLeft size={15} aria-hidden />
+            Agents
+          </Link>
         </div>
       </div>
       <div className="toolbar">
@@ -65,7 +64,7 @@ export function AgentsGrid({ agents }: { agents: AgentTile[] }) {
                 </span>
                 <b>
                   {a.name}
-                  {a.status !== "active" && (
+                  {a.builtin ? <em className="tag">Built-in</em> : a.status !== "active" && (
                     <em className={"tag" + (a.status === "paused" ? " warn" : "")}>
                       {statusWord[a.status] ?? a.status}
                     </em>
@@ -75,10 +74,10 @@ export function AgentsGrid({ agents }: { agents: AgentTile[] }) {
               </Link>
               <footer className="tile-foot">
                 <span>
-                  {a.team ? `Team of ${a.team + 1} agents` : "Works alone"}
+                  {a.builtin ? "Paired with each orchestrator" : a.team ? `Team of ${a.team + 1} agents` : "Works alone"}
                   {a.runs ? ` · ${a.runs} runs` : ""}
                 </span>
-                {a.status === "active" && (
+                {a.status === "active" && !a.builtin && (
                   <StartRun
                     agents={[{ id: a.id, name: a.name, status: a.status, defaultGoal: a.defaultGoal }]}
                     initialAgentId={a.id}

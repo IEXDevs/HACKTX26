@@ -11,6 +11,7 @@ import {
   type TaskComplexity,
 } from "@agent-os/core";
 import type { AgentRow } from "./db/schema";
+import { motivatorPreview } from "./graph-motivator";
 import { foldRunHistory, type HistoryItem } from "./views";
 import {
   getRunEvents,
@@ -53,7 +54,7 @@ export interface GraphAgent {
   diff: { reads: number; writes: number; deletes: number };
   trailHref: string;
   consoleHref: string;
-  kind: "orchestrator" | "worker" | "security" | "swarm";
+  kind: "orchestrator" | "motivator" | "worker" | "security" | "swarm";
   rank: string;
   createdAt: string;
 }
@@ -110,7 +111,7 @@ function ghostAgent(projected: ProjectedAgent, runId: string, runAt: string): Gr
   const catalog = MODEL_BY_ID.get(projected.model);
   const status = liveRunStatus(projected.status, "running") ?? "running";
   const kind: GraphAgent["kind"] =
-    projected.role === "security"
+    projected.purpose === "motivator" ? "motivator" : projected.role === "security"
       ? projected.parentAgentId
         ? "swarm"
         : "security"
@@ -121,9 +122,9 @@ function ghostAgent(projected: ProjectedAgent, runId: string, runAt: string): Gr
   return {
     id: projected.id,
     name: projected.name,
-    role: projected.role,
+    role: projected.purpose === "motivator" ? "motivator" : projected.role,
     status: "active",
-    summary: "Stood up during this run.",
+    summary: projected.purpose === "motivator" ? "Independent peer that challenges early exits and suggests useful next actions." : "Stood up during this run.",
     parentAgentId: projected.parentAgentId,
     model: catalog?.label ?? projected.model,
     modelId: catalog ? projected.model : null,
@@ -143,10 +144,10 @@ function ghostAgent(projected: ProjectedAgent, runId: string, runAt: string): Gr
     durationMs: Number.isFinite(started) ? Math.max(0, Date.now() - started) : null,
     filesTouched: [],
     diff: { reads: 0, writes: 0, deletes: 0 },
-    trailHref: `/agents/${projected.id}/trail`,
-    consoleHref: `/agents/${projected.id}/console`,
+    trailHref: projected.purpose === "motivator" ? `/runs/${runId}` : `/agents/${projected.id}/trail`,
+    consoleHref: projected.purpose === "motivator" ? `/runs/${runId}` : `/agents/${projected.id}/console`,
     kind,
-    rank: "grunt",
+    rank: projected.purpose === "motivator" ? "peer" : "grunt",
     createdAt: projected.spawnedAt,
   };
 }
@@ -257,7 +258,7 @@ export async function workflowGraph(
       durationMs:
         started && ended
           ? Math.max(0, ended - started)
-          : started && (runStatus === "running" || runStatus === "queued" || runStatus === "awaiting_approval")
+          : started && (runStatus === "running" || runStatus === "queued" || runStatus === "awaiting_approval" || runStatus === "awaiting_input")
             ? Math.max(0, Date.now() - started)
             : null,
       filesTouched: [...new Set(files.map((file) => file.path))],
@@ -286,7 +287,12 @@ export async function workflowGraph(
     }
   }
 
+  if (!latestWorkflowRun && graphAgents[0]) {
+    graphAgents.push(motivatorPreview(graphAgents.find((agent) => agent.id === root.id) ?? graphAgents[0]));
+  }
+
   const flows: GraphFlow[] = [];
+  if (!latestWorkflowRun) flows.push({ fromId: root.id, toId: "builtin-motivator", kind: "info" });
   for (const handoff of projection?.handoffs ?? []) {
     if (ids.has(handoff.fromAgentId) && ids.has(handoff.toAgentId)) {
       flows.push({ fromId: handoff.fromAgentId, toId: handoff.toAgentId, kind: "info" });
@@ -307,7 +313,7 @@ export async function workflowGraph(
     latestWorkflowRun &&
       (latestWorkflowRun.status === "running" ||
         latestWorkflowRun.status === "queued" ||
-        latestWorkflowRun.status === "awaiting_approval"),
+        latestWorkflowRun.status === "awaiting_approval" || latestWorkflowRun.status === "awaiting_input"),
   );
   const nameOf = (id: string) =>
     graphAgents.find((agent) => agent.id === id)?.name ??

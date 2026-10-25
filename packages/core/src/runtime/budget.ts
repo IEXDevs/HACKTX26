@@ -62,6 +62,13 @@ export class BudgetLedger {
     return this.#records;
   }
 
+  /** Restore spend when a paused run resumes, without charging it a second time. */
+  restore(key: string, spentUsd: number): void {
+    if (!this.#scopes.has(key) || !Number.isFinite(spentUsd) || spentUsd < 0) throw new Error("Invalid restored budget spend.");
+    this.#total += spentUsd - this.spentFor(key);
+    this.#spent.set(key, spentUsd);
+  }
+
   /**
    * Pre-flight check. `projectedUsd` is the estimated cost of the call about to
    * happen. Returns the *strictest* outcome across every scope the run touches.

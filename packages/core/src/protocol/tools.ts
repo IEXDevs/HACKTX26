@@ -126,6 +126,27 @@ export const TOOL_MANIFEST: readonly ToolManifestEntry[] = [
     sandboxedToAgentFs: false,
   },
   {
+    name: "context.read",
+    label: "Read workspace context",
+    description:
+      "Read CONTEXT.md, the shared workspace file for tech stack, layout, conventions, and operator notes. Always available; read it on your own at the start of a run.",
+    category: "meta",
+    scopes: ["read"],
+    risk: "low",
+    sandboxedToAgentFs: false,
+  },
+  {
+    name: "context.write",
+    label: "Update workspace context",
+    description:
+      "Create or replace CONTEXT.md. Use it to record durable facts (tech stack, layout, conventions) or to honour an operator instruction to include or remove something. Never write secrets.",
+    category: "meta",
+    scopes: ["write"],
+    risk: "medium",
+    sandboxedToAgentFs: false,
+    argsHint: "{ content?: string, include?: string, remove?: string }",
+  },
+  {
     name: "task.handoff",
     label: "Hand off",
     description: "Return a structured summary to the orchestrator or a sibling.",
@@ -143,7 +164,7 @@ export const TOOL_MANIFEST: readonly ToolManifestEntry[] = [
     scopes: ["read"],
     risk: "low",
     sandboxedToAgentFs: false,
-    argsHint: "{ agent: string, title: string, task: string, tools?: string[] }",
+    argsHint: "{ agent: string, title: string, task: string, tools?: string[], model?: string, complexity?: string }",
   },
   {
     name: "security.report",

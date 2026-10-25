@@ -52,8 +52,24 @@ export const env = {
     hardStopBudgets: bool(process.env.HARD_STOP_BUDGETS, true),
   },
 
+  supabase: {
+    url: process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
+    anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
+    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+  },
+
   isProduction: process.env.NODE_ENV === "production",
 } as const;
+
+/** Browser + server auth. Google login is off until these are set. */
+export function supabaseAuthEnabled(): boolean {
+  return Boolean(env.supabase.url && env.supabase.anonKey);
+}
+
+/** Server-only telemetry writes. Requires the service role key. */
+export function observabilityEnabled(): boolean {
+  return Boolean(env.supabase.url && env.supabase.serviceRoleKey);
+}
 
 /* -------------------------------------------------------------------------- */
 /* Secret handling                                                            */

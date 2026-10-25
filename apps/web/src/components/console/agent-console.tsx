@@ -335,7 +335,7 @@ export function AgentConsole({
   const runBudget = budgets.runUsd;
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[190px_minmax(0,1fr)_290px]">
+    <div className="bundle-grid console-grid">
       {/* Files ------------------------------------------------------------- */}
       <Panel className="flex min-h-[520px] flex-col self-start">
         <div className="flex items-center justify-between border-b border-line px-2.5 py-2">

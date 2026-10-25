@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
+import { writeAudit } from "@/lib/audit";
 import { getDb } from "@/lib/db/client";
-import { auditLog, promptBlocks } from "@/lib/db/schema";
+import { promptBlocks } from "@/lib/db/schema";
 import { newId } from "@/lib/env";
 import { getWorkspaceContext, requireWorkspace } from "@/lib/queries";
 
@@ -39,15 +40,13 @@ export async function POST(request: NextRequest) {
   });
 
   const { user } = await getWorkspaceContext();
-  await db.insert(auditLog).values({
-    id: newId("aud"),
+  await writeAudit({
     workspaceId: workspace.id,
     actor: user?.email ?? "operator@local",
     action: "prompt_block.created",
     targetType: "prompt_block",
     targetId: id,
     detail: { name: parsed.data.name, level: parsed.data.level },
-    at: new Date(),
   });
 
   return Response.json({ id }, { status: 201 });

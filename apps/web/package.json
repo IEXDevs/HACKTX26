@@ -18,6 +18,8 @@
   },
   "dependencies": {
     "@agent-os/core": "workspace:*",
+    "@supabase/ssr": "0.12.7",
+    "@supabase/supabase-js": "2.118.0",
     "better-sqlite3": "13.0.3",
     "clsx": "2.1.1",
     "drizzle-orm": "0.45.4",

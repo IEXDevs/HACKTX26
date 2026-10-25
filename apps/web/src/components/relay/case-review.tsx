@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowUp, Check, LoaderCircle } from "@/components/icons";
 import type { CaseHop, CaseMessage, CaseProposal, CaseRetest } from "@/lib/db/schema";
-import { AdvancedSwitch, useAdvanced } from "./advanced";
 import { RichText } from "./rich-text";
 
 export interface CaseView {
@@ -40,12 +39,6 @@ const statusWord: Record<string, string> = {
   false_positive: "Not an issue",
   duplicate: "Merged into another case",
 };
-const hopWord: Record<CaseHop["action"], string> = {
-  reported: "Reported",
-  forwarded: "Passed up",
-  added_context: "Added context",
-  declined_to_act: "Declined to act",
-};
 
 /**
  * One feedback-loop case: the creator conversation, the proposed change as a
@@ -53,8 +46,7 @@ const hopWord: Record<CaseHop["action"], string> = {
  */
 export function CaseReview({ view }: { view: CaseView }) {
   const router = useRouter();
-  const [advanced, toggleAdvanced] = useAdvanced(),
-    [input, setInput] = useState(""),
+  const [input, setInput] = useState(""),
     [busy, setBusy] = useState<string | null>(null),
     [error, setError] = useState("");
   const open = view.state === "open";
@@ -95,9 +87,6 @@ export function CaseReview({ view }: { view: CaseView }) {
           <ArrowLeft size={16} aria-hidden />
           Security
         </Link>
-        <div className="composer-bar-end">
-          <AdvancedSwitch on={advanced} toggle={toggleAdvanced} />
-        </div>
       </div>
 
       <div className="page-top" style={{ marginTop: 24, marginBottom: 8 }}>
@@ -107,7 +96,6 @@ export function CaseReview({ view }: { view: CaseView }) {
             <Link href={`/workflows/${view.targetId}`}>{view.targetName}</Link> ·{" "}
             {statusWord[view.status] ?? view.status}
             {view.round > 0 && ` · Round ${view.round} of ${view.maxRounds}`}
-            {advanced && ` · ${view.spent} of ${view.cap} spent`}
           </p>
         </div>
       </div>
@@ -137,28 +125,8 @@ export function CaseReview({ view }: { view: CaseView }) {
         </div>
       )}
 
-      {advanced && (
-        <section className="section">
-          <h2>How the retest reproduces it</h2>
-          <ol className="case-steps">
-            {view.steps.map((s, i) => (
-              <li key={i}>{s}</li>
-            ))}
-          </ol>
-          <h2 style={{ marginTop: 20 }}>How it got here</h2>
-          <ol className="case-hops">
-            {view.hops.map((h, i) => (
-              <li key={i}>
-                <b>{h.agentName}</b>
-                <span>{hopWord[h.action]}</span>
-                <small>{h.note}</small>
-              </li>
-            ))}
-          </ol>
-        </section>
-      )}
-
-      <section className="section">
+      <div className={view.proposal && canApprove ? "page-split" : "section"}>
+      <section>
         <h2>Conversation</h2>
         <div className="chat case-chat" aria-live="polite">
           {view.conversation.map((m, i) =>
@@ -183,8 +151,8 @@ export function CaseReview({ view }: { view: CaseView }) {
         </div>
       </section>
 
-      {view.proposal && (canApprove || advanced) && (
-        <section className="section">
+      {view.proposal && canApprove ? (
+        <section>
           <h2>Proposed change</h2>
           <div className="card">
             <b>{view.proposal.summary}</b>
@@ -219,7 +187,8 @@ export function CaseReview({ view }: { view: CaseView }) {
             )}
           </div>
         </section>
-      )}
+      ) : null}
+      </div>
 
       {view.retest && (
         <section className="section">

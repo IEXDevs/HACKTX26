@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { Inter, Inter_Tight, JetBrains_Mono } from "next/font/google";
 import { ensureBootstrapped } from "@/lib/bootstrap";
 import { getWorkspaceContext } from "@/lib/queries";
 import { Sidebar } from "@/components/shell/sidebar";
+import { getSessionUser } from "@/lib/auth";
+import { supabaseAuthEnabled } from "@/lib/env";
 import "./globals.css";
 import "@/styles/relay.css";
 import "@/styles/composer.css";
@@ -24,8 +27,12 @@ const themeScript = `try{if(localStorage.getItem("relay-theme")==="dark")documen
 export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  await ensureBootstrapped();
-  const { workspace, user, spendTodayUsd, pendingApprovals } = await getWorkspaceContext();
+  const pathname = (await headers()).get("x-pathname") ?? "";
+  const authShell = pathname === "/login" || pathname.startsWith("/auth/");
+
+  if (!authShell) await ensureBootstrapped();
+  const ctx = authShell ? null : await getWorkspaceContext();
+  const session = authShell ? null : await getSessionUser();
 
   return (
     <html
@@ -43,15 +50,23 @@ export default async function RootLayout({
           <i />
           <i />
         </div>
-        <Sidebar
-          workspaceName={workspace.name}
-          userName={user?.name ?? "Unassigned"}
-          userRole={user?.role ?? "engineer"}
-          spendTodayUsd={spendTodayUsd}
-          dailyBudgetUsd={40}
-          pendingApprovals={pendingApprovals}
-        />
-        <main className="shell-main">{children}</main>
+        {ctx ? (
+          <>
+            <Sidebar
+              workspaceName={ctx.workspace.name}
+              userName={session?.name ?? ctx.user?.name ?? "Unassigned"}
+              userRole={ctx.user?.role ?? "engineer"}
+              spendTodayUsd={ctx.spendTodayUsd}
+              dailyBudgetUsd={40}
+              pendingApprovals={ctx.pendingApprovals}
+              signedIn={Boolean(session) || !supabaseAuthEnabled()}
+              canSignOut={Boolean(session)}
+            />
+            <main className="shell-main">{children}</main>
+          </>
+        ) : (
+          children
+        )}
       </body>
     </html>
   );

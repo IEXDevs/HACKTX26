@@ -1,8 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { getDb } from "@/lib/db/client";
-import { auditLog } from "@/lib/db/schema";
-import { newId } from "@/lib/env";
+import { writeAudit } from "@/lib/audit";
 import { getWorkspaceContext, requireWorkspace } from "@/lib/queries";
 import { composeAgent } from "@/lib/runtime/compose-agent";
 
@@ -26,11 +24,10 @@ export async function POST(request: NextRequest) {
   }
 
   const workspace = await requireWorkspace();
-  const result = await composeAgent(parsed.data.useCase);
+  const result = await composeAgent(parsed.data.useCase, { workspaceId: workspace.id });
 
   const { user } = await getWorkspaceContext();
-  await getDb().insert(auditLog).values({
-    id: newId("aud"),
+  await writeAudit({
     workspaceId: workspace.id,
     actor: user?.email ?? "operator@local",
     action: "agent.compose_draft",
@@ -43,8 +40,9 @@ export async function POST(request: NextRequest) {
       dataClass: result.draft.dataClass,
       complexity: result.draft.complexity,
       tools: result.draft.allowedTools,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
     },
-    at: new Date(),
   });
 
   return Response.json(result);

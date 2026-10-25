@@ -3,48 +3,37 @@
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Archive, ArrowLeft, Bot, LoaderCircle, Play, Users } from "@/components/icons";
-import type { WorkflowNode, WorkflowView } from "@/lib/views";
-import { plainText } from "@/lib/plain-text";
-import { AdvancedSwitch, useAdvanced } from "./advanced";
-import { RichText } from "./rich-text";
-
-function countTeam(node: WorkflowNode): number {
-  return node.children.reduce((sum, child) => sum + 1 + countTeam(child), 0);
-}
-function findNode(node: WorkflowNode, id: string): WorkflowNode | null {
-  if (node.id === id) return node;
-  for (const child of node.children) {
-    const found = findNode(child, id);
-    if (found) return found;
-  }
-  return null;
-}
+import { Archive, ArrowLeft, LoaderCircle, Play, Square } from "@/components/icons";
+import { GraphSpace } from "@/components/graph/graph-space";
+import type { GraphSnapshot } from "@/lib/graph-data";
+import type { WorkflowView } from "@/lib/views";
+import { WorkspaceContextPanel } from "./workspace-context";
 
 /**
- * One workflow page. The draft view shows the team as a tree and runs the task.
+ * One workflow page. The draft view shows this workflow's agent map and runs the task.
  * Picking a run from the history shows that run in place.
  */
 export function Workflow({
   workflow,
+  graph,
+  context,
   runId,
   run,
 }: {
   workflow: WorkflowView;
+  graph: GraphSnapshot | null;
+  context: { content: string; stub: boolean };
   runId: string | null;
   /** The selected run, rendered by the server. */
   run: ReactNode;
 }) {
   const router = useRouter();
-  const [advanced, toggleAdvanced] = useAdvanced(),
-    [task, setTask] = useState(workflow.task),
-    [picked, setPicked] = useState(workflow.tree.id),
+  const [task, setTask] = useState(""),
     [busy, setBusy] = useState(false),
+    [stopping, setStopping] = useState(false),
     [error, setError] = useState("");
   const archived = workflow.status === "archived";
   const on = workflow.status === "active";
-  const team = countTeam(workflow.tree);
-  const node = findNode(workflow.tree, picked) ?? workflow.tree;
   const base = `/workflows/${workflow.id}`;
 
   async function act(fn: () => Promise<void>) {
@@ -83,6 +72,26 @@ export function Workflow({
     router.push(`${base}?run=${value.runId}`);
     router.refresh();
   }
+  async function stop() {
+    const id = runId ?? workflow.liveRunId;
+    if (!id) return;
+    setStopping(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/runs/${id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "stop" }),
+      });
+      const value = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(value.error ?? "Could not stop the run.");
+      router.refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setStopping(false);
+    }
+  }
 
   return (
     <div className="page">
@@ -92,41 +101,32 @@ export function Workflow({
           Workflows
         </Link>
         <div className="composer-bar-end">
-          <AdvancedSwitch on={advanced} toggle={toggleAdvanced} />
-          {workflow.runs.length > 0 && (
-            <label className="wf-history">
-              <span className="sr-only">Run history</span>
-              <select
-                value={runId ?? ""}
-                onChange={(e) => router.push(e.target.value ? `${base}?run=${e.target.value}` : base)}
+          <div className="btn-group">
+            {workflow.liveRunId && (!runId || runId === workflow.liveRunId) ? (
+              <button
+                className="btn danger"
+                disabled={stopping || busy}
+                onClick={() => void stop()}
               >
-                <option value="">Draft</option>
-                {workflow.runs.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.when} · {r.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          <button
-            className="btn"
-            disabled={busy}
-            onClick={() => void act(() => setStatus([workflow.id], archived ? "active" : "archived"))}
-          >
-            <Archive size={15} aria-hidden />
-            {archived ? "Restore" : "Archive"}
-          </button>
+                <Square size={14} aria-hidden />
+                {stopping ? "Stopping" : "Force stop"}
+              </button>
+            ) : null}
+            <button
+              className="btn"
+              disabled={busy}
+              onClick={() => void act(() => setStatus([workflow.id], archived ? "active" : "archived"))}
+            >
+              <Archive size={15} aria-hidden />
+              {archived ? "Restore" : "Archive"}
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="page-top" style={{ marginTop: 24, marginBottom: 8 }}>
         <div>
           <h1>{workflow.name}</h1>
-          <p className="wf-meta">
-            {team ? `Team of ${team + 1} agents` : "Single agent"} · {workflow.runs.length}{" "}
-            {workflow.runs.length === 1 ? "run" : "runs"}
-          </p>
         </div>
       </div>
 
@@ -135,7 +135,7 @@ export function Workflow({
       {runId ? (
         <>
           <button className="link-btn" style={{ marginTop: 8 }} onClick={() => router.push(base)}>
-            Back to draft
+            Back to workflow
           </button>
           <div style={{ marginTop: 12 }}>{run}</div>
         </>
@@ -182,66 +182,21 @@ export function Workflow({
             </button>
           </form>
 
-          <div className="wf-stage">
-            <div className="wf-canvas">
-              <div className="wf-tree">
-                <span className="wf-you">You</span>
-                <ul>
-                  <Branch node={workflow.tree} picked={picked} pick={setPicked} />
-                </ul>
-              </div>
+          <WorkspaceContextPanel initial={context} />
+
+          {graph ? (
+            <div className="wf-graph">
+              <GraphSpace
+                workflowId={workflow.id}
+                agents={graph.agents}
+                tasks={graph.tasks}
+                flows={graph.flows}
+                dispatchAgents={graph.dispatchAgents}
+              />
             </div>
-            <aside className="wf-panel">
-              <h3>{node.name}</h3>
-              {node.job && <p>{plainText(node.job)}</p>}
-              <small>Instructions</small>
-              <RichText text={node.instructions} className="wf-instructions" />
-              <small>Can use</small>
-              <p>{node.tools.length ? node.tools.join(", ") : "Text only"}</p>
-              {advanced && (
-                <Link href={`/agents/${node.id}`} className="link-btn">
-                  Open agent
-                </Link>
-              )}
-            </aside>
-          </div>
+          ) : null}
         </>
       )}
     </div>
-  );
-}
-
-function Branch({
-  node,
-  picked,
-  pick,
-}: {
-  node: WorkflowNode;
-  picked: string;
-  pick: (id: string) => void;
-}) {
-  const Icon = node.children.length ? Users : Bot;
-  return (
-    <li>
-      <button
-        type="button"
-        className="wf-node"
-        aria-pressed={picked === node.id}
-        onClick={() => pick(node.id)}
-      >
-        <span className="wf-node-icon" aria-hidden>
-          <Icon size={18} />
-        </span>
-        <b>{node.name}</b>
-        {node.role === "security" && <small>Security check</small>}
-      </button>
-      {node.children.length > 0 && (
-        <ul>
-          {node.children.map((child) => (
-            <Branch key={child.id} node={child} picked={picked} pick={pick} />
-          ))}
-        </ul>
-      )}
-    </li>
   );
 }

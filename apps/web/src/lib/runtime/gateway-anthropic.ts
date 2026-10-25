@@ -1,10 +1,11 @@
 import type { ModelChunk, ModelGateway, ModelRequest } from "./types";
 
 interface AnthropicBlock {
-  type: "text" | "tool_use";
+  type: "text" | "tool_use" | "thinking";
   id?: string;
   name?: string;
   text?: string;
+  thinking?: string;
   input?: unknown;
   partialJson?: string;
 }
@@ -142,6 +143,7 @@ export class AnthropicGateway implements ModelGateway {
           delta?: {
             type?: string;
             text?: string;
+            thinking?: string;
             partial_json?: string;
             stop_reason?: string | null;
           };
@@ -172,6 +174,9 @@ export class AnthropicGateway implements ModelGateway {
             if (event.delta?.type === "text_delta" && event.delta.text) {
               block.text = (block.text ?? "") + event.delta.text;
               yield { type: "text", text: event.delta.text };
+            } else if (event.delta?.type === "thinking_delta" && event.delta.thinking) {
+              block.thinking = (block.thinking ?? "") + event.delta.thinking;
+              yield { type: "thinking", text: event.delta.thinking };
             } else if (
               event.delta?.type === "input_json_delta" &&
               event.delta.partial_json

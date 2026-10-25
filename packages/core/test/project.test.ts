@@ -74,6 +74,19 @@ describe("run projection", () => {
       note: "not during freeze",
     },
     {
+      type: "file.changed",
+      agentId: "root",
+      path: "src/auth.ts",
+      op: "read",
+      bytes: 24,
+    },
+    {
+      type: "handoff",
+      fromAgentId: "root",
+      toAgentId: "worker",
+      summary: "Triage → worker: inspect the failing test",
+    },
+    {
       type: "model.usage",
       agentId: "root",
       model: "anthropic/claude-sonnet-4-6",
@@ -97,6 +110,8 @@ describe("run projection", () => {
     expect(state.agents.get("root")?.promptTokens).toBe(1000);
     expect(state.toolCalls.get("c1")?.status).toBe("succeeded");
     expect(state.approvals.get("ap1")?.status).toBe("denied");
+    expect(state.files[0]?.path).toBe("src/auth.ts");
+    expect(state.handoffs[0]?.toAgentId).toBe("worker");
     expect(state.lastSeq).toBe(events.length - 1);
   });
 

@@ -22,7 +22,7 @@ export default async function AgentsPage() {
         role: agent.role,
         team: agents.filter((child) => child.parentAgentId === agent.id).length,
         runs: own.length,
-        model: routedModel(agent),
+        model: routedModel(agent, workspace.deniedModelIds),
         spend: usd(own.reduce((sum, run) => sum + run.costUsd, 0)),
       };
     });

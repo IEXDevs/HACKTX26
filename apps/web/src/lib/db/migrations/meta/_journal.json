@@ -48,7 +48,14 @@
       "idx": 6,
       "version": "6",
       "when": 1792883200000,
-      "tag": "0006_blue_team",
+      "tag": "0006_action_effects",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1792883300000,
+      "tag": "0007_blue_team",
       "breakpoints": true
     }
   ]

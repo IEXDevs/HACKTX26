@@ -7,7 +7,6 @@ import { ArrowLeft, Bot, Pause, Play, ShieldCheck, Terminal } from "@/components
 import { TemplateProposals, type ProposalView } from "@/components/agents/template-proposals";
 import { plainText } from "@/lib/plain-text";
 import type { RunTile } from "@/lib/views";
-import { AdvancedSwitch, useAdvanced } from "./advanced";
 import { RichText } from "./rich-text";
 import { StartRun } from "./start-run";
 
@@ -46,8 +45,7 @@ const statusWord: Record<string, string> = {
 
 export function AgentDetail({ agent }: { agent: AgentDetailView }) {
   const router = useRouter();
-  const [advanced, toggleAdvanced] = useAdvanced(),
-    [tab, setTab] = useState<"profile" | "proposals">("profile"),
+  const [tab, setTab] = useState<"profile" | "proposals">("profile"),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const pendingProposals = agent.proposals.filter((proposal) => proposal.status === "pending").length;
@@ -101,7 +99,6 @@ export function AgentDetail({ agent }: { agent: AgentDetailView }) {
           </button>
         </div>
         <div className="composer-bar-end">
-          <AdvancedSwitch on={advanced} toggle={toggleAdvanced} />
           <Link href={`/agents/${agent.id}/console`} className="glass-pill">
             <Terminal size={15} aria-hidden />
             Files
@@ -109,16 +106,16 @@ export function AgentDetail({ agent }: { agent: AgentDetailView }) {
         </div>
       </div>
 
-      <div className="composer-hero" style={{ marginBottom: 20 }}>
+      <div className="agent-head">
         <span className="composer-orb" aria-hidden />
-        <h1 className="composer-title">{agent.name}</h1>
-        <p className="composer-summary">
-          {agent.rank}. Dynamic subagents {agent.canSpawnSubagents ? "on" : "off"}. Template proposals{" "}
-          {agent.proposeTemplates ? "on" : "off"}.
-          {agent.summary ? ` ${plainText(agent.summary)}` : ""}
-        </p>
-        <div className="agent-actions">
-          {agent.status !== "active" && <span className="tag warn">{statusWord[agent.status]}</span>}
+        <div className="agent-copy">
+          <h1 className="composer-title">{agent.name}</h1>
+          <p className="composer-summary">
+            {agent.status !== "active" ? `${statusWord[agent.status]}. ` : ""}
+            {agent.rank}. Dynamic subagents {agent.canSpawnSubagents ? "on" : "off"}. Template proposals{" "}
+            {agent.proposeTemplates ? "on" : "off"}.
+            {agent.summary ? ` ${plainText(agent.summary)}` : ""}
+          </p>
         </div>
         <div className="agent-actions">
           {agent.status === "active" ? (
@@ -146,19 +143,44 @@ export function AgentDetail({ agent }: { agent: AgentDetailView }) {
             </button>
           )}
         </div>
-        {error && <p className="error-text" style={{ marginTop: 12 }}>{error}</p>}
       </div>
+      {error && <p className="error-text" style={{ marginTop: 12 }}>{error}</p>}
 
       {tab === "proposals" ? (
         <TemplateProposals proposals={agent.proposals} />
       ) : (
       <>
-      <section className="section">
+      <div className="page-split">
+      <section>
         <h2>Instructions</h2>
         <div className="card">
           <RichText text={agent.instructions} />
         </div>
       </section>
+
+      <section>
+        <h2>Recent runs</h2>
+        {agent.runs.length ? (
+          <ul className="list">
+            {agent.runs.map((run) => (
+              <li key={run.id}>
+                <div>
+                  <b>{run.goal}</b>
+                  <small className={run.tone === "stopped" ? "stopped" : ""}>
+                    {run.label} · {run.when}
+                  </small>
+                </div>
+                <Link href={`/runs/${run.id}`} className="btn small">
+                  Open
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="empty">This agent has not run yet.</p>
+        )}
+      </section>
+      </div>
 
       {agent.team.length > 0 && (
         <section className="section">
@@ -177,72 +199,6 @@ export function AgentDetail({ agent }: { agent: AgentDetailView }) {
                 </Link>
               </article>
             ))}
-          </div>
-        </section>
-      )}
-
-      <section className="section">
-        <h2>Recent runs</h2>
-        {agent.runs.length ? (
-          <ul className="list">
-            {agent.runs.map((run) => (
-              <li key={run.id}>
-                <div>
-                  <b>{run.goal}</b>
-                  <small className={run.tone === "stopped" ? "stopped" : ""}>
-                    {run.label} · {run.when}
-                  </small>
-                  {advanced && <small className="detail">{run.detail}</small>}
-                </div>
-                <Link href={`/runs/${run.id}`} className="btn small">
-                  Open
-                </Link>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="empty">This agent has not run yet.</p>
-        )}
-      </section>
-
-      {advanced && (
-        <section className="section">
-          <h2>Configuration</h2>
-          <div className="card">
-            <dl className="kv">
-              <dt>Rank</dt>
-              <dd>{agent.rank}</dd>
-              <dt>Dynamic subagents</dt>
-              <dd>{agent.canSpawnSubagents ? "On" : "Off"}</dd>
-              <dt>Template proposals</dt>
-              <dd>{agent.proposeTemplates ? "On" : "Off"}</dd>
-              <dt>Model today</dt>
-              <dd>{agent.advanced.model}</dd>
-              <dt>Hardware</dt>
-              <dd>{agent.advanced.hardware}</dd>
-              <dt>Task weight</dt>
-              <dd>{agent.advanced.complexity}</dd>
-              <dt>Data class</dt>
-              <dd>{agent.advanced.dataClass}</dd>
-              <dt>Budget per run</dt>
-              <dd>{agent.advanced.budget}</dd>
-              <dt>Tools</dt>
-              <dd>{agent.advanced.tools.join(", ") || "None"}</dd>
-              <dt>Standing permissions</dt>
-              <dd>
-                {agent.advanced.grants.length
-                  ? agent.advanced.grants.map((g) => `${g.resource} (${g.scopes})`).join(", ")
-                  : "None. Every action asks first."}
-              </dd>
-              <dt>Inherited rules</dt>
-              <dd>
-                {agent.advanced.prompt.length
-                  ? agent.advanced.prompt
-                      .map((p) => `${p.name} (${p.level}${p.locked ? ", locked" : ""})`)
-                      .join(", ")
-                  : "None"}
-              </dd>
-            </dl>
           </div>
         </section>
       )}

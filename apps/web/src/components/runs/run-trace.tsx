@@ -19,7 +19,7 @@ import {
   Terminal,
   Wrench,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 import { computeMetrics, projectRun } from "@agent-os/core/project";
 import type { RunEvent } from "@agent-os/core/protocol";
 import {

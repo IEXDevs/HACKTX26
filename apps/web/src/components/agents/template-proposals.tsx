@@ -3,8 +3,6 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Loader2 } from "lucide-react";
-import { Button, Panel, PanelHeader, StatusBadge, Tag } from "@/components/ui/primitives";
 
 export interface ProposalView {
   id: string;
@@ -49,60 +47,61 @@ export function TemplateProposals({ proposals }: { proposals: ProposalView[] }) 
   }
 
   return (
-    <Panel>
-      <PanelHeader
-        title="Proposed child templates"
-        hint={
-          pending.length > 0
-            ? `${pending.length} waiting for approval. Saving adds the child to the builder gallery.`
-            : "Nothing is waiting. A parent with the creation toggle files a proposal when it creates a reusable child."
-        }
-      />
+    <section className="section">
+      <h2>Proposed child templates</h2>
+      <p className="empty" style={{ marginBottom: 12 }}>
+        {pending.length > 0
+          ? `${pending.length} waiting for approval. Saving adds the child to the builder gallery.`
+          : "Nothing is waiting. Turn on template proposals when you create the agent, then dispatch a run that delegates."}
+      </p>
       {proposals.length === 0 ? (
-        <p className="px-4 py-8 text-[12px] leading-relaxed text-ink-3">
-          No proposals yet. Turn on “Propose reusable child templates” when you create the agent,
-          then dispatch a run that delegates.
-        </p>
+        <p className="empty">No proposals yet.</p>
       ) : (
-        <ul className="divide-y divide-line">
+        <ul className="list">
           {proposals.map((proposal) => (
-            <li key={proposal.id} className="space-y-2 px-4 py-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[13px] font-medium text-ink">{proposal.name}</span>
-                <Tag>{proposal.role}</Tag>
-                <Tag tone="muted">{proposal.complexity}</Tag>
-                <StatusBadge status={proposal.status === "saved" ? "active" : proposal.status === "pending" ? "pending" : "archived"} label={proposal.status} />
+            <li key={proposal.id}>
+              <div>
+                <b>
+                  {proposal.name}
+                  <i className="tag">{proposal.status}</i>
+                  <i className="tag">{proposal.role}</i>
+                </b>
+                <small>{proposal.summary}</small>
+                <small className="detail">{proposal.reason}</small>
+                <small className="detail">
+                  {proposal.tools.length > 0 ? proposal.tools.join(" · ") : "no tools"}
+                </small>
+                <pre className="detail" style={{ whiteSpace: "pre-wrap", marginTop: 8 }}>
+                  {proposal.instructions}
+                </pre>
+                {proposal.status === "pending" ? (
+                  <div className="agent-actions" style={{ marginTop: 10 }}>
+                    <button
+                      className="btn small primary"
+                      disabled={busy === proposal.id}
+                      onClick={() => void act(proposal.id, "save")}
+                    >
+                      Save template
+                    </button>
+                    <button
+                      className="btn small"
+                      disabled={busy === proposal.id}
+                      onClick={() => void act(proposal.id, "dismiss")}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                ) : proposal.templateId ? (
+                  <Link href="/agents/new" className="btn small" style={{ marginTop: 10 }}>
+                    Saved to the builder gallery
+                  </Link>
+                ) : null}
               </div>
-              <p className="text-[12px] leading-relaxed text-ink-2">{proposal.summary}</p>
-              <p className="text-[11px] leading-relaxed text-ink-3">{proposal.reason}</p>
-              <p className="mono text-[10px] text-ink-4">
-                {proposal.tools.length > 0 ? proposal.tools.join(" · ") : "no tools"}
-              </p>
-              <pre className="mono max-h-36 overflow-auto whitespace-pre-wrap rounded-xs border border-line bg-void/40 px-2 py-1.5 text-[10px] leading-relaxed text-ink-3">
-                {proposal.instructions}
-              </pre>
-              {proposal.status === "pending" ? (
-                <div className="flex items-center gap-2">
-                  <Button size="sm" variant="primary" disabled={busy === proposal.id} onClick={() => act(proposal.id, "save")}>
-                    {busy === proposal.id ? <Loader2 size={12} className="animate-spin" /> : null}
-                    Save template
-                  </Button>
-                  <Button size="sm" variant="ghost" disabled={busy === proposal.id} onClick={() => act(proposal.id, "dismiss")}>
-                    Dismiss
-                  </Button>
-                </div>
-              ) : proposal.templateId ? (
-                <Link href="/build" className="focus-ring text-[11px] text-accent">
-                  Saved to the builder gallery
-                </Link>
-              ) : null}
             </li>
           ))}
         </ul>
       )}
-      {error ? (
-        <p className="border-t border-line px-4 py-2 text-[11px] text-danger">{error}</p>
-      ) : null}
-    </Panel>
+      {error ? <p className="error-text">{error}</p> : null}
+    </section>
   );
 }

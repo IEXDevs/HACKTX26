@@ -1,43 +1,265 @@
 @import "tailwindcss";
 
 /*
- * Design language: a dark instrumentation console. Near-black surfaces,
- * hairline borders, one high-chroma accent (lime) reserved for "this is live /
- * this is the primary action", mono for anything machine-generated.
+ * Design language: frosted glass with one green accent and a slow gradient
+ * backdrop. Two themes share every token name: light (white page, drifting
+ * dark-green gradient) and dark (near-black page, a blended band of green,
+ * teal and blue). html[data-theme] picks one; Tailwind colors read the
+ * same --t-* variables, so every page follows the switch.
  */
+@theme inline {
+  --color-bg: var(--t-bg);
+  --color-void: var(--t-void);
+  --color-surface: var(--t-surface);
+  --color-surface-2: var(--t-surface-2);
+  --color-surface-3: var(--t-surface-3);
+  --color-line: var(--t-line);
+  --color-line-strong: var(--t-line-strong);
+
+  --color-ink: var(--t-ink);
+  --color-ink-2: var(--t-ink-2);
+  --color-ink-3: var(--t-ink-3);
+  --color-ink-4: var(--t-ink-4);
+
+  --color-accent: var(--t-accent);
+  --color-accent-dim: var(--t-accent-dim);
+  --color-accent-ink: var(--t-accent-ink);
+
+  --color-info: var(--t-info);
+  --color-warn: var(--t-warn);
+  --color-danger: var(--t-danger);
+  --color-ok: var(--t-ok);
+  --color-audit: var(--t-audit);
+}
+
 @theme {
-  --color-bg: #070809;
-  --color-void: #040506;
-  --color-surface: #0c0e11;
-  --color-surface-2: #111419;
-  --color-surface-3: #171b21;
-  --color-line: #1c2128;
-  --color-line-strong: #2b323c;
+  --font-sans: var(--font-ui), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-display-face), var(--font-ui), ui-sans-serif, sans-serif;
+  --font-mono: var(--font-code), ui-monospace, "SFMono-Regular", monospace;
 
-  --color-ink: #e8ecf1;
-  --color-ink-2: #a3adbb;
-  --color-ink-3: #6b7684;
-  --color-ink-4: #47525f;
-
-  --color-accent: #c6f24e;
-  --color-accent-dim: #8fae37;
-  --color-accent-ink: #0a0d04;
-
-  --color-info: #59d6e8;
-  --color-warn: #f5b544;
-  --color-danger: #ff5c5c;
-  --color-ok: #4ade80;
-  --color-audit: #a78bfa;
-
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", monospace;
-
-  --radius-xs: 3px;
-  --radius-sm: 5px;
-  --radius-md: 8px;
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 16px;
 
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1rem;
+}
+
+/* ---------- Light: white page, drifting dark-green gradient ---------- */
+:root {
+  color-scheme: light;
+  --t-bg: #ffffff;
+  --t-void: #eef2ef;
+  --t-surface: rgb(255 255 255 / 0.72);
+  --t-surface-2: rgb(255 255 255 / 0.92);
+  --t-surface-3: #eef3ef;
+  --t-line: #e1e7e3;
+  --t-line-strong: #c9d3cc;
+  --t-ink: #14231a;
+  --t-ink-2: #33433a;
+  --t-ink-3: #55625a;
+  --t-ink-4: #6b786f;
+  --t-accent: #134e2f;
+  --t-accent-dim: #2f7a4d;
+  --t-accent-ink: #ffffff;
+  --t-info: #1d6f86;
+  --t-warn: #8a5600;
+  --t-danger: #b2361f;
+  --t-ok: #2e7d4f;
+  --t-audit: #6b4fb8;
+
+  --page-bg: #ffffff;
+  --glass: rgb(255 255 255 / 0.7);
+  --glass-strong: rgb(255 255 255 / 0.9);
+  --glass-edge: rgb(20 45 30 / 0.08);
+  --glass-edge-hover: rgb(20 45 30 / 0.16);
+  --glass-line: rgb(20 45 30 / 0.08);
+  --glass-blur: blur(18px) saturate(140%);
+  --glass-shadow: 0 1px 2px rgb(20 45 30 / 0.04), 0 10px 28px rgb(20 45 30 / 0.06);
+  --green: #134e2f;
+  --green-deep: #0e3b24;
+  --green-soft: #e2eee5;
+  --on-green: #ffffff;
+  --ink: #14231a;
+  --ink-soft: #2c3b31;
+  --muted: #55625a;
+  --faint: #7d8a82;
+  --faint-line: #a3b0a8;
+  --stopped: #b2361f;
+  --hairline: rgb(20 45 30 / 0.06);
+  --hairline-strong: rgb(20 45 30 / 0.12);
+  --line: #dfe5e1;
+  --hover: rgb(20 45 30 / 0.04);
+  --raised: #ffffff;
+  --raised-soft: rgb(255 255 255 / 0.85);
+  --track: rgb(19 78 47 / 0.07);
+  --track-strong: rgb(19 78 47 / 0.1);
+  --track-soft: rgb(19 78 47 / 0.05);
+  --focus: rgb(19 78 47 / 0.45);
+  --focus-ring: rgb(19 78 47 / 0.08);
+  --switch-off: #cfd8d2;
+  --warn-bg: #fbf0d9;
+  --warn-ink: #6b4600;
+  --soft-fill: rgb(226 238 229 / 0.75);
+  --scrim: rgb(20 35 26 / 0.25);
+
+  --blob-opacity: 0.7;
+  --blob-1: #1f7a4d;
+  --blob-2: #3aa56a;
+  --blob-3: #0e5a33;
+  --blob-4: #8fd4a8;
+}
+
+/* ---------- Dark: near-black page, green-teal-blue gradient band ---------- */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --t-bg: #0b0d0c;
+  --t-void: #070908;
+  --t-surface: rgb(255 255 255 / 0.05);
+  --t-surface-2: rgb(255 255 255 / 0.08);
+  --t-surface-3: #161a18;
+  --t-line: #252b28;
+  --t-line-strong: #343c38;
+  --t-ink: #eef1ef;
+  --t-ink-2: #c9d1cc;
+  --t-ink-3: #9ba5a0;
+  --t-ink-4: #7c8781;
+  --t-accent: #5fbf86;
+  --t-accent-dim: #3f9c66;
+  --t-accent-ink: #08170f;
+  --t-info: #59c8e0;
+  --t-warn: #f0b450;
+  --t-danger: #ff6b5b;
+  --t-ok: #5fd08e;
+  --t-audit: #a98bfa;
+
+  --page-bg: #0b0d0c;
+  --glass: rgb(255 255 255 / 0.05);
+  --glass-strong: rgb(255 255 255 / 0.09);
+  --glass-edge: rgb(255 255 255 / 0.08);
+  --glass-edge-hover: rgb(255 255 255 / 0.16);
+  --glass-line: rgb(255 255 255 / 0.1);
+  --glass-shadow: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 12px 32px rgb(0 0 0 / 0.35);
+  --green: #5fbf86;
+  --green-deep: #4aa872;
+  --green-soft: rgb(95 191 134 / 0.14);
+  --on-green: #08170f;
+  --ink: #eef1ef;
+  --ink-soft: #cfd6d2;
+  --muted: #9ba5a0;
+  --faint: #79847e;
+  --faint-line: #4a534f;
+  --stopped: #ff7a6b;
+  --hairline: rgb(255 255 255 / 0.06);
+  --hairline-strong: rgb(255 255 255 / 0.12);
+  --line: #262c29;
+  --hover: rgb(255 255 255 / 0.06);
+  --raised: #1b201e;
+  --raised-soft: rgb(255 255 255 / 0.05);
+  --track: rgb(95 191 134 / 0.08);
+  --track-strong: rgb(95 191 134 / 0.14);
+  --track-soft: rgb(95 191 134 / 0.05);
+  --focus: rgb(95 191 134 / 0.55);
+  --focus-ring: rgb(95 191 134 / 0.15);
+  --switch-off: #3a423e;
+  --warn-bg: rgb(240 180 80 / 0.14);
+  --warn-ink: #f0c06a;
+  --soft-fill: rgb(95 191 134 / 0.1);
+  --scrim: rgb(0 0 0 / 0.5);
+
+  --blob-opacity: 0.62;
+  --blob-1: #1f8a52;
+  --blob-2: #149e8f;
+  --blob-3: #2f5fd0;
+  --blob-4: #36b37e;
+}
+
+/* ---------- Animated backdrop ---------- */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  background: var(--page-bg);
+  pointer-events: none;
+}
+.backdrop i {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: var(--blob-opacity);
+  animation: drift 28s ease-in-out infinite alternate;
+  will-change: transform;
+}
+.backdrop i:nth-child(1) {
+  top: -18vh;
+  left: -8vw;
+  width: 58vw;
+  height: 42vh;
+  background: var(--blob-1);
+}
+.backdrop i:nth-child(2) {
+  top: -10vh;
+  left: 34vw;
+  width: 46vw;
+  height: 36vh;
+  background: var(--blob-2);
+  animation-duration: 34s;
+  animation-delay: -8s;
+}
+.backdrop i:nth-child(3) {
+  top: -16vh;
+  right: -10vw;
+  width: 40vw;
+  height: 40vh;
+  background: var(--blob-3);
+  animation-duration: 40s;
+  animation-delay: -16s;
+}
+.backdrop i:nth-child(4) {
+  top: 4vh;
+  left: 18vw;
+  width: 36vw;
+  height: 26vh;
+  background: var(--blob-4);
+  animation-duration: 31s;
+  animation-delay: -4s;
+}
+/* Dark: one horizontal band through the upper page, like a horizon glow. */
+:root[data-theme="dark"] .backdrop i:nth-child(1) {
+  top: 18vh;
+  left: -6vw;
+  height: 30vh;
+}
+:root[data-theme="dark"] .backdrop i:nth-child(2) {
+  top: 22vh;
+  height: 26vh;
+}
+:root[data-theme="dark"] .backdrop i:nth-child(3) {
+  top: 16vh;
+  height: 30vh;
+}
+:root[data-theme="dark"] .backdrop i:nth-child(4) {
+  top: 34vh;
+  left: 10vw;
+  width: 70vw;
+  height: 18vh;
+}
+@keyframes drift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(5vw, 3vh, 0) scale(1.12);
+  }
+  100% {
+    transform: translate3d(-4vw, 1vh, 0) scale(0.95);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .backdrop i {
+    animation: none;
+  }
 }
 
 @layer base {
@@ -45,20 +267,17 @@
     border-color: var(--color-line);
   }
 
-  html {
-    color-scheme: dark;
-  }
-
   body {
-    background-color: var(--color-bg);
+    min-height: 100vh;
+    background: var(--page-bg);
     color: var(--color-ink);
     font-family: var(--font-sans);
-    font-feature-settings: "cv11", "ss01";
+    font-size: 14px;
     -webkit-font-smoothing: antialiased;
   }
 
   ::selection {
-    background: color-mix(in oklab, var(--color-accent) 30%, transparent);
+    background: color-mix(in oklab, var(--color-accent) 22%, transparent);
     color: var(--color-ink);
   }
 
@@ -72,21 +291,28 @@
   ::-webkit-scrollbar-thumb {
     background: var(--color-line-strong);
     border-radius: 999px;
-    border: 2px solid var(--color-bg);
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: #3a434f;
+    border: 2px solid transparent;
+    background-clip: padding-box;
   }
 
   a {
     color: inherit;
     text-decoration: none;
   }
+
+  button {
+    cursor: pointer;
+  }
 }
 
 @layer components {
   .panel {
-    @apply rounded-md border border-line bg-surface;
+    @apply rounded-md border;
+    border-color: var(--glass-edge);
+    background: var(--glass);
+    box-shadow: var(--glass-shadow);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
   }
 
   .panel-hd {
@@ -94,20 +320,20 @@
   }
 
   .panel-title {
-    @apply text-[13px] font-medium tracking-tight text-ink;
+    @apply text-[14px] font-semibold tracking-tight text-ink;
   }
 
   .hairline {
     @apply border-line;
   }
 
-  /* Uppercase micro-label used for field names and table headers. */
+  /* Small field label. Sentence case keeps it calm. */
   .micro {
-    @apply font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3;
+    @apply text-[12px] font-medium text-ink-3;
   }
 
   .chip {
-    @apply inline-flex items-center gap-1.5 rounded-xs border border-line px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-2;
+    @apply inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-ink-2;
   }
 
   .kbd {
@@ -119,7 +345,7 @@
   }
 
   .focus-ring {
-    @apply outline-none focus-visible:ring-1 focus-visible:ring-accent/60 focus-visible:ring-offset-0;
+    @apply outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-0;
   }
 
   .mono {
@@ -134,8 +360,8 @@
 @layer utilities {
   .grid-bg {
     background-image:
-      linear-gradient(to right, color-mix(in oklab, var(--color-line) 70%, transparent) 1px, transparent 1px),
-      linear-gradient(to bottom, color-mix(in oklab, var(--color-line) 70%, transparent) 1px, transparent 1px);
+      linear-gradient(to right, color-mix(in oklab, var(--color-line) 80%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in oklab, var(--color-line) 80%, transparent) 1px, transparent 1px);
     background-size: 28px 28px;
   }
 
@@ -146,7 +372,7 @@
 
   .glow-accent {
     box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-accent) 22%, transparent),
-      0 0 32px -8px color-mix(in oklab, var(--color-accent) 35%, transparent);
+      0 8px 24px -8px color-mix(in oklab, var(--color-accent) 35%, transparent);
   }
 
   .text-balance {

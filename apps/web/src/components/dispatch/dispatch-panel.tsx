@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Play, Loader2 } from "lucide-react";
+import { Play, Loader2 } from "@/components/icons";
 import { Button } from "@/components/ui/primitives";
 import { cn } from "@/lib/cn";
 
@@ -50,7 +50,7 @@ export function DispatchPanel({
   const [budget, setBudget] = useState<string>(
     agent?.runBudgetUsd ? String(agent.runBudgetUsd) : "2.5",
   );
-  const [mode, setMode] = useState<"scripted" | "live">("scripted");
+  const [mode, setMode] = useState<"scripted" | "live">("live");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 

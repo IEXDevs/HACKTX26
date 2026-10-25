@@ -7,7 +7,7 @@
 .glass-pill {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   height: 44px;
   padding: 0 16px;
   border: 1px solid var(--glass-edge);

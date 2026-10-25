@@ -171,8 +171,6 @@ export function hash01(s: string): number {
 const MODEL_COLORS: Record<string, string> = {
   "muse-wonder-1.0": "#3346E8",
   "muse-spark-1.3": "#0A7CFF",
-  "muse-spark-1.2": "#2295E6",
-  "muse-spark-1.1": "#2DB2D4",
   "anthropic/claude-opus-4-6": "#B85A36",
   "anthropic/claude-sonnet-4-6": "#D97757",
   "anthropic/claude-haiku-4-5": "#E0926A",

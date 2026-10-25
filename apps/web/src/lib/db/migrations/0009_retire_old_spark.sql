@@ -1,0 +1,1 @@
+UPDATE `agents` SET `model_policy` = replace(replace(`model_policy`, '"muse-spark-1.1"', '"muse-spark-1.3"'), '"muse-spark-1.2"', '"muse-spark-1.3"') WHERE `model_policy` LIKE '%muse-spark-1.1%' OR `model_policy` LIKE '%muse-spark-1.2%';

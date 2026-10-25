@@ -147,37 +147,8 @@ export const MODEL_CATALOG: readonly Model[] = [
     capabilities: ["tool_calling", "long_context", "vision", "code"],
     latencyMs: 800,
     selfHosted: false,
-    notes: "Meta Model API. $1.25 / $4.25 per 1M tokens; cached input $0.15.",
-  },
-  {
-    id: "muse-spark-1.2",
-    label: "Muse Spark 1.2",
-    provider: "meta",
-    tier: "balanced",
-    contextWindow: 1_048_576,
-    inputPerMTok: 1.25,
-    outputPerMTok: 4.25,
-    cachedInputPerMTok: 0.15,
-    allowedDataClasses: ["public", "internal", "confidential"],
-    capabilities: ["tool_calling", "long_context", "vision", "code"],
-    latencyMs: 850,
-    selfHosted: false,
-    notes: "Meta Model API. Same token price as Spark 1.3.",
-  },
-  {
-    id: "muse-spark-1.1",
-    label: "Muse Spark 1.1",
-    provider: "meta",
-    tier: "fast",
-    contextWindow: 1_048_576,
-    inputPerMTok: 1.25,
-    outputPerMTok: 4.25,
-    cachedInputPerMTok: 0.15,
-    allowedDataClasses: ["public", "internal"],
-    capabilities: ["tool_calling", "code"],
-    latencyMs: 500,
-    selfHosted: false,
-    notes: "Meta Model API. Standard-mode only; same $1.25 / $4.25 as Spark 1.3.",
+    notes:
+      "Meta Model API. $1.25 / $4.25 per 1M tokens; cached input $0.15. The main model: Spark 1.1 and 1.2 cost the same and did less, so they were removed.",
   },
   {
     id: "selfhost/llama-4-70b",
@@ -268,7 +239,8 @@ export function hardwareForComplexity(complexity: TaskComplexity): HardwareProfi
 const COMPLEXITY_FLOOR: Record<TaskComplexity, number> = {
   trivial: 0.4,
   standard: 0.6,
-  complex: 0.78,
+  // Balanced models clear complex work, so Spark 1.3 stays the main model; only critical work needs frontier.
+  complex: 0.72,
   critical: 0.95,
 };
 
@@ -319,10 +291,10 @@ export function estimateCostUsd(
 }
 
 const META_PROVISION_ORDER: Record<TaskComplexity, readonly string[]> = {
-  critical: ["muse-wonder-1.0", "muse-spark-1.3", "muse-spark-1.2", "muse-spark-1.1"],
-  complex: ["muse-wonder-1.0", "muse-spark-1.3", "muse-spark-1.2", "muse-spark-1.1"],
-  standard: ["muse-spark-1.3", "muse-spark-1.2", "muse-spark-1.1", "muse-wonder-1.0"],
-  trivial: ["muse-spark-1.1", "muse-spark-1.2", "muse-spark-1.3", "muse-wonder-1.0"],
+  critical: ["muse-wonder-1.0", "muse-spark-1.3"],
+  complex: ["muse-spark-1.3", "muse-wonder-1.0"],
+  standard: ["muse-spark-1.3", "muse-wonder-1.0"],
+  trivial: ["muse-spark-1.3", "muse-wonder-1.0"],
 };
 
 /** True when the id is a Meta Model API Muse model. */
@@ -332,8 +304,8 @@ export function isMetaModelId(id: string): boolean {
 }
 
 /**
- * Pin a Meta Model API model for a spawned task. Critical/complex work gets
- * Wonder; everyday work gets Spark 1.3; lookups get Spark 1.1.
+ * Pin a Meta Model API model for a spawned task. Spark 1.3 does everything
+ * except critical work, which gets Wonder.
  */
 export function provisionMetaModel(
   complexity: TaskComplexity,

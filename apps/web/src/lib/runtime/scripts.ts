@@ -609,7 +609,7 @@ export const DELEGATION_GUIDANCE = [
   "You have agent.delegate.",
   "Use it when one piece of the goal is bounded and narrower than the decision you owe: a lookup, a file read, a draft, or a check.",
   "Name the grunt, and give it a title and a task that includes the done condition.",
-  "You may pin a Meta Model API model for the child (`muse-wonder-1.0` for critical, `muse-spark-1.3` for everyday, `muse-spark-1.1` for lookups) via the model argument.",
+  "You may pin a Meta Model API model for the child (`muse-spark-1.3` for almost everything, `muse-wonder-1.0` only for critical work) via the model argument.",
   "Do not delegate the final decision, a credential, or your whole goal.",
   "The grunt is created under you the first time you use that name, then reused. It runs, then its summary is returned to you on this run. Grunts cannot delegate further.",
 ].join(" ");

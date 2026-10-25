@@ -20,7 +20,6 @@ import {
 } from "@/components/icons";
 import { type ComponentType } from "react";
 import { usd } from "@/lib/format";
-import { ThemeSwitch } from "./theme-switch";
 
 interface NavItem {
   href: string;
@@ -106,7 +105,6 @@ export function Sidebar({
         {platform.map(renderItem)}
       </nav>
       <div className="shell-bottom">
-        <ThemeSwitch />
         <div className="shell-spend">
           {usd(spendTodayUsd)} of {usd(dailyBudgetUsd)} today
           <div className="shell-spend-track">

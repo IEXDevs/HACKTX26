@@ -7,6 +7,7 @@ import { SiteBackdrop } from "@/components/shell/backdrop";
 import { Sidebar } from "@/components/shell/sidebar";
 import { getSessionUser } from "@/lib/auth";
 import { supabaseAuthEnabled } from "@/lib/env";
+import { THEME_SCRIPT } from "@/lib/theme";
 import "./globals.css";
 import "@/styles/relay.css";
 import "@/styles/composer.css";
@@ -21,9 +22,6 @@ export const metadata: Metadata = {
 };
 
 export const dynamic = "force-dynamic";
-
-// Applies the saved theme before first paint so the page never flashes the wrong one.
-const themeScript = `try{if(localStorage.getItem("relay-theme")==="dark")document.documentElement.dataset.theme="dark"}catch(e){}`;
 
 export default async function RootLayout({
   children,
@@ -42,7 +40,8 @@ export default async function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        {/* Sets the theme before first paint so the page never flashes the wrong one. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
       <body>
         <div className="backdrop" aria-hidden="true">

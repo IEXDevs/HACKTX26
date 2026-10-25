@@ -6,18 +6,14 @@ import {
   Activity,
   Archive,
   ArrowLeft,
-  ArrowUpRight,
+  House,
   Bot,
   Check,
-  ChevronDown,
   Code2,
   CreditCard,
-  FolderOpen,
   GitBranch,
   Layers,
   Loader2,
-  MoreHorizontal,
-  Network,
   Plus,
   Search,
   Settings2,
@@ -28,14 +24,20 @@ import {
 import { AgentTreeWorkspace, TreeExecutionView } from './agent-trees';
 import { RunWorkspace, ApiView } from './execution-details';
 import { specialistTree, agentPresets } from '@/lib/agent-presets';
+import Home from './home';
+import { AdvancedSwitch, useAdvanced } from './advanced';
+import UsageChart from './usage-chart';
+import { placeholderUsageCharts, type UsageRange } from './usage-data';
+import { placeholderHome } from './home-data';
 import './relay-workspace.css';
 
-type Section = 'agents' | 'workflows' | 'usage' | 'billing';
+type Section = 'home' | 'agents' | 'workflows' | 'usage' | 'billing';
 const navigation = [
-  { id: 'agents', name: 'Agents', icon: Bot },
-  { id: 'workflows', name: 'Workflows', icon: GitBranch },
-  { id: 'usage', name: 'Usage', icon: Activity },
-  { id: 'billing', name: 'Billing', icon: CreditCard },
+  { id: 'home', name: 'Home', href: '/', icon: House },
+  { id: 'agents', name: 'Agents', href: '/agents', icon: Bot },
+  { id: 'workflows', name: 'Workflows', href: '/workflows', icon: GitBranch },
+  { id: 'usage', name: 'Usage', href: '/usage', icon: Activity },
+  { id: 'billing', name: 'Billing', href: '/billing', icon: CreditCard },
 ] as const;
 const stopped = ['succeeded', 'failed', 'rejected', 'cancelled'];
 export async function relayApi(path: string, options: RequestInit = {}) {
@@ -208,78 +210,48 @@ export default function RelayWorkspace({
         {error && <button onClick={() => void load()}>Retry</button>}
       </div>
     );
-  const activeRuns = data.runs.filter((r: any) => !stopped.includes(r.status)).length;
   return (
     <div className="studio-shell">
       <aside className="studio-sidebar">
-        <Link href="/agents" className="studio-brand">
+        <Link href="/" className="studio-brand">
           <span className="studio-logo">
-            <Layers size={21} />
+            <Layers size={16} />
           </span>
-          relay<span className="studio-beta">BETA</span>
+          <span>Relay</span>
         </Link>
-        <div className="studio-workspace">
-          <span>H</span>
-          <div>
-            <b>{data.workspace.name}</b>
-            <small>Personal workspace</small>
-          </div>
-          <ChevronDown size={14} />
-        </div>
-        <div className="studio-nav-label">WORKSPACE</div>
         <nav aria-label="Main navigation">
           {navigation.map((item) => (
             <Link
               key={item.id}
-              href={'/' + item.id}
+              href={item.href}
               className={section === item.id ? 'active' : ''}
+              aria-current={section === item.id ? 'page' : undefined}
+              title={item.name}
             >
-              <item.icon size={18} />
-              {item.name}
-              {item.id === 'workflows' && activeRuns > 0 && (
-                <span className="studio-nav-count">{activeRuns}</span>
-              )}
+              <item.icon size={17} aria-hidden="true" />
+              <span>{item.name}</span>
             </Link>
           ))}
         </nav>
         <div className="studio-sidebar-bottom">
-          <div className="studio-environment">
-            <i />
-            {data.mode === 'live' ? 'Live execution' : 'Fixture mode'}
-            <ShieldCheck size={13} />
-          </div>
-          <button onClick={() => setSettings('providers')}>
-            <Settings2 size={16} />
-            Workspace settings
+          <span className={'studio-mode' + (data.mode === 'live' ? ' live' : '')}>
+            {data.mode === 'live' ? 'Live' : 'Test mode'}
+          </span>
+          <button onClick={() => setSettings('api')} title="API access">
+            <Code2 size={16} aria-hidden="true" />
+            <span>API access</span>
+          </button>
+          <button onClick={() => setSettings('providers')} title="Workspace settings">
+            <Settings2 size={16} aria-hidden="true" />
+            <span>Settings</span>
           </button>
           <div className="studio-profile">
-            <span>H</span>
-            <div>
-              <b>HackTX workspace</b>
-              <small>Build something useful.</small>
-            </div>
+            <span aria-hidden="true">H</span>
+            <b>{data.workspace.name}</b>
           </div>
         </div>
       </aside>
       <div className="studio-body">
-        <header className="studio-topbar">
-          <div>
-            <span>Workspace</span>
-            <span>/</span>
-            <b>{page?.name || navigation.find((n) => n.id === section)?.name}</b>
-          </div>
-          <div className="studio-top-actions">
-            <span className="studio-mode">
-              <i />
-              {data.mode === 'live' ? 'Live' : 'Fixture'}
-            </span>
-            <button className="studio-api-button" onClick={() => setSettings('api')}>
-              <Code2 size={15} />
-              API access
-            </button>
-            <span className="studio-avatar">H</span>
-          </div>
-        </header>
         <main className={'studio-main ' + (workflowId ? 'studio-canvas-page' : '')}>
           {error && (
             <div role="alert" className="studio-alert error">
@@ -298,13 +270,20 @@ export default function RelayWorkspace({
               </button>
             </div>
           )}
+          {section === 'home' && (
+            <Home
+              data={placeholderHome}
+              testMode={data.mode !== 'live'}
+              onNew={() => setCreate({})}
+            />
+          )}
           {section === 'agents' && (
             <AgentLibrary
               agents={data.agents}
               busy={busy}
               action={action}
               onUse={(a) => setCreate({ agent: a })}
-              onSaved={() => setNotice('Agent saved. Published versions stay immutable.')}
+              onSaved={() => setNotice('Agent saved.')}
             />
           )}
           {section === 'workflows' && !workflowId && (
@@ -500,6 +479,9 @@ export default function RelayWorkspace({
   );
 }
 
+function isTeam(a: any) {
+  return !a.draft.tree || a.draft.tree.nodes.length > 2;
+}
 function AgentLibrary({
   agents,
   busy,
@@ -514,31 +496,22 @@ function AgentLibrary({
   onSaved: () => void;
 }) {
   const [search, setSearch] = useState(''),
-    [filter, setFilter] = useState('All agents'),
+    [advanced, toggleAdvanced] = useAdvanced(),
     [editorOpen, setEditorOpen] = useState(false),
     [selected, setSelected] = useState<any>(null),
     [name, setName] = useState(''),
     [description, setDescription] = useState(''),
     [instructions, setInstructions] = useState(''),
     [model, setModel] = useState(agents[0]?.draft.coordinatorModel || 'muse-spark-1.3'),
-    [role, setRole] = useState<'reason' | 'research' | 'review'>('reason'),
-    [web, setWeb] = useState(false);
+    [role, setRole] = useState<'reason' | 'research' | 'review'>('reason');
   const key = useRef<string | null>(null);
   const visible = agents
-    .filter((a) => !a.workflow_internal)
+    .filter((a) => !a.workflow_internal && !isTeam(a))
     .filter((a) =>
       [a.name, a.description, a.draft.instructions, a.draft.coordinatorModel]
         .join(' ')
         .toLowerCase()
         .includes(search.toLowerCase()),
-    )
-    .filter(
-      (a) =>
-        filter === 'All agents' ||
-        (filter === 'My agents' && !a.id.startsWith('agt_preset')) ||
-        (filter === 'Research' && a.draft.tools.includes('venue_search')) ||
-        (filter === 'Writing' && /writ|copy/i.test(a.name)) ||
-        (filter === 'Review' && /review/i.test(a.name)),
     )
     .sort((a, b) => {
       const rank = (item: any) => {
@@ -555,7 +528,6 @@ function AgentLibrary({
     setInstructions(node?.instructions || a.draft.instructions);
     setModel(node?.model || a.draft.coordinatorModel);
     setRole(node?.mode === 'research' ? 'research' : node?.mode === 'review' ? 'review' : 'reason');
-    setWeb(node?.tools.includes('venue_search') || false);
     key.current = null;
     setEditorOpen(true);
   }
@@ -566,7 +538,6 @@ function AgentLibrary({
     setInstructions('');
     setModel(agents[0]?.draft.coordinatorModel || 'muse-spark-1.3');
     setRole('reason');
-    setWeb(false);
     key.current = null;
     setEditorOpen(true);
   }
@@ -590,9 +561,7 @@ function AgentLibrary({
   }
   async function save(publish: boolean) {
     if (selected && (!selected.draft.tree || selected.draft.tree.nodes.length > 2)) {
-      throw new Error(
-        'This is a full workflow template. Duplicate it into a workflow page to edit its tree.',
-      );
+      throw new Error('This agent is a full team. Open it from Workflows to change it.');
     }
     const body = { name, description, config: config(), publish };
     const result = selected
@@ -610,102 +579,93 @@ function AgentLibrary({
   const fullTemplate = selected && (!selected.draft.tree || selected.draft.tree.nodes.length > 2);
   return (
     <>
-      <section className="studio-library">
-        <div className="studio-search">
-          <Search size={17} />
-          <input
-            type="search"
-            aria-label="Search agent library"
-            placeholder="Search agents, skills, or models…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <kbd>⌕</kbd>
-        </div>
-        <div className="studio-filter-tabs">
-          {['All agents', 'Research', 'Writing', 'Review', 'My agents'].map((f) => (
-            <button key={f} className={f === filter ? 'selected' : ''} onClick={() => setFilter(f)}>
-              {f}
+      <div className="simple-page wide">
+        <div className="simple-top">
+          <h1>Agents</h1>
+          <div className="simple-actions">
+            <AdvancedSwitch on={advanced} toggle={toggleAdvanced} />
+            <button className="primary" onClick={createAgent}>
+              <Plus size={15} />
+              New agent
             </button>
-          ))}
+          </div>
         </div>
-        <div className="studio-library-section">
-          {search && <b>SEARCH RESULTS</b>}
-          <small>{visible.length} agents</small>
+        <div className="simple-toolbar">
+          <label className="simple-search">
+            <Search size={16} aria-hidden="true" />
+            <span className="sr-only">Search agents</span>
+            <input
+              type="search"
+              placeholder="Search agents"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </label>
         </div>
-        <div className="studio-agent-grid">
-          <button className="studio-new-page studio-new-agent" onClick={createAgent}>
-            <span>
-              <Plus size={24} />
-            </span>
-            <h3>Create an agent</h3>
-            <p>Build a specialist for your workflows.</p>
-          </button>
-          {visible.map((a, i) => {
-            const node = a.draft.tree?.nodes.find((n: any) => n.id !== 'user'),
-              published = a.versions?.[0],
-              legacy = a.draft.extractionProvider !== 'muse';
-            return (
-              <article
-                className={'studio-agent-card ' + (selected?.id === a.id ? 'selected' : '')}
-                key={a.id}
-              >
-                <button
-                  className="studio-card-select"
-                  aria-label={'Configure ' + a.name}
-                  onClick={() => choose(a)}
-                >
-                  <div className="studio-card-top">
-                    <span className={'studio-agent-symbol color-' + (i % 5)}>
-                      {a.draft.tools.includes('venue_search') ? (
-                        <Search size={21} />
-                      ) : node?.mode === 'review' ? (
-                        <ShieldCheck size={21} />
+        {visible.length ? (
+          <section className="tile-section">
+            <div className="tile-grid">
+              {visible.map((a) => {
+                const node = a.draft.tree?.nodes.find((n: any) => n.id !== 'user'),
+                  published = a.versions?.[0],
+                  legacy = a.draft.extractionProvider !== 'muse',
+                  searches = a.draft.tools.includes('venue_search'),
+                  job = searches
+                    ? 'Researches the web'
+                    : node?.mode === 'review'
+                      ? 'Reviews work'
+                      : 'Writes';
+                return (
+                  <article className="tile" key={a.id}>
+                    <button
+                      className="tile-main"
+                      aria-label={'Edit ' + a.name}
+                      onClick={() => choose(a)}
+                    >
+                      <span className="tile-icon" aria-hidden="true">
+                        {searches ? (
+                          <Search size={18} />
+                        ) : node?.mode === 'review' ? (
+                          <ShieldCheck size={18} />
+                        ) : (
+                          <Bot size={18} />
+                        )}
+                      </span>
+                      <b>
+                        {a.name}
+                        {!published && <em className="simple-tag">Draft</em>}
+                      </b>
+                      <p>{a.description}</p>
+                    </button>
+                    <footer className="tile-foot">
+                      <span>
+                        {advanced
+                          ? (node?.model || a.draft.coordinatorModel) +
+                            (published ? ' · v' + published.version : '')
+                          : job}
+                      </span>
+                      {legacy ? (
+                        <span className="simple-muted">Unavailable</span>
                       ) : (
-                        <Bot size={21} />
+                        <button
+                          className="simple-button"
+                          disabled={!published}
+                          title={published ? undefined : 'Publish this agent to use it'}
+                          onClick={() => onUse(a)}
+                        >
+                          Use
+                        </button>
                       )}
-                    </span>
-                    <span className="studio-card-kind">
-                      {legacy
-                        ? 'Legacy'
-                        : a.draft.tree?.nodes.length > 2
-                          ? 'Team'
-                          : a.draft.tree
-                            ? 'Specialist'
-                            : 'Workflow'}
-                    </span>
-                    <MoreHorizontal size={18} />
-                  </div>
-                  <h3>{a.name}</h3>
-                  <p>{a.description}</p>
-                  <div className="studio-agent-capabilities">
-                    <span>∞ {node?.model || a.draft.coordinatorModel}</span>
-                    <span>
-                      {a.draft.tools.includes('venue_search') ? 'Web search' : 'Text generation'}
-                    </span>
-                  </div>
-                </button>
-                <div className="studio-card-footer">
-                  <span>
-                    <i className={published ? 'published' : ''} />
-                    {published ? 'Published · v' + published.version : 'Draft'}
-                  </span>
-                  <button disabled={!published || legacy} onClick={() => onUse(a)}>
-                    Use agent <ArrowUpRight size={13} />
-                  </button>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-        {!visible.length && (
-          <Empty title="No agents found">Try another name or clear your filters.</Empty>
+                    </footer>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        ) : (
+          <p className="simple-empty">No agents match that search.</p>
         )}
-        <div className="studio-library-note">
-          <ShieldCheck size={15} />
-          <span>Tools stay within your permissions. Every execution leaves a trace.</span>
-        </div>
-      </section>
+      </div>
       {editorOpen && (
         <div className="studio-modal-backdrop" onClick={() => setEditorOpen(false)}>
           <aside
@@ -716,17 +676,13 @@ function AgentLibrary({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="studio-editor-heading">
-              <span className="studio-editor-icon">
-                <Plus size={19} />
-              </span>
               <div>
-                <h2>{selected ? 'Configure agent' : 'Create an agent'}</h2>
+                <h2>{selected ? 'Edit agent' : 'New agent'}</h2>
               </div>
               <button onClick={() => setEditorOpen(false)} aria-label="Close agent editor">
                 <X size={18} />
               </button>
             </div>
-            <p>Give your agent a purpose. You can add it to any workflow.</p>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -734,7 +690,7 @@ function AgentLibrary({
               }}
             >
               <label>
-                Agent name
+                Name
                 <input
                   required
                   maxLength={150}
@@ -744,17 +700,16 @@ function AgentLibrary({
                 />
               </label>
               <label>
-                Short description
+                What it does
                 <input
                   maxLength={500}
-                  placeholder="What does this agent do?"
+                  placeholder="One short sentence"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                 />
               </label>
               <div className="studio-label-row">
                 <label htmlFor="agent-instructions">Instructions</label>
-                <span>Be specific.</span>
               </div>
               <textarea
                 id="agent-instructions"
@@ -765,7 +720,15 @@ function AgentLibrary({
                 value={instructions}
                 onChange={(e) => setInstructions(e.target.value)}
               />
-              <div className="studio-editor-two">
+              <label>
+                Job
+                <select value={role} onChange={(e) => setRole(e.target.value as typeof role)}>
+                  <option value="reason">Write</option>
+                  <option value="research">Research the web</option>
+                  <option value="review">Review</option>
+                </select>
+              </label>
+              {advanced && (
                 <label>
                   Model
                   <input
@@ -774,50 +737,14 @@ function AgentLibrary({
                     maxLength={100}
                     onChange={(e) => setModel(e.target.value)}
                   />
-                  <small>Meta Model API</small>
                 </label>
-                <label>
-                  Agent role
-                  <select
-                    value={role}
-                    onChange={(e) => {
-                      setRole(e.target.value as typeof role);
-                      setWeb(e.target.value === 'research');
-                    }}
-                  >
-                    <option value="reason">Reason & write</option>
-                    <option value="research">Research</option>
-                    <option value="review">Review</option>
-                  </select>
-                </label>
-              </div>
-              <div className="studio-permission">
-                <span>
-                  <Network size={17} />
-                  <b>Web search</b>
-                  <small>SerpAPI · read only</small>
-                </span>
-                <input
-                  aria-label="Allow web search"
-                  type="checkbox"
-                  checked={web && role === 'research'}
-                  onChange={(e) => {
-                    setWeb(e.target.checked);
-                    setRole(e.target.checked ? 'research' : 'reason');
-                  }}
-                />
-              </div>
+              )}
               {fullTemplate && (
                 <div className="studio-alert">
-                  This template has a complete workflow. Use it to create a page and inspect its
-                  configuration there.
+                  This agent is a full team. Open it from Workflows to change it.
                 </div>
               )}
               <div className="studio-editor-footer">
-                <span>
-                  <ShieldCheck size={13} />
-                  Versioned & reusable
-                </span>
                 <div>
                   <button
                     type="button"
@@ -837,8 +764,7 @@ function AgentLibrary({
                       busy || fullTemplate || !name.trim() || instructions.trim().length < 20
                     }
                   >
-                    {busy ? <Loader2 className="spin" size={14} /> : <Plus size={14} />}Publish
-                    agent
+                    {busy && <Loader2 className="spin" size={14} />}Publish
                   </button>
                 </div>
               </div>
@@ -861,113 +787,146 @@ function WorkflowIndex({
   onArchive: (w: any) => void;
   busy: boolean;
 }) {
-  const [filter, setFilter] = useState('All workflows'),
-    [search, setSearch] = useState('');
+  const [archived, setArchived] = useState(false),
+    [search, setSearch] = useState(''),
+    [advanced, toggleAdvanced] = useAdvanced();
   const visible = pages
-    .filter((p) => (filter === 'Archived' ? p.archived_at : !p.archived_at))
-    .filter((p) => filter !== 'Running' || p.active_count > 0)
+    .filter((p) => (archived ? p.archived_at : !p.archived_at))
     .filter((p) => p.name.toLowerCase().includes(search.toLowerCase()));
+  const archivedCount = pages.filter((p) => p.archived_at).length;
   return (
-    <div className="studio-content">
-      <div className="studio-section-heading">
-        <div>
-          <h1>Workflows</h1>
+    <div className="simple-page wide">
+      <div className="simple-top">
+        <h1>Workflows</h1>
+        <div className="simple-actions">
+          <AdvancedSwitch on={advanced} toggle={toggleAdvanced} />
+          <button className="primary" onClick={onCreate}>
+            <Plus size={15} />
+            New workflow
+          </button>
         </div>
-        <button className="primary" onClick={onCreate}>
-          <Plus size={16} />
-          New workflow
-        </button>
       </div>
-      <div className="studio-workflow-filters">
-        <div className="studio-filter-tabs">
-          {['All workflows', 'Running', 'Archived'].map((f) => (
-            <button className={filter === f ? 'selected' : ''} onClick={() => setFilter(f)} key={f}>
-              {f}
-              {f === 'Archived' && <span>{pages.filter((p) => p.archived_at).length}</span>}
+      {pages.length > 0 && (
+        <div className="simple-toolbar">
+          <div className="simple-tabs" role="group" aria-label="Show workflows">
+            <button aria-pressed={!archived} onClick={() => setArchived(false)}>
+              Active
             </button>
-          ))}
+            <button aria-pressed={archived} onClick={() => setArchived(true)}>
+              Archived{archivedCount > 0 && ' · ' + archivedCount}
+            </button>
+          </div>
+          <label className="simple-search">
+            <Search size={16} aria-hidden="true" />
+            <span className="sr-only">Search workflows</span>
+            <input
+              type="search"
+              placeholder="Search workflows"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </label>
         </div>
-        <div className="studio-search compact">
-          <Search size={16} />
-          <input
-            aria-label="Search workflows"
-            placeholder="Find a workflow…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-      </div>
-      <div className="studio-workflow-grid">
-        <button className="studio-new-page" onClick={onCreate}>
-          <span>
-            <Plus size={24} />
-          </span>
-          <h3>Create a workflow</h3>
-          <p>Start with one agent or build a team.</p>
-        </button>
-        {visible.map((w) => (
-          <article className="studio-workflow-card" key={w.id}>
-            <Link href={'/workflows/' + w.id} className="studio-workflow-preview">
-              <MiniTree tree={w.tree} active={!!w.active_count} />
-              <span className="studio-preview-type">
-                {w.kind === 'tree' ? 'Agent tree' : 'Single agent'}
-              </span>
-              <span className="studio-preview-status">
-                <Tag status={w.archived_at ? 'archived' : w.latest_status || 'draft'} />
-              </span>
-            </Link>
-            <div className="studio-workflow-card-info">
-              <div>
-                <Link href={'/workflows/' + w.id}>
-                  <h3>{w.name}</h3>
-                </Link>
-                <button
-                  aria-label={(w.archived_at ? 'Restore ' : 'Archive ') + w.name}
-                  title={w.archived_at ? 'Restore page' : 'Archive page'}
-                  disabled={busy}
-                  onClick={() => onArchive(w)}
-                >
-                  <Archive size={15} />
-                </button>
+      )}
+      {visible.length ? (
+        (archived
+          ? [{ title: 'Archived', items: visible }]
+          : [
+              {
+                title: 'Waiting for you',
+                items: visible.filter((w) => workflowStatus(w).group === 'waiting'),
+              },
+              {
+                title: 'Running',
+                items: visible.filter((w) => workflowStatus(w).group === 'running'),
+              },
+              {
+                title: 'Recent',
+                items: visible.filter((w) => workflowStatus(w).group === 'recent'),
+              },
+            ]
+        )
+          .filter((group) => group.items.length)
+          .map((group) => (
+            <section className="tile-section" key={group.title}>
+              <h2>
+                {group.title} · {group.items.length}
+              </h2>
+              <div className="tile-grid">
+                {group.items.map((w) => {
+                  const status = workflowStatus(w);
+                  return (
+                    <article className="tile" key={w.id}>
+                      <Link href={'/workflows/' + w.id} className="tile-main">
+                        <span className={'tile-status ' + status.tone}>{status.label}</span>
+                        <b>{w.name}</b>
+                        <p>{w.task || 'No task yet.'}</p>
+                      </Link>
+                      <footer className="tile-foot">
+                        <span>
+                          {w.kind === 'tree'
+                            ? 'Team of ' + Math.max(1, (w.tree?.nodes?.length || 2) - 1) + ' agents'
+                            : 'Single agent'}
+                          {advanced &&
+                            ' · ' +
+                              w.run_count +
+                              (w.run_count === 1 ? ' run' : ' runs') +
+                              ' · edited ' +
+                              day(w.updated_at)}
+                        </span>
+                        <button
+                          className="simple-icon-button"
+                          aria-label={(w.archived_at ? 'Restore ' : 'Archive ') + w.name}
+                          title={w.archived_at ? 'Restore' : 'Archive'}
+                          disabled={busy}
+                          onClick={() => onArchive(w)}
+                        >
+                          <Archive size={16} />
+                        </button>
+                      </footer>
+                    </article>
+                  );
+                })}
               </div>
-              <p>{w.task || 'Ready for your next task.'}</p>
-              <footer>
-                <span>
-                  {w.tree?.nodes?.length || 1} nodes · {w.run_count} runs
-                </span>
-                <span>Updated {day(w.updated_at)}</span>
-              </footer>
-            </div>
-          </article>
-        ))}
-      </div>
-      {!visible.length && filter === 'Archived' && (
-        <Empty title="No archived pages">
-          Archived workflows stay here with their full run history.
-        </Empty>
+            </section>
+          ))
+      ) : (
+        <p className="simple-empty">
+          {archived
+            ? 'Nothing is archived.'
+            : search
+              ? 'No workflows match that search.'
+              : 'No workflows yet. Start one from Home or with New workflow.'}
+        </p>
       )}
     </div>
   );
 }
-function MiniTree({ tree, active }: { tree: any; active: boolean }) {
-  const n = Math.min(4, Math.max(1, (tree?.nodes?.length || 2) - 1));
-  return (
-    <div className={'studio-mini-tree ' + (active ? 'active' : '')}>
-      <span className="mini-root">
-        <Bot size={14} />
-        <i>You</i>
-      </span>
-      <span className="mini-trunk" />
-      <div>
-        {Array.from({ length: n }, (_, i) => (
-          <span className="mini-child" key={i}>
-            <Bot size={12} />
-            <b>{tree?.nodes?.[i + 1]?.name?.split(' ')[0] || 'Agent'}</b>
-          </span>
-        ))}
-      </div>
-    </div>
-  );
+function workflowStatus(w: any): {
+  label: string;
+  tone: string;
+  group: 'waiting' | 'running' | 'recent';
+} {
+  if (w.archived_at) return { label: 'Archived', tone: '', group: 'recent' };
+  const when = w.updated_at ? ' ' + day(w.updated_at) : '';
+  switch (w.latest_status) {
+    case 'queued':
+    case 'running':
+      return { label: 'Running now', tone: 'running', group: 'running' };
+    case 'awaiting_requirements':
+    case 'awaiting_approval':
+      return { label: 'Waiting for you', tone: 'waiting', group: 'waiting' };
+    case 'succeeded':
+      return { label: 'Finished' + when, tone: '', group: 'recent' };
+    case 'failed':
+      return { label: 'Stopped' + when, tone: 'stopped', group: 'recent' };
+    case 'rejected':
+      return { label: 'You rejected a step' + when, tone: '', group: 'recent' };
+    case 'cancelled':
+      return { label: 'Cancelled' + when, tone: '', group: 'recent' };
+    default:
+      return { label: 'Not run yet', tone: '', group: 'recent' };
+  }
 }
 
 function NewWorkflow({
@@ -988,7 +947,7 @@ function NewWorkflow({
       initial.agent?.id || agents.find((a) => a.versions.length)?.id || '',
     ),
     [name, setName] = useState(initial.agent?.name || ''),
-    [task, setTask] = useState('');
+    [task, setTask] = useState(initial.task || '');
   const agent = agents.find((a) => a.id === agentId);
   return (
     <div className="studio-modal-backdrop" onClick={close}>
@@ -1258,6 +1217,7 @@ function UsageDiagnostics({
   const [range, setRange] = useState('7d'),
     [mode, setMode] = useState('all'),
     [tab, setTab] = useState('Workflows'),
+    [advanced, toggleAdvanced] = useAdvanced(),
     [data, setData] = useState<any>(null),
     [error, setError] = useState('');
   useEffect(() => {
@@ -1281,25 +1241,23 @@ function UsageDiagnostics({
       clearInterval(timer);
     };
   }, [range, mode]);
-  const max = Math.max(1, ...usage.chart.map((x: any) => x.steps));
   const rows = data
-    ? tab === 'Workflows'
-      ? data.workflows
-      : tab === 'Agents'
-        ? data.agents
-        : tab === 'Models'
-          ? data.models
-          : data.failures
+    ? tab === 'Agents'
+      ? data.agents
+      : tab === 'Models'
+        ? data.models
+        : data.workflows
     : [];
+  const failures = data?.failures || [];
   return (
-    <div className="studio-content">
-      <div className="studio-section-heading">
-        <div>
-          <h1>Usage & diagnostics</h1>
-        </div>
-        <div className="studio-usage-filters">
+    <div className="simple-page wide">
+      <div className="simple-top">
+        <h1>Usage</h1>
+        <div className="simple-actions">
+          <AdvancedSwitch on={advanced} toggle={toggleAdvanced} />
           <select
-            aria-label="Usage date range"
+            className="simple-select"
+            aria-label="Time range"
             value={range}
             onChange={(e) => setRange(e.target.value)}
           >
@@ -1307,161 +1265,118 @@ function UsageDiagnostics({
             <option value="7d">Last 7 days</option>
             <option value="all">All time</option>
           </select>
-          <select
-            aria-label="Usage execution mode"
-            value={mode}
-            onChange={(e) => setMode(e.target.value)}
-          >
-            <option value="all">All executions</option>
-            <option value="live">Live only</option>
-            <option value="fixture">Fixtures only</option>
-          </select>
+          {advanced && (
+            <select
+              className="simple-select"
+              aria-label="Run mode"
+              value={mode}
+              onChange={(e) => setMode(e.target.value)}
+            >
+              <option value="all">All runs</option>
+              <option value="live">Live only</option>
+              <option value="fixture">Test only</option>
+            </select>
+          )}
         </div>
       </div>
       {error && <div className="studio-alert error">{error}</div>}
-      <div className="studio-stat-grid">
-        {[
-          {
-            label: 'Provider-reported tokens',
-            value: number(data?.totals.tokens),
-            sub: 'Fixture model calls report zero',
-          },
-          {
-            label: 'Workflow runs',
-            value: number(data?.totals.runs),
-            sub: 'Runs with observed steps',
-          },
-          {
-            label: 'Average step time',
-            value: (Number(data?.totals.avg_ms || 0) / 1000).toFixed(1) + 's',
-            sub: 'Observed model and tool latency',
-          },
-          {
-            label: 'Failed steps',
-            value: number(data?.totals.failures),
-            sub: 'Open diagnostics for details',
-          },
-        ].map((item) => (
-          <article key={item.label}>
-            <span>
-              {item.label}
-              <Activity size={15} />
-            </span>
-            <strong>{data ? item.value : '—'}</strong>
-            <small>{item.sub}</small>
-          </article>
-        ))}
-      </div>
-      <section className="studio-usage-chart">
+      <UsageChart charts={placeholderUsageCharts(range as UsageRange)} sample />
+      <dl className="simple-stats">
         <div>
-          <h2>Execution activity</h2>
-          <span>Last 24 hours · all modes · completed steps</span>
-          <small>PostgreSQL · actual observations</small>
+          <dt>Runs</dt>
+          <dd>{data ? number(data.totals.runs) : '—'}</dd>
         </div>
-        {usage.chart.length ? (
-          <div className="studio-bars">
-            {usage.chart.map((x: any) => (
-              <div key={x.bucket} title={`${x.steps} steps · ${x.tokens} tokens`}>
-                <span style={{ height: Math.max(4, (x.steps / max) * 135) }} />
-                <small>{new Date(x.bucket).getHours()}:00</small>
-              </div>
-            ))}
+        <div>
+          <dt>Problems</dt>
+          <dd className={failures.length ? 'stopped' : ''}>
+            {data ? number(failures.length) : '—'}
+          </dd>
+        </div>
+        <div>
+          <dt>Credits left</dt>
+          <dd>{number(usage.balance)}</dd>
+        </div>
+        {advanced && (
+          <div>
+            <dt>Average step</dt>
+            <dd>{data ? (Number(data.totals.avg_ms || 0) / 1000).toFixed(1) + 's' : '—'}</dd>
           </div>
+        )}
+      </dl>
+
+      <section className="simple-section">
+        <h2>Problems{failures.length > 0 && ' · ' + failures.length}</h2>
+        {failures.length ? (
+          <ul className="simple-list">
+            {failures.map((r: any, i: number) => (
+              <li key={i}>
+                <div>
+                  <b>{r.name} did not finish</b>
+                  <small>
+                    {r.workflow_name} · {day(r.created_at)}
+                  </small>
+                  {advanced && r.error && <small className="simple-detail">{r.error}</small>}
+                </div>
+                <button className="simple-button" onClick={() => onRun(r.run_id)}>
+                  Open
+                </button>
+              </li>
+            ))}
+          </ul>
         ) : (
-          <Empty title="No completed steps yet">Your execution chart appears after a run.</Empty>
+          <p className="simple-empty">{data ? 'No problems.' : 'Loading…'}</p>
         )}
       </section>
-      <section className="studio-diagnostics">
-        <div className="studio-diagnostics-heading">
-          <h2>Where it was used</h2>
-          <span>
-            {range === 'all' ? 'All time' : range === '7d' ? 'Last 7 days' : 'Last 24 hours'} ·{' '}
-            {mode === 'all' ? 'all modes' : mode}
-          </span>
-        </div>
-        <div className="studio-filter-tabs">
-          {['Workflows', 'Agents', 'Models', 'Failures'].map((t) => (
-            <button key={t} className={tab === t ? 'selected' : ''} onClick={() => setTab(t)}>
-              {t}
-              {t === 'Failures' && data?.failures.length > 0 && <span>{data.failures.length}</span>}
-            </button>
-          ))}
-        </div>
-        <div className="studio-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                {(tab === 'Failures'
-                  ? ['Step / workflow', 'Model', 'Error', 'Date']
-                  : [
-                      'Name',
-                      tab === 'Workflows' ? 'Runs' : 'Calls',
-                      'Tokens',
-                      tab === 'Workflows' ? 'Total time' : 'Avg. time',
-                      'Failed steps',
-                    ]
-                ).map((t) => (
-                  <th key={t}>{t}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r: any, i: number) => (
-                <tr key={i}>
-                  {tab === 'Failures' ? (
-                    <>
-                      <td>
-                        <button onClick={() => onRun(r.run_id)}>
-                          <b>{r.name}</b>
-                          <small>{r.workflow_name}</small>
-                        </button>
-                      </td>
-                      <td>
-                        <code>{r.model}</code>
-                      </td>
-                      <td>{r.error || 'Step failed; inspect the run.'}</td>
-                      <td>{day(r.created_at)}</td>
-                    </>
-                  ) : (
-                    <>
-                      <td>
-                        {tab === 'Workflows' && r.id ? (
-                          <Link href={'/workflows/' + r.id}>
-                            {r.name}
-                            <ArrowUpRight size={12} />
-                          </Link>
-                        ) : (
-                          <b>{r.name || r.model}</b>
-                        )}
-                        {r.mode && <small>{r.mode}</small>}
-                      </td>
-                      <td>{number(r.runs ?? r.calls)}</td>
-                      <td>{number(r.tokens)}</td>
-                      <td>{(Number(r.duration_ms ?? r.avg_ms) / 1000).toFixed(1)}s</td>
-                      <td>
-                        <span className={r.failures ? 'studio-error-number' : ''}>
-                          {number(r.failures)}
-                        </span>
-                      </td>
-                    </>
-                  )}
-                </tr>
+
+      {advanced && (
+        <section className="simple-section">
+          <div className="simple-toolbar">
+            <h2>Breakdown</h2>
+            <div className="simple-tabs" role="group" aria-label="Group usage by">
+              {['Workflows', 'Agents', 'Models'].map((t) => (
+                <button key={t} aria-pressed={tab === t} onClick={() => setTab(t)}>
+                  {t}
+                </button>
               ))}
-            </tbody>
-          </table>
-          {!rows.length && (
-            <Empty title={data ? 'No observations in this view' : 'Loading diagnostics…'}>
-              {data
-                ? 'Try another date range or execution mode.'
-                : 'Reading persisted execution steps.'}
-            </Empty>
-          )}
-        </div>
-      </section>
-      <p className="studio-usage-footnote">
-        Totals come from recorded steps. Retries that fail before an observation is persisted can be
-        missing. Cost estimates are not invoices.
-      </p>
+            </div>
+          </div>
+          <div className="simple-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>{tab === 'Workflows' ? 'Runs' : 'Calls'}</th>
+                  <th>Tokens</th>
+                  <th>{tab === 'Workflows' ? 'Total time' : 'Average time'}</th>
+                  <th>Problems</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r: any, i: number) => (
+                  <tr key={i}>
+                    <td>
+                      {tab === 'Workflows' && r.id ? (
+                        <Link href={'/workflows/' + r.id}>{r.name}</Link>
+                      ) : (
+                        r.name || r.model
+                      )}
+                    </td>
+                    <td>{number(r.runs ?? r.calls)}</td>
+                    <td>{number(r.tokens)}</td>
+                    <td>{(Number(r.duration_ms ?? r.avg_ms) / 1000).toFixed(1)}s</td>
+                    <td className={r.failures ? 'stopped' : ''}>{number(r.failures)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!rows.length && <p className="simple-empty">Nothing recorded in this range.</p>}
+          </div>
+          <p className="simple-note">
+            Totals come from recorded steps. Test runs report zero tokens. Costs are estimates, not
+            invoices.
+          </p>
+        </section>
+      )}
     </div>
   );
 }

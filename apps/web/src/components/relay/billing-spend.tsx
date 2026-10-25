@@ -7,7 +7,7 @@ const money = (value: number) => new Intl.NumberFormat("en-US", { style: "curren
 
 export function BillingSpend({ days, agents }: {
   days: Array<{ date: string; label: string; amount: number }>;
-  agents: Array<{ id: string; name: string; amount: number }>;
+  agents: Array<{ id: string; name: string; amount: number; runs: Array<{ id: string; goal: string; date: string; amount: number }> }>;
 }) {
   const [range, setRange] = useState(14);
   const [active, setActive] = useState<string | null>(null);
@@ -27,7 +27,25 @@ export function BillingSpend({ days, agents }: {
       {total === 0 && <p className="bill-caption">No spending in this period.</p>}
     </section>
     <section className="bill-panel"><div className="bill-panel-head"><h2>Cost by agent</h2><span className="bill-caption">This month</span></div>
-      <div className="bill-cost-list">{agents.length ? agents.map((agent) => <Link href={agent.id === "red-team-group" ? "/agents" : `/agents/${agent.id}`} key={agent.id} className="bill-cost-row"><span>{agent.name}</span><b>{money(agent.amount)}</b><div><i style={{ width: `${agentTotal ? agent.amount / agentTotal * 100 : 0}%` }} /></div></Link>) : <p className="bill-empty">No agent spending this month.</p>}</div>
+      <div className="bill-cost-list">{agents.length ? agents.map((agent) => (
+        <details key={agent.id} className="bill-cost-detail">
+          <summary className="bill-cost-row">
+            <span>{agent.name}<span className="bill-cost-chevron" aria-hidden>›</span></span>
+            <b>{money(agent.amount)}</b>
+            <div><i style={{ width: `${agentTotal ? agent.amount / agentTotal * 100 : 0}%` }} /></div>
+          </summary>
+          <div className="bill-cost-runs">
+            <p>{agent.runs.length} {agent.runs.length === 1 ? "run" : "runs"} this month</p>
+            {agent.runs.map((run) => (
+              <Link key={run.id} href={`/runs/${run.id}`} className="bill-cost-run">
+                <span>{run.goal || "Untitled run"}<small>{run.date}</small></span>
+                <b>{money(run.amount)} <span aria-hidden>↗</span></b>
+              </Link>
+            ))}
+            <div className="bill-cost-total"><span>Total</span><b>{money(agent.amount)}</b></div>
+          </div>
+        </details>
+      )) : <p className="bill-empty">No agent spending this month.</p>}</div>
     </section>
   </div>;
 }

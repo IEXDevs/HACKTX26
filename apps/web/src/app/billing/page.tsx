@@ -30,13 +30,20 @@ export default async function BillingPage() {
     const key = dateKey(day);
     return { date: key, label: day.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/Chicago" }), amount: sum(history.filter((run) => dateKey(run.startedAt) === key)) };
   });
-  const totals = new Map<string, number>();
+  const totals = new Map<string, Array<{ id: string; goal: string; date: string; amount: number }>>();
   for (const run of monthRuns) {
     const name = names.get(run.agentId) ?? "";
     const id = /red[\s_-]*teams?\b/i.test(name) ? "red-team-group" : run.agentId;
-    totals.set(id, (totals.get(id) ?? 0) + run.costUsd);
+    const entries = totals.get(id) ?? [];
+    entries.push({ id: run.id, goal: run.goal, date: dateKey(run.startedAt), amount: run.costUsd });
+    totals.set(id, entries);
   }
-  const costs = [...totals].map(([id, amount]) => ({ id, name: id === "red-team-group" ? "Red Team" : names.get(id) ?? "Archived agent", amount })).sort((a, b) => b.amount - a.amount);
+  const costs = [...totals].map(([id, entries]) => ({
+    id,
+    name: id === "red-team-group" ? "Red Team" : names.get(id) ?? "Archived agent",
+    amount: entries.reduce((total, entry) => total + entry.amount, 0),
+    runs: entries,
+  })).sort((a, b) => b.amount - a.amount);
 
   return (
     <div className="page billing-page">

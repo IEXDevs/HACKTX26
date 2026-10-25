@@ -83,9 +83,9 @@ button.glass-pill:hover:not(:disabled) {
 .composer-hero {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   gap: 6px;
-  margin: 28px 0 20px;
+  margin: 44px 0 28px;
 }
 .agent-head {
   display: flex;
@@ -128,7 +128,119 @@ button.glass-pill:hover:not(:disabled) {
   font-size: 36px;
   font-weight: 600;
   letter-spacing: -1px;
-  text-align: left;
+  text-align: center;
+}
+
+/* The hero orb: it floats, its glow breathes, light swirls inside it, and
+   sparkles rise around it. The small orb on the agent page stays still. */
+.orb-stage {
+  position: relative;
+  display: block;
+  width: 92px;
+  height: 92px;
+  margin-bottom: 22px;
+  animation: orb-float 7s ease-in-out infinite;
+}
+.orb-stage .composer-orb {
+  position: relative;
+  display: block;
+  margin: 0;
+  overflow: hidden;
+  isolation: isolate;
+  animation: orb-glow 5s ease-in-out infinite;
+}
+/* A soft swirl of light turning slowly under the surface. */
+.orb-stage .composer-orb::before {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  z-index: -1;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0 12%,
+    rgba(160, 255, 205, 0.55) 22%,
+    transparent 38%,
+    rgba(255, 255, 255, 0.32) 55%,
+    transparent 68%,
+    rgba(110, 220, 170, 0.5) 82%,
+    transparent 100%
+  );
+  filter: blur(9px);
+  mix-blend-mode: screen;
+  animation: orb-swirl 11s linear infinite;
+}
+/* The highlight drifts a little, as if light is moving across glass. */
+.orb-stage .composer-orb::after {
+  content: "";
+  position: absolute;
+  top: 12%;
+  left: 18%;
+  width: 34%;
+  height: 24%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.85), transparent 70%);
+  filter: blur(2px);
+  animation: orb-shine 7s ease-in-out infinite;
+}
+.orb-spark {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff 0 22%, rgba(190, 255, 220, 0.9) 38%, transparent 72%);
+  opacity: 0;
+  pointer-events: none;
+  animation: orb-spark 4.8s ease-in-out infinite;
+}
+.orb-spark:nth-of-type(1) { left: -14%; top: 58%; animation-delay: 0s; }
+.orb-spark:nth-of-type(2) { left: 104%; top: 22%; width: 7px; height: 7px; animation-delay: 1.1s; }
+.orb-spark:nth-of-type(3) { left: 88%; top: 84%; width: 11px; height: 11px; animation-delay: 2.3s; }
+.orb-spark:nth-of-type(4) { left: 6%; top: -12%; width: 6px; height: 6px; animation-delay: 3.2s; }
+.orb-spark:nth-of-type(5) { left: 52%; top: -22%; width: 8px; height: 8px; animation-delay: 4s; }
+@keyframes orb-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-9px); }
+}
+@keyframes orb-glow {
+  0%, 100% {
+    box-shadow:
+      0 18px 44px rgba(19, 78, 47, 0.32),
+      0 0 0 0 rgba(130, 214, 164, 0),
+      inset 0 -8px 18px rgba(4, 25, 14, 0.45),
+      inset 0 4px 10px rgba(255, 255, 255, 0.25);
+  }
+  50% {
+    box-shadow:
+      0 22px 56px rgba(19, 78, 47, 0.4),
+      0 0 38px 8px rgba(130, 214, 164, 0.5),
+      inset 0 -8px 18px rgba(4, 25, 14, 0.4),
+      inset 0 4px 14px rgba(255, 255, 255, 0.34);
+  }
+}
+@keyframes orb-swirl {
+  to { transform: rotate(360deg); }
+}
+@keyframes orb-shine {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.9; }
+  50% { transform: translate(14%, 18%) scale(1.15); opacity: 0.6; }
+}
+@keyframes orb-spark {
+  0% { opacity: 0; transform: translateY(8px) scale(0.3); }
+  25% { opacity: 1; transform: translateY(-2px) scale(1); }
+  60% { opacity: 0.85; transform: translateY(-14px) scale(0.8); }
+  100% { opacity: 0; transform: translateY(-26px) scale(0.2); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .orb-stage,
+  .orb-stage .composer-orb,
+  .orb-stage .composer-orb::before,
+  .orb-stage .composer-orb::after {
+    animation: none;
+  }
+  .orb-spark {
+    display: none;
+  }
 }
 .composer-form {
   display: grid;

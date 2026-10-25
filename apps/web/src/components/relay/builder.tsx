@@ -241,7 +241,14 @@ export function Builder({ templates }: { templates: BuilderTemplate[] }) {
       ) : (
         <>
           <div className="composer-hero">
-            <span className="composer-orb" aria-hidden />
+            <span className="orb-stage" aria-hidden>
+              <span className="composer-orb" />
+              <i className="orb-spark" />
+              <i className="orb-spark" />
+              <i className="orb-spark" />
+              <i className="orb-spark" />
+              <i className="orb-spark" />
+            </span>
             <h1 className="composer-title">Create agent</h1>
           </div>
           <Box

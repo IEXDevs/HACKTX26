@@ -191,7 +191,6 @@ export function Workflow({
                 agents={graph.agents}
                 tasks={graph.tasks}
                 flows={graph.flows}
-                dispatchAgents={graph.dispatchAgents}
               />
             </div>
           ) : null}

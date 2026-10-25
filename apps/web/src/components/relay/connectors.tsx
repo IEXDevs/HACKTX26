@@ -284,7 +284,9 @@ export function ConnectorsView({
             ))}
           </ul>
         ) : (
-          <p className="empty">No documents yet. Add one and agents can search it.</p>
+          <p className="empty" style={{ marginTop: 12 }}>
+            No documents yet. Add one and agents can search it.
+          </p>
         )}
 
         <form

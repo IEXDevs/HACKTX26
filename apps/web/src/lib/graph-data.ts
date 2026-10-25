@@ -22,6 +22,10 @@ export interface GraphAgent {
   summary: string;
   parentAgentId: string | null;
   model: string;
+  /** Catalog id of the model the agent runs on, when known. Colors the node. */
+  modelId: string | null;
+  /** Model provider, e.g. "meta" or "anthropic". Picks the mark in the node. */
+  provider: string;
   complexity: string;
   dataClass: string;
   tools: string[];
@@ -56,23 +60,12 @@ export interface GraphFlow {
   kind: "own" | "info";
 }
 
-export interface GraphDispatchAgent {
-  id: string;
-  name: string;
-  role: string;
-  status: string;
-  dataClass: string;
-  runBudgetUsd: number | null;
-  defaultGoal: string;
-}
-
 export interface GraphSnapshot {
   workflowId: string;
   workflowName: string;
   agents: GraphAgent[];
   tasks: GraphTask[];
   flows: GraphFlow[];
-  dispatchAgents: GraphDispatchAgent[];
   live: boolean;
 }
 
@@ -88,12 +81,11 @@ function teamIds(all: AgentRow[], rootId: string): Set<string> {
   return ids;
 }
 
-function modelLabel(id: string): string {
-  return MODEL_BY_ID.get(id)?.label ?? id;
-}
+const FALLBACK_MODEL = "muse-spark-1.3";
 
-function provisionedLabel(agent: AgentRow, deniedModelIds: string[], recorded?: string | null): string {
-  if (recorded && MODEL_BY_ID.has(recorded)) return modelLabel(recorded);
+/** The model an agent ran on, or the one the router would pick for it now. */
+function provisionedModel(agent: AgentRow, deniedModelIds: string[], recorded?: string | null): string {
+  if (recorded && MODEL_BY_ID.has(recorded)) return recorded;
   try {
     const result = routeModel({
       complexity: agent.complexity as TaskComplexity,
@@ -107,9 +99,9 @@ function provisionedLabel(agent: AgentRow, deniedModelIds: string[], recorded?: 
         agent.modelPolicy.mode === "pinned" ? (agent.modelPolicy.pinnedModelId ?? undefined) : undefined,
       deniedModelIds: [...deniedModelIds, ...agent.modelPolicy.deniedModelIds],
     });
-    return modelLabel(result.chosenModel);
+    return result.chosenModel;
   } catch {
-    return "Muse Spark 1.3";
+    return FALLBACK_MODEL;
   }
 }
 
@@ -161,6 +153,8 @@ export async function workflowGraph(
               ? "succeeded"
               : latest?.status;
     const provisioned = projected?.model || (agent.modelPolicy.mode === "pinned" ? agent.modelPolicy.pinnedModelId : null);
+    const modelId = provisionedModel(agent, denied, provisioned);
+    const catalog = MODEL_BY_ID.get(modelId);
     const kind: GraphAgent["kind"] =
       agent.role === "security"
         ? agent.parentAgentId && agents.find((row) => row.id === agent.parentAgentId)?.role === "security"
@@ -177,7 +171,9 @@ export async function workflowGraph(
       status: agent.status,
       summary: agent.summary,
       parentAgentId: agent.parentAgentId,
-      model: provisionedLabel(agent, denied, provisioned),
+      model: catalog?.label ?? modelId,
+      modelId: catalog ? modelId : null,
+      provider: catalog?.provider ?? "unknown",
       complexity: agent.complexity,
       dataClass: agent.dataClass,
       tools: agent.allowedTools,
@@ -247,19 +243,5 @@ export async function workflowGraph(
     tasks,
     flows,
     live,
-    dispatchAgents: visible
-      .filter((agent) => agent.status === "active")
-      .map((agent) => {
-        const policy = policies.find((entry) => entry.agentId === agent.id && entry.period === "run");
-        return {
-          id: agent.id,
-          name: agent.name,
-          role: agent.role,
-          status: agent.status,
-          dataClass: agent.dataClass,
-          runBudgetUsd: policy?.limitUsd ?? null,
-          defaultGoal: agent.defaultGoal,
-        };
-      }),
   };
 }

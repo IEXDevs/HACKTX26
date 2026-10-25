@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { buildGraph, validateGraph, type AgentConfig } from "@agent-os/core";
+import { treeContaining } from "@/lib/agent-tree";
 import { getDb } from "@/lib/db/client";
 import { agents, auditLog } from "@/lib/db/schema";
 import { newId } from "@/lib/env";
@@ -63,10 +64,14 @@ export async function PATCH(
   if (parsed.data.status === "active") {
     const all = await db.select().from(agents).where(eq(agents.workspaceId, workspace.id));
     const next = all.map((row) => (row.id === id ? { ...row, status: "active" as const } : row));
-    const issues = validateGraph(buildGraph(next.map(toConfig)));
+    // Only this agent's own team is checked. The rest of the workspace is not its problem.
+    const issues = validateGraph(buildGraph(treeContaining(next, id).map(toConfig)));
     const errors = issues.filter((issue) => issue.severity === "error");
     if (errors.length > 0) {
-      return Response.json({ error: "Graph is invalid.", issues }, { status: 409 });
+      return Response.json(
+        { error: `Graph is invalid. ${errors.map((issue) => issue.message).join(" ")}`, issues },
+        { status: 409 },
+      );
     }
   }
 

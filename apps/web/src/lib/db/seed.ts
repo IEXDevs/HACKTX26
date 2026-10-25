@@ -430,7 +430,18 @@ export async function seedDatabase(): Promise<void> {
     name: "Astronom Platform",
     slug: "astronom-platform",
     defaultDataClass: "internal",
-    deniedModelIds: ["openai/gpt-5.4-mini"],
+    deniedModelIds: [
+      // Live inference runs on Meta Model API; the router may only pick
+      // models the configured gateway can actually serve.
+      "anthropic/claude-opus-4-6",
+      "anthropic/claude-sonnet-4-6",
+      "anthropic/claude-haiku-4-5",
+      "openai/gpt-5.4",
+      "openai/gpt-5.4-mini",
+      "google/gemini-3-pro",
+      "selfhost/llama-4-70b",
+      "selfhost/qwen-3-coder-32b",
+    ],
     defaultRunBudgetUsd: 2.5,
     createdAt: new Date(now - 120 * 24 * HOUR),
   });
@@ -693,7 +704,7 @@ export async function seedDatabase(): Promise<void> {
       instructions:
         "Run the batch job in resumable shards. Report progress honestly. If the budget ceiling will be hit before completion, stop and report rather than degrade the job.",
       inheritedPromptBlockIds: ["pb_data_handling"],
-      modelPolicy: { mode: "pinned" as const, pinnedModelId: "selfhost/llama-4-70b", costSensitivity: 0.9, latencySensitivity: 0.1, floorComplexity: "standard" as const, deniedModelIds: [] },
+      modelPolicy: { mode: "pinned" as const, pinnedModelId: "meta/muse-spark-1.1", costSensitivity: 0.9, latencySensitivity: 0.1, floorComplexity: "standard" as const, deniedModelIds: [] },
       grants: [{ resource: "shell.exec", scopes: ["execute" as const] }],
       allowedTools: ["shell.exec", "fs.read", "fs.write", "memory.write"],
       complexity: "standard" as const,
@@ -1113,7 +1124,7 @@ export async function seedDatabase(): Promise<void> {
     { id: "aud_3", workspaceId: WS, actor: "Sid Chevvan", action: "approval.approved", targetType: "approval", targetId: "apr_seed_shell", detail: { runId: RUN_INCIDENT, resource: "shell.exec" }, at: new Date(incidentStart.getTime() + 62_000) },
     { id: "aud_4", workspaceId: WS, actor: "Sid Chevvan", action: "approval.denied", targetType: "approval", targetId: "apr_seed_merge", detail: { runId: RUN_REVIEW, resource: "cli:prod-merge", reason: "Blocking change outstanding" }, at: new Date(reviewStart.getTime() + 18_000) },
     { id: "aud_5", workspaceId: WS, actor: "Maya Okonkwo", action: "credential.rotated", targetType: "credential", targetId: "cred_github", detail: { connector: "GitHub", scopes: ["repo:read", "pr:write"] }, at: new Date(now - 12 * 24 * HOUR) },
-    { id: "aud_6", workspaceId: WS, actor: "Sid Chevvan", action: "policy.updated", targetType: "workspace", targetId: WS, detail: { deniedModelIds: ["openai/gpt-5.4-mini"], reason: "data residency review" }, at: new Date(now - 20 * 24 * HOUR) },
+    { id: "aud_6", workspaceId: WS, actor: "Sid Chevvan", action: "policy.updated", targetType: "workspace", targetId: WS, detail: { deniedModelIds: ["anthropic/*", "openai/*", "google/*", "selfhost/*"], reason: "live inference runs on Meta Model API; router restricted to meta/*" }, at: new Date(now - 20 * 24 * HOUR) },
     { id: "aud_7", workspaceId: WS, actor: "Sid Chevvan", action: "approval.denied", targetType: "approval", targetId: "apr_seed_secret", detail: { runId: RUN_REDTEAM, resource: "secret.use" }, at: new Date(redteamStart.getTime() + 24_000) },
     { id: "aud_8", workspaceId: WS, actor: "Dev Patel", action: "approval.approved", targetType: "approval", targetId: "apr_seed_batch", detail: { runId: RUN_BACKFILL, resource: "shell.exec" }, at: new Date(backfillStart.getTime() + 11_000) },
     { id: "aud_9", workspaceId: WS, actor: "Sid Chevvan", action: "budget.updated", targetType: "agent", targetId: "agt_batch_ops", detail: { period: "run", from: 1.0, to: 0.4 }, at: new Date(now - 27 * 24 * HOUR) },

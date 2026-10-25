@@ -6,6 +6,7 @@
  *   open -> accepted -> proposed_fix -> approved -> applied -> retesting
  *        -> retest_passed -> fixed
  *        -> retest_failed -> proposed_fix (next round)
+ *   accepted -> duplicate (Triage merged it into an earlier case)
  *
  * Only retest_passed may become fixed. A fix alone never closes a finding.
  */
@@ -21,12 +22,13 @@ export const FINDING_STATUSES = [
   "retest_failed",
   "fixed",
   "false_positive",
+  "duplicate",
 ] as const;
 export type FindingStatus = (typeof FINDING_STATUSES)[number];
 
 const NEXT: Record<FindingStatus, readonly FindingStatus[]> = {
   open: ["accepted", "false_positive"],
-  accepted: ["proposed_fix", "false_positive"],
+  accepted: ["proposed_fix", "false_positive", "duplicate"],
   // A revised proposal replaces the last one and voids any approval of it.
   proposed_fix: ["proposed_fix", "approved", "false_positive"],
   approved: ["applied", "proposed_fix"],
@@ -36,6 +38,7 @@ const NEXT: Record<FindingStatus, readonly FindingStatus[]> = {
   retest_failed: ["proposed_fix"],
   fixed: [],
   false_positive: [],
+  duplicate: [],
 };
 
 export function canTransition(from: FindingStatus, to: FindingStatus): boolean {
@@ -57,6 +60,8 @@ export function isFindingStatus(value: unknown): value is FindingStatus {
 export const DEFAULT_MAX_ROUNDS = 3;
 export const DEFAULT_LOOP_BUDGET_USD = 2;
 export const DEFAULT_RETEST_RUN_BUDGET_USD = 0.25;
+/** A fix passes only after this many consecutive clean runs of the exact reproduction. */
+export const CLEAN_REPRODUCTION_RUNS = 3;
 
 /** What happens after a failed retest. */
 export function afterRetestFailure(round: number, maxRounds: number): "next_round" | "escalate" {
@@ -69,4 +74,17 @@ export function afterRetestFailure(round: number, maxRounds: number): "next_roun
  */
 export function roundFitsBudget(spentUsd: number, roundCostUsd: number, capUsd: number): boolean {
   return spentUsd + roundCostUsd <= capUsd + 1e-9;
+}
+
+/* ---------- Swarm cap ---------- */
+
+/** Red- and blue-team runs together may spend this share of the workspace's daily run budget. */
+export const SWARM_BUDGET_SHARE = 0.25;
+
+/**
+ * The swarm's daily cap. Without a daily workspace budget it falls back to a
+ * single default run's budget, which stops retests early rather than late.
+ */
+export function swarmCapUsd(dailyLimitUsd: number | null, defaultRunBudgetUsd: number): number {
+  return dailyLimitUsd === null ? defaultRunBudgetUsd : dailyLimitUsd * SWARM_BUDGET_SHARE;
 }

@@ -183,6 +183,11 @@ export const agents = sqliteTable(
     defaultGoal: text("default_goal").notNull().default(""),
     /** When set, reusable children are filed as templates the operator must approve. */
     proposeTemplates: integer("propose_templates", { mode: "boolean" }).notNull().default(false),
+    /**
+     * Red attacks agents, blue repairs them (lib/loop/blue-team.ts). One value
+     * per agent, so a blue agent and a red agent are never the same instance.
+     */
+    team: text("team", { enum: ["red", "blue"] }),
   },
   (t) => [
     uniqueIndex("agents_workspace_slug_idx").on(t.workspaceId, t.slug),
@@ -440,8 +445,14 @@ export const findingCases = sqliteTable(
       .default(sql`'[]'`),
     proposal: text("proposal", { mode: "json" }).$type<CaseProposal | null>(),
     approval: text("approval", { mode: "json" }).$type<CaseApproval | null>(),
-    /** open, escalated (waiting on a person), or closed (fixed or false positive). */
-    state: text("state", { enum: ["open", "escalated", "closed"] }).notNull().default("open"),
+    /**
+     * open (active), queued (behind another case for the same target),
+     * escalated (waiting on a person), verified (three clean retests), or
+     * closed (merged into another case).
+     */
+    state: text("state", { enum: ["open", "queued", "escalated", "verified", "closed"] })
+      .notNull()
+      .default("open"),
     escalationReason: text("escalation_reason"),
     round: integer("round").notNull().default(0),
     maxRounds: integer("max_rounds").notNull().default(3),
@@ -450,6 +461,14 @@ export const findingCases = sqliteTable(
     appliedVersion: integer("applied_version"),
     latestRetestRunId: text("latest_retest_run_id"),
     retests: text("retests", { mode: "json" }).$type<CaseRetest[]>().notNull().default(sql`'[]'`),
+    /** The blue-team agents working this case. */
+    crew: text("crew", { mode: "json" }).$type<CaseCrew>().notNull().default(sql`'{}'`),
+    triage: text("triage", { mode: "json" }).$type<CaseTriage | null>(),
+    /** Duplicate findings Triage folded into this case. */
+    mergedFindingIds: text("merged_finding_ids", { mode: "json" })
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'`),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   },
@@ -485,7 +504,7 @@ export interface CaseDelivery {
   at: string;
 }
 export interface CaseMessage {
-  from: "person" | "creator" | "platform";
+  from: "person" | "creator" | "blue_team" | "platform";
   text: string;
   at: string;
   proposalHash?: string;
@@ -501,8 +520,30 @@ export interface CaseProposal {
   change: CaseChange;
   diff: string;
   summary: string;
-  /** "live" when Muse wrote it, "suggested" when it came from the built-in rules. */
+  /** "live" when a model wrote it, "suggested" when it came from the built-in rules. */
   source: "live" | "suggested";
+  /** "agent-creator", or the id of the case's Fix Drafter. Older rows have none. */
+  draftedBy?: string;
+  at: string;
+}
+export interface CaseCrew {
+  leadId?: string;
+  /** One per finding. */
+  triageId?: string;
+  /** One per case. */
+  drafterId?: string;
+  /** One per retest round. Never the drafter. */
+  verifiers?: Array<{ agentId: string; round: number }>;
+  /** Lead runs the platform started for this case, one per step and round. */
+  dispatched?: Array<{ phase: "intake" | "draft" | "retest"; round: number; runId: string; at: string }>;
+}
+export interface CaseTriage {
+  by: string;
+  /** The platform's check that the reproduction is exact, not the agent's word. */
+  reproduces: boolean;
+  gaps: string[];
+  duplicateOf: string | null;
+  note: string;
   at: string;
 }
 export interface CaseApproval {
@@ -522,6 +563,9 @@ export interface CaseRetest {
   failures: Array<{ runId: string; reason: string }>;
   fixture: boolean;
   costUsd: number;
+  /** The Verifier of record for this round, and who started it. */
+  verifierId?: string;
+  requestedBy?: string;
   startedAt: string;
   finishedAt?: string;
 }

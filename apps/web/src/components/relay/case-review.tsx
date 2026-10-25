@@ -15,7 +15,7 @@ export interface CaseView {
   targetId: string;
   severity: string;
   status: string;
-  state: "open" | "escalated" | "closed";
+  state: "open" | "queued" | "escalated" | "verified" | "closed";
   escalationReason: string | null;
   round: number;
   maxRounds: number;
@@ -38,6 +38,7 @@ const statusWord: Record<string, string> = {
   retest_failed: "Retest failed",
   fixed: "Fixed",
   false_positive: "Not an issue",
+  duplicate: "Merged into another case",
 };
 const hopWord: Record<CaseHop["action"], string> = {
   reported: "Reported",
@@ -119,11 +120,19 @@ export function CaseReview({ view }: { view: CaseView }) {
           </div>
         </div>
       )}
+      {view.state === "queued" && (
+        <div className="callout">
+          <div>
+            <b>Waiting its turn.</b>
+            <p style={{ margin: "4px 0 0" }}>Another fix for {view.targetName} is in progress. This one starts when that one is done.</p>
+          </div>
+        </div>
+      )}
       {view.status === "fixed" && (
         <div className="callout">
           <div>
             <b>Fixed.</b>
-            <p style={{ margin: "4px 0 0" }}>The retest passed against the new version.</p>
+            <p style={{ margin: "4px 0 0" }}>The original problem stayed fixed three times in a row against the new version.</p>
           </div>
         </div>
       )}
@@ -157,10 +166,11 @@ export function CaseReview({ view }: { view: CaseView }) {
               <div key={i} className="chat-you">
                 <p>{m.text}</p>
               </div>
-            ) : m.from === "creator" ? (
+            ) : m.from === "creator" || m.from === "blue_team" ? (
               <div key={i} className="chat-builder">
                 <span className="chat-avatar" aria-hidden />
                 <div>
+                  {m.from === "blue_team" && <small className="case-source">Blue team</small>}
                   <RichText text={m.text} />
                 </div>
               </div>
@@ -179,7 +189,12 @@ export function CaseReview({ view }: { view: CaseView }) {
           <div className="card">
             <b>{view.proposal.summary}</b>
             <p className="case-source">
-              {view.proposal.source === "live" ? "Proposed by the agent creator" : "Suggested by the built-in rules"} ·
+              {view.proposal.draftedBy && view.proposal.draftedBy !== "agent-creator"
+                ? "Drafted by the blue team"
+                : view.proposal.source === "live"
+                  ? "Proposed by the agent creator"
+                  : "Suggested by the built-in rules"}{" "}
+              ·
               Changes {view.targetName} only
             </p>
             <pre className="case-diff">

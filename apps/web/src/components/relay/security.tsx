@@ -49,6 +49,7 @@ const statusWord: Record<string, string> = {
   retest_passed: "Retest passed",
   retest_failed: "Retest failed",
   false_positive: "Not an issue",
+  duplicate: "Merged",
 };
 
 async function send(url: string, method: string, body: unknown) {
@@ -81,8 +82,9 @@ export function SecurityView({
     [busy, setBusy] = useState<string | null>(null),
     [error, setError] = useState("");
   const live = issues.filter((i) => i.status === "open");
-  const fixing = issues.filter((i) => i.status !== "open" && i.status !== "fixed" && i.status !== "false_positive");
-  const resolved = issues.filter((i) => i.status === "fixed" || i.status === "false_positive");
+  const done = new Set(["fixed", "false_positive", "duplicate"]);
+  const fixing = issues.filter((i) => i.status !== "open" && !done.has(i.status));
+  const resolved = issues.filter((i) => done.has(i.status));
   const serious = live.filter((i) => i.severity === "critical" || i.severity === "high").length;
 
   async function act(id: string, fn: () => Promise<void>) {

@@ -728,7 +728,7 @@ export async function seedDatabase(): Promise<void> {
     .where(eq(agents.role, "orchestrator"));
   await db
     .update(agents)
-    .set({ rank: "intermediate", canSpawnSubagents: true })
+    .set({ rank: "intermediate", canSpawnSubagents: true, proposeTemplates: true })
     .where(eq(agents.id, "agt_red_team"));
   await db
     .update(agents)

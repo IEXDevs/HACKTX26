@@ -4,6 +4,15 @@
  * Everything here is inserted through the same tables the runtime writes to.
  * Run rows and task-log rows are *derived* from the seeded event streams via the
  * core projection, so the seed cannot drift from the event protocol.
+ *
+ * Two entry points:
+ * - `seedPlatform()` inserts only real configuration: the workspace, the
+ *   company prompt blocks, the template catalog, the two team leads, and their
+ *   budgets. This is what first boot and `db:reset` use. Everything else in the
+ *   product comes from what people actually do.
+ * - `seedDatabase()` adds a sample company on top: people, agents, runs,
+ *   findings, connectors. Tests and the smoke script use it. Nothing calls it
+ *   on boot.
  */
 import { and, eq, ne, or } from "drizzle-orm";
 import {
@@ -422,7 +431,20 @@ const RUN_SPECS: RunSpec[] = [
 /* Seed                                                                       */
 /* -------------------------------------------------------------------------- */
 
-export async function seedDatabase(): Promise<void> {
+/** The red and blue team leads are platform infrastructure; every other seeded agent is sample data. */
+const TEAM_LEAD_IDS = new Set(["agt_red_team", "agt_blue_team"]);
+
+/** Real configuration only. No sample people, agents, runs, findings, or connectors. */
+export function seedPlatform(): Promise<void> {
+  return seed(false);
+}
+
+/** Sample company on top of the platform config. For tests and local demos, never on boot. */
+export function seedDatabase(): Promise<void> {
+  return seed(true);
+}
+
+async function seed(demo: boolean): Promise<void> {
   const db = getDb();
   const existing = await db.select({ id: workspaces.id }).from(workspaces).limit(1);
   if (existing.length > 0) return;
@@ -445,10 +467,11 @@ export async function seedDatabase(): Promise<void> {
       "selfhost/qwen-3-coder-32b",
     ],
     defaultRunBudgetUsd: 2.5,
-    createdAt: new Date(now - 120 * 24 * HOUR),
+    createdAt: new Date(demo ? now - 120 * 24 * HOUR : now),
   });
 
-  await db.insert(users).values([
+  // People come from sign-in (upsertLocalUser). Only the sample company has made-up ones.
+  if (demo) await db.insert(users).values([
     { id: "usr_sid", workspaceId: WS, name: "Sid Chevvan", email: "sid@astronom.dev", role: "owner", avatarHue: 78, createdAt: new Date(now - 120 * 24 * HOUR) },
     { id: "usr_maya", workspaceId: WS, name: "Maya Okonkwo", email: "maya@astronom.dev", role: "admin", avatarHue: 186, createdAt: new Date(now - 118 * 24 * HOUR) },
     { id: "usr_dev", workspaceId: WS, name: "Dev Patel", email: "dev@astronom.dev", role: "engineer", avatarHue: 262, createdAt: new Date(now - 96 * 24 * HOUR) },
@@ -743,7 +766,18 @@ export async function seedDatabase(): Promise<void> {
     },
   ];
 
-  await db.insert(agents).values(agentRows);
+  // The team leads stand alone in the platform seed: the sample parent they hang under does not exist there.
+  const platformRows = agentRows
+    .filter((row) => TEAM_LEAD_IDS.has(row.id))
+    .map((row) => ({
+      ...row,
+      parentAgentId: null as string | null,
+      version: 1,
+      createdAt: new Date(now),
+      updatedAt: new Date(now),
+    }));
+  const seededAgents: Array<typeof agents.$inferInsert> = demo ? agentRows : platformRows;
+  await db.insert(agents).values(seededAgents);
 
   await db
     .update(agents)
@@ -887,6 +921,15 @@ export async function seedDatabase(): Promise<void> {
       createdAt: new Date(now - 62 * 24 * HOUR),
     },
   ]);
+
+  if (!demo) {
+    await db.insert(budgetPolicies).values([
+      { id: "bp_workspace_day", workspaceId: WS, agentId: null, period: "day", limitUsd: 40, warnAt: 0.75, hardStop: true, createdAt: new Date(now) },
+      { id: "bp_redteam_run", workspaceId: WS, agentId: "agt_red_team", period: "run", limitUsd: 1.5, warnAt: 0.8, hardStop: true, createdAt: new Date(now) },
+      { id: "bp_blueteam_run", workspaceId: WS, agentId: "agt_blue_team", period: "run", limitUsd: 0.5, warnAt: 0.8, hardStop: true, createdAt: new Date(now) },
+    ]);
+    return;
+  }
 
   /* ------------------------------------------------------------- connectors */
   await db.insert(connectors).values([
@@ -1208,10 +1251,12 @@ const isDirectRun =
   /seed\.(ts|js)$/.test(process.argv[1]);
 
 if (isDirectRun) {
-  seedDatabase()
+  // `pnpm db:seed` seeds platform config only. Add `-- --sample` for the sample company.
+  const sample = process.argv.includes("--sample");
+  (sample ? seedDatabase() : seedPlatform())
     .then(() => {
       // eslint-disable-next-line no-console
-      console.log("[seed] workspace seeded");
+      console.log(sample ? "[seed] sample workspace seeded" : "[seed] platform config seeded");
       process.exit(0);
     })
     .catch((error) => {

@@ -1,12 +1,13 @@
 /**
- * `pnpm db:reset` — delete the SQLite file and the sandbox tree, then re-seed.
+ * `pnpm db:reset` — delete the SQLite file and the sandbox tree, then seed the
+ * platform configuration (no sample data).
  * Used in development only; refuses to run against production.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { env } from "@/lib/env";
 import { getDb } from "./client";
-import { seedDatabase } from "./seed";
+import { seedPlatform } from "./seed";
 
 async function main() {
   if (env.isProduction) {
@@ -27,9 +28,9 @@ async function main() {
   const g = globalThis as unknown as { __agentOsDb?: unknown };
   delete g.__agentOsDb;
   getDb();
-  await seedDatabase();
+  await seedPlatform();
   // eslint-disable-next-line no-console
-  console.log("[db] reset + reseeded");
+  console.log("[db] reset + platform config seeded");
 }
 
 main().catch((error) => {

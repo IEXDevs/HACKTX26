@@ -247,6 +247,23 @@ export const credentials = sqliteTable("credentials", {
   rotatedAt: integer("rotated_at", { mode: "timestamp_ms" }),
 });
 
+/** Documents people add for agents to search. Nothing is preloaded. */
+export const kbDocuments = sqliteTable(
+  "kb_documents",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    dataClass: text("data_class").$type<DataClass>().notNull().default("internal"),
+    body: text("body").notNull(),
+    addedBy: text("added_by").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [index("kb_documents_workspace_idx").on(t.workspaceId)],
+);
+
 /* -------------------------------------------------------------------------- */
 /* Execution: runs + append-only event log                                    */
 /* -------------------------------------------------------------------------- */
@@ -679,6 +696,7 @@ export type PromptBlockRow = typeof promptBlocks.$inferSelect;
 export type AgentRow = typeof agents.$inferSelect;
 export type Connector = typeof connectors.$inferSelect;
 export type CredentialRow = typeof credentials.$inferSelect;
+export type KbDocumentRow = typeof kbDocuments.$inferSelect;
 export type RunRow = typeof runs.$inferSelect;
 export type RunEventRow = typeof runEvents.$inferSelect;
 export type ApprovalRow = typeof approvals.$inferSelect;

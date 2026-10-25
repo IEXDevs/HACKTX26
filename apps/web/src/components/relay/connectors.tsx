@@ -39,6 +39,20 @@ export interface ToolRow {
   label: string;
   risk: string;
 }
+export interface DocRow {
+  id: string;
+  title: string;
+  dataClass: string;
+  added: string;
+  characters: number;
+}
+
+const classWord: Record<string, string> = {
+  public: "Public",
+  internal: "Internal",
+  confidential: "Confidential",
+  restricted: "Restricted",
+};
 
 const kindIcon: Record<ConnectorCard["kind"], ComponentType<IconProps>> = {
   mcp: Plug,
@@ -66,13 +80,52 @@ export function ConnectorsView({
   keys: KeyRow[];
   query: string;
   hits: DocHit[];
-  documents: number;
+  documents: DocRow[];
   tools: ToolRow[];
 }) {
   const router = useRouter();
   const [search, setSearch] = useState(query),
     [checked, setChecked] = useState<Record<string, "ok" | "failed">>({}),
-    [busy, setBusy] = useState<string | null>(null);
+    [busy, setBusy] = useState<string | null>(null),
+    [title, setTitle] = useState(""),
+    [text, setText] = useState(""),
+    [dataClass, setDataClass] = useState("internal"),
+    [saving, setSaving] = useState(false),
+    [docError, setDocError] = useState<string | null>(null);
+
+  async function addDocument() {
+    setSaving(true);
+    setDocError(null);
+    try {
+      const response = await fetch("/api/kb", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title, body: text, dataClass }),
+      });
+      if (!response.ok) {
+        const value = await response.json().catch(() => ({}));
+        setDocError(typeof value.error === "string" ? value.error : "Could not save the document.");
+        return;
+      }
+      setTitle("");
+      setText("");
+      router.refresh();
+    } catch {
+      setDocError("Could not save the document.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeDocument(id: string) {
+    setBusy(id);
+    try {
+      await fetch(`/api/kb/${id}`, { method: "DELETE" });
+      router.refresh();
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function verify(id: string) {
     setBusy(id);
@@ -93,6 +146,7 @@ export function ConnectorsView({
         <h1>Connectors</h1>
       </div>
 
+      {connectors.length === 0 && <p className="empty">No connectors yet.</p>}
       <div className="tile-grid">
         {connectors.map((c) => {
           const Icon = kindIcon[c.kind];
@@ -162,9 +216,9 @@ export function ConnectorsView({
 
       <section>
         <div className="toolbar">
-          <h2>Search your documents</h2>
+          <h2>Your documents</h2>
           <span className="detail" style={{ color: "var(--muted)" }}>
-            {documents} documents
+            {documents.length} {documents.length === 1 ? "document" : "documents"}
           </span>
         </div>
         <form
@@ -206,6 +260,80 @@ export function ConnectorsView({
             )}
           </ul>
         )}
+
+        {documents.length ? (
+          <ul className="list" style={{ marginTop: 12 }}>
+            {documents.map((d) => (
+              <li key={d.id}>
+                <div>
+                  <b>{d.title}</b>
+                  <small>
+                    {classWord[d.dataClass] ?? d.dataClass} · {d.characters.toLocaleString()} characters ·
+                    Added {d.added}
+                  </small>
+                </div>
+                <button
+                  className="btn small"
+                  disabled={busy === d.id}
+                  onClick={() => void removeDocument(d.id)}
+                >
+                  {busy === d.id && <LoaderCircle size={14} className="animate-spin" />}
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="empty">No documents yet. Add one and agents can search it.</p>
+        )}
+
+        <form
+          style={{ marginTop: 16, display: "grid", gap: 10 }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            void addDocument();
+          }}
+        >
+          <label className="field">
+            Title
+            <input
+              value={title}
+              maxLength={120}
+              placeholder="What is this document?"
+              onChange={(e) => setTitle(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            Who may read it
+            <select value={dataClass} onChange={(e) => setDataClass(e.target.value)}>
+              <option value="public">Public</option>
+              <option value="internal">Internal</option>
+              <option value="confidential">Confidential</option>
+              <option value="restricted">Restricted</option>
+            </select>
+          </label>
+          <label className="field">
+            Text
+            <textarea
+              value={text}
+              maxLength={60000}
+              rows={6}
+              placeholder="Paste the document here."
+              onChange={(e) => setText(e.target.value)}
+            />
+          </label>
+          {docError && <p className="error-text">{docError}</p>}
+          <div>
+            <button
+              type="submit"
+              className="btn primary"
+              disabled={saving || title.trim().length < 2 || !text.trim()}
+            >
+              {saving && <LoaderCircle size={15} className="animate-spin" aria-hidden />}
+              Add document
+            </button>
+          </div>
+        </form>
       </section>
       </div>
     </div>

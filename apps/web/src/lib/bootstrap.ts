@@ -1,14 +1,16 @@
 import { getDb } from "./db/client";
 import { workspaces } from "./db/schema";
-import { seedDatabase } from "./db/seed";
+import { seedPlatform } from "./db/seed";
 
 let bootstrapPromise: Promise<void> | null = null;
 
 /**
- * First-request bootstrap: migrate (handled by getDb) and seed once.
+ * First-request bootstrap: migrate (handled by getDb) and seed the platform
+ * configuration once.
  *
- * Deliberately not a build step — a reviewer should be able to `pnpm dev` on a
- * clean clone and land in a populated workspace.
+ * Deliberately not a build step — `pnpm dev` on a clean clone lands in a
+ * working workspace. It starts empty: no sample people, agents, or runs. Every
+ * number in the UI comes from what the workspace actually did.
  */
 export function ensureBootstrapped(): Promise<void> {
   if (!bootstrapPromise) {
@@ -16,7 +18,7 @@ export function ensureBootstrapped(): Promise<void> {
       const db = getDb();
       const existing = await db.select({ id: workspaces.id }).from(workspaces).limit(1);
       if (existing.length === 0) {
-        await seedDatabase();
+        await seedPlatform();
       }
     })().catch((error) => {
       bootstrapPromise = null;

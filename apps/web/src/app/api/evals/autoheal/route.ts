@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { requireWorkspace } from "@/lib/queries";
+import { person } from "@/lib/loop/cases";
+import { getWorkspaceContext } from "@/lib/queries";
 import { healFinding, healWorkspace } from "@/lib/runtime/autoheal";
 
 export const dynamic = "force-dynamic";
@@ -11,11 +12,10 @@ const Body = z.object({
 });
 
 /**
- * Lock in a hard boundary derived from a red-team finding.
- *
- * The result is an org-level prompt block attached to every agent. Re-running
- * the eval suite after this is an honest test: the trace either shows the rule
- * being respected or it does not.
+ * Propose fixes for red-team findings. Nothing is applied and nothing is
+ * marked fixed here: each proposal waits for a person's approval in its case,
+ * and only a passing retest closes a finding. The person who calls this
+ * accepts the findings it covers.
  */
 export async function POST(request: NextRequest) {
   const parsed = Body.safeParse(await request.json().catch(() => ({})));
@@ -26,21 +26,23 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const workspace = await requireWorkspace();
+  const { workspace, user } = await getWorkspaceContext();
+  const actor = person(user?.email ?? "operator@local");
 
   try {
-    const healed = parsed.data.findingId
-      ? [await healFinding(workspace.id, parsed.data.findingId)]
-      : await healWorkspace(workspace.id, parsed.data.limit ?? 3);
+    const proposed = parsed.data.findingId
+      ? [await healFinding(workspace.id, parsed.data.findingId, actor)]
+      : await healWorkspace(workspace.id, actor, parsed.data.limit ?? 3);
+    const waiting = proposed.filter((p) => p.status === "awaiting_approval").length;
 
     return Response.json(
       {
-        healed,
-        healedCount: healed.length,
+        proposed,
+        proposedCount: proposed.length,
         message:
-          healed.length === 0
-            ? "No open high or critical findings to heal."
-            : `${healed.length} guardrail${healed.length === 1 ? "" : "s"} locked into the company prompt stack.`,
+          proposed.length === 0
+            ? "No open high or critical findings to fix."
+            : `${waiting} fix${waiting === 1 ? "" : "es"} proposed. Each one waits for your approval.`,
       },
       { status: 201 },
     );

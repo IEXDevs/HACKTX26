@@ -4,18 +4,19 @@ import { z } from "zod";
 import { getDb } from "@/lib/db/client";
 import { auditLog, securityFindings } from "@/lib/db/schema";
 import { newId } from "@/lib/env";
+import { canTransition } from "@/lib/loop/lifecycle";
 import { getWorkspaceContext, requireWorkspace } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
-const Body = z.object({
-  status: z.enum(["open", "accepted", "fixed", "false_positive"]),
-});
-
 /**
- * Triage is a state machine on the finding itself. It is deliberately separate
- * from the run that produced it: the trace is immutable, the disposition is not.
+ * Triage only: a person may mark a finding not an issue. Accepting a finding
+ * opens its feedback-loop case (POST /api/cases), and "fixed" is reachable
+ * only through a passing retest, so neither is settable here.
  */
+const Body = z.object({
+  status: z.enum(["false_positive"]),
+});
 export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
@@ -36,6 +37,13 @@ export async function PATCH(
 
   if (!finding || finding.workspaceId !== workspace.id) {
     return Response.json({ error: "Finding not found." }, { status: 404 });
+  }
+
+  if (!canTransition(finding.status, parsed.data.status)) {
+    return Response.json(
+      { error: `A ${finding.status.replaceAll("_", " ")} finding cannot be marked not an issue.` },
+      { status: 409 },
+    );
   }
 
   const { user } = await getWorkspaceContext();

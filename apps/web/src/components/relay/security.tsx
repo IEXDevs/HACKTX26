@@ -27,6 +27,8 @@ export interface SecurityIssue {
   agent: string;
   runId: string | null;
   when: string;
+  /** Feedback-loop case, once the finding was accepted. */
+  caseId: string | null;
 }
 
 const severityWord: Record<string, string> = {
@@ -38,7 +40,13 @@ const severityWord: Record<string, string> = {
 };
 const statusWord: Record<string, string> = {
   fixed: "Fixed",
-  accepted: "Risk accepted",
+  accepted: "Accepted",
+  proposed_fix: "Fix proposed",
+  approved: "Fix approved",
+  applied: "Fix applied",
+  retesting: "Retesting",
+  retest_passed: "Retest passed",
+  retest_failed: "Retest failed",
   false_positive: "Not an issue",
 };
 
@@ -72,7 +80,8 @@ export function SecurityView({
     [busy, setBusy] = useState<string | null>(null),
     [error, setError] = useState("");
   const live = issues.filter((i) => i.status === "open");
-  const resolved = issues.filter((i) => i.status !== "open");
+  const fixing = issues.filter((i) => i.status !== "open" && i.status !== "fixed" && i.status !== "false_positive");
+  const resolved = issues.filter((i) => i.status === "fixed" || i.status === "false_positive");
   const serious = live.filter((i) => i.severity === "critical" || i.severity === "high").length;
 
   async function act(id: string, fn: () => Promise<void>) {
@@ -89,6 +98,18 @@ export function SecurityView({
   }
   const triage = (issue: SecurityIssue, status: string) =>
     act(issue.id, () => send(`/api/findings/${issue.id}`, "PATCH", { status }));
+  // Accepting a finding opens its case and sends it to the agent's creator.
+  const startFix = (issue: SecurityIssue) =>
+    act(issue.id, async () => {
+      const response = await fetch("/api/cases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ findingId: issue.id }),
+      });
+      const value = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(value.error ?? "The fix could not start.");
+      router.push(`/security/cases/${value.case.id}`);
+    });
 
   const byCategory = [...new Set(issues.map((i) => i.category))].map((category) => ({
     category,
@@ -181,11 +202,8 @@ export function SecurityView({
                 advanced={advanced}
                 actions={
                   <>
-                    <button className="btn small primary" onClick={() => triage(issue, "fixed")}>
-                      Mark fixed
-                    </button>
-                    <button className="btn small" onClick={() => triage(issue, "accepted")}>
-                      Accept the risk
+                    <button className="btn small primary" onClick={() => startFix(issue)}>
+                      Start a fix
                     </button>
                     <button className="btn small" onClick={() => triage(issue, "false_positive")}>
                       Not an issue
@@ -199,6 +217,35 @@ export function SecurityView({
           <p className="empty">No open issues.</p>
         )}
       </section>
+
+      {fixing.length > 0 && (
+        <section className="section">
+          <h2>Being fixed</h2>
+          <ul className="list">
+            {fixing.map((issue) => (
+              <IssueRow
+                key={issue.id}
+                issue={issue}
+                open={open === issue.id}
+                onToggle={() => setOpen(open === issue.id ? null : issue.id)}
+                busy={busy === issue.id}
+                advanced={advanced}
+                actions={
+                  issue.caseId ? (
+                    <Link href={`/security/cases/${issue.caseId}`} className="btn small primary">
+                      Open the fix
+                    </Link>
+                  ) : (
+                    <button className="btn small primary" onClick={() => startFix(issue)}>
+                      Start a fix
+                    </button>
+                  )
+                }
+              />
+            ))}
+          </ul>
+        </section>
+      )}
 
       {resolved.length > 0 && (
         <section className="section">
@@ -216,9 +263,11 @@ export function SecurityView({
                   busy={busy === issue.id}
                   advanced={advanced}
                   actions={
-                    <button className="btn small" onClick={() => triage(issue, "open")}>
-                      Reopen
-                    </button>
+                    issue.caseId ? (
+                      <Link href={`/security/cases/${issue.caseId}`} className="btn small">
+                        See the fix
+                      </Link>
+                    ) : null
                   }
                 />
               ))}

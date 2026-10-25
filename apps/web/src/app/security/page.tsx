@@ -1,4 +1,7 @@
+import { eq } from "drizzle-orm";
 import { SecurityView } from "@/components/relay/security";
+import { getDb } from "@/lib/db/client";
+import { findingCases } from "@/lib/db/schema";
 import { relativeTime } from "@/lib/format";
 import {
   getWorkspaceContext,
@@ -15,12 +18,17 @@ const severityRank: Record<string, number> = { critical: 0, high: 1, medium: 2, 
 
 export default async function SecurityPage() {
   const { workspace } = await getWorkspaceContext();
-  const [agents, findings, approvals, runs] = await Promise.all([
+  const [agents, findings, approvals, runs, cases] = await Promise.all([
     listAgents(workspace.id),
     listFindings(workspace.id, 200),
     listPendingApprovals(workspace.id, 20),
     listRuns(workspace.id, { limit: 500 }),
+    getDb()
+      .select({ id: findingCases.id, findingId: findingCases.findingId })
+      .from(findingCases)
+      .where(eq(findingCases.workspaceId, workspace.id)),
   ]);
+  const caseFor = new Map(cases.map((c) => [c.findingId, c.id]));
   const name = new Map(agents.map((a) => [a.id, a.name]));
   const checkers = agents.filter((a) => a.role === "security");
 
@@ -48,6 +56,7 @@ export default async function SecurityPage() {
           agent: name.get(f.targetAgentId ?? f.agentId) ?? "Agent",
           runId: f.runId,
           when: relativeTime(f.createdAt),
+          caseId: caseFor.get(f.id) ?? null,
         }))}
       probes={runs.filter((r) => checkers.some((c) => c.id === r.agentId)).length}
       checkers={checkers.map((c) => ({ id: c.id, name: c.name, status: c.status }))}

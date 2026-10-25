@@ -70,15 +70,22 @@ export class OpenAiGateway implements ModelGateway {
       tool_choice: request.tools.length > 0 ? "auto" : undefined,
     };
 
-    const response = await fetch(`${this.baseUrl.replace(/\/$/, "")}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(120_000),
-    });
+    // Retry a busy provider (429, 502, 503) a few times with backoff before failing the step.
+    let response: Response;
+    for (let attempt = 1; ; attempt++) {
+      response = await fetch(`${this.baseUrl.replace(/\/$/, "")}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (attempt >= 3 || ![429, 502, 503].includes(response.status)) break;
+      await response.body?.cancel().catch(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, 1_500 * attempt));
+    }
 
     if (!response.ok || !response.body) {
       const detail = await response.text().catch(() => "");

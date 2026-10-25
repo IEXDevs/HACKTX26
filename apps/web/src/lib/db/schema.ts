@@ -14,6 +14,7 @@ import type {
   Trigger,
 } from "@agent-os/core";
 import { sql } from "drizzle-orm";
+import { FINDING_STATUSES } from "../loop/lifecycle";
 import {
   index,
   integer,
@@ -257,9 +258,13 @@ export const runs = sqliteTable(
     failureReason: text("failure_reason"),
     /** How the run was produced — surfaced in the UI so nothing is ambiguous. */
     mode: text("mode", { enum: ["live", "scripted", "replay"] }).notNull().default("live"),
+    /** "retest" runs carry synthetic test data: no memory writes, no real secrets. */
+    purpose: text("purpose", { enum: ["standard", "retest"] }).notNull().default("standard"),
     startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
     endedAt: integer("ended_at", { mode: "timestamp_ms" }),
     eventCount: integer("event_count").notNull().default(0),
+    /** Written every few seconds while a server process runs this run. See lib/runtime/reaper.ts. */
+    heartbeatAt: integer("heartbeat_at", { mode: "timestamp_ms" }),
   },
   (t) => [
     index("runs_workspace_started_idx").on(t.workspaceId, t.startedAt),
@@ -380,13 +385,146 @@ export const securityFindings = sqliteTable(
     detail: text("detail").notNull(),
     evidence: text("evidence"),
     remediation: text("remediation"),
-    status: text("status", { enum: ["open", "accepted", "fixed", "false_positive"] })
-      .notNull()
-      .default("open"),
+    /** See lib/loop/lifecycle.ts. Only a passing retest may lead to "fixed". */
+    status: text("status", { enum: FINDING_STATUSES }).notNull().default("open"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => [index("findings_workspace_idx").on(t.workspaceId, t.severity)],
 );
+
+/**
+ * Immutable snapshots of an agent's behavior-defining fields. Rows are only
+ * inserted, never updated: a fix creates a new version instead of editing one.
+ */
+export const agentVersions = sqliteTable(
+  "agent_versions",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    agentId: text("agent_id").notNull(),
+    version: integer("version").notNull(),
+    instructions: text("instructions").notNull(),
+    allowedTools: text("allowed_tools", { mode: "json" }).$type<string[]>().notNull(),
+    grants: text("grants", { mode: "json" }).$type<PermissionGrant[]>().notNull(),
+    inheritedPromptBlockIds: text("inherited_prompt_block_ids", { mode: "json" })
+      .$type<string[]>()
+      .notNull(),
+    createdBy: text("created_by").notNull(),
+    reason: text("reason").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [uniqueIndex("agent_versions_agent_version_idx").on(t.agentId, t.version)],
+);
+
+/** One feedback-loop case per accepted finding. See lib/loop/README.md. */
+export const findingCases = sqliteTable(
+  "finding_cases",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    findingId: text("finding_id").notNull(),
+    targetAgentId: text("target_agent_id").notNull(),
+    sourceRunId: text("source_run_id").notNull(),
+    runGoal: text("run_goal").notNull(),
+    severity: text("severity").$type<Severity>().notNull(),
+    /** Plain-language account of what the red team saw. */
+    observed: text("observed").notNull(),
+    proposedRemediation: text("proposed_remediation").notNull().default(""),
+    reproduction: text("reproduction", { mode: "json" }).$type<CaseReproduction>().notNull(),
+    /** One entry per chain-of-command level the case passed through. */
+    hops: text("hops", { mode: "json" }).$type<CaseHop[]>().notNull().default(sql`'[]'`),
+    deliveredTo: text("delivered_to", { mode: "json" }).$type<CaseDelivery | null>(),
+    conversation: text("conversation", { mode: "json" })
+      .$type<CaseMessage[]>()
+      .notNull()
+      .default(sql`'[]'`),
+    proposal: text("proposal", { mode: "json" }).$type<CaseProposal | null>(),
+    approval: text("approval", { mode: "json" }).$type<CaseApproval | null>(),
+    /** open, escalated (waiting on a person), or closed (fixed or false positive). */
+    state: text("state", { enum: ["open", "escalated", "closed"] }).notNull().default("open"),
+    escalationReason: text("escalation_reason"),
+    round: integer("round").notNull().default(0),
+    maxRounds: integer("max_rounds").notNull().default(3),
+    budgetCapUsd: real("budget_cap_usd").notNull(),
+    spentUsd: real("spent_usd").notNull().default(0),
+    appliedVersion: integer("applied_version"),
+    latestRetestRunId: text("latest_retest_run_id"),
+    retests: text("retests", { mode: "json" }).$type<CaseRetest[]>().notNull().default(sql`'[]'`),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("finding_cases_finding_idx").on(t.findingId),
+    index("finding_cases_target_idx").on(t.targetAgentId),
+  ],
+);
+
+export interface CaseProbe {
+  /** Labeled test input sent to the target as the run goal. */
+  input: string;
+  /** Strings that must never appear in the target's output or tool arguments. */
+  canaries: string[];
+  kind: "reproduction" | "regression" | "synthetic";
+  /** For regression probes: the earlier finding this one re-checks. */
+  findingId?: string;
+}
+export interface CaseReproduction {
+  steps: string[];
+  probe: CaseProbe;
+}
+export interface CaseHop {
+  agentId: string;
+  agentName: string;
+  action: "reported" | "forwarded" | "added_context" | "declined_to_act";
+  note: string;
+  at: string;
+}
+export interface CaseDelivery {
+  creator: string;
+  person: string;
+  at: string;
+}
+export interface CaseMessage {
+  from: "person" | "creator" | "platform";
+  text: string;
+  at: string;
+  proposalHash?: string;
+}
+export type CaseChange =
+  | { kind: "instructions"; instructions: string }
+  | { kind: "narrow_tools"; removeTools: string[] }
+  | { kind: "scoped_rule"; rule: string };
+export interface CaseProposal {
+  hash: string;
+  round: number;
+  baseVersion: number;
+  change: CaseChange;
+  diff: string;
+  summary: string;
+  /** "live" when Muse wrote it, "suggested" when it came from the built-in rules. */
+  source: "live" | "suggested";
+  at: string;
+}
+export interface CaseApproval {
+  proposalHash: string;
+  by: string;
+  at: string;
+  used: boolean;
+}
+export interface CaseRetest {
+  round: number;
+  version: number;
+  runs: Array<{ runId: string; kind: CaseProbe["kind"]; canaries: string[]; budgetUsd: number }>;
+  /** Probes still to run. Retests run one at a time and stop at the first failure. */
+  queued: CaseProbe[];
+  runBudgetUsd: number;
+  verdict: "pending" | "passed" | "failed";
+  failures: Array<{ runId: string; reason: string }>;
+  fixture: boolean;
+  costUsd: number;
+  startedAt: string;
+  finishedAt?: string;
+}
 
 export const evalSuites = sqliteTable("eval_suites", {
   id: text("id").primaryKey(),
@@ -495,6 +633,8 @@ export type ApprovalRow = typeof approvals.$inferSelect;
 export type MemoryRow = typeof memories.$inferSelect;
 export type TaskLogRow = typeof taskLog.$inferSelect;
 export type SecurityFindingRow = typeof securityFindings.$inferSelect;
+export type FindingCaseRow = typeof findingCases.$inferSelect;
+export type AgentVersionRow = typeof agentVersions.$inferSelect;
 export type EvalSuiteRow = typeof evalSuites.$inferSelect;
 export type EvalRunRow = typeof evalRuns.$inferSelect;
 export type TriggerRow = typeof triggers.$inferSelect;

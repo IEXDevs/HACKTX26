@@ -98,9 +98,9 @@ export function EvalsView({
             ) : (
               <>
                 <b>
-                  {healable} serious {healable === 1 ? "issue" : "issues"} can become guardrails
+                  {healable} serious {healable === 1 ? "issue needs" : "issues need"} a fix
                 </b>
-                <small>Each one becomes a locked rule that every agent follows.</small>
+                <small>Each fix changes only the affected agent, after you approve it and a retest passes.</small>
               </>
             )}
           </div>
@@ -110,14 +110,12 @@ export function EvalsView({
               disabled={busy === "heal"}
               onClick={() =>
                 post("heal", "/api/evals/autoheal", { limit: Math.min(healable, 10) }, (v) =>
-                  v.healedCount
-                    ? `Added ${v.healedCount} ${v.healedCount === 1 ? "guardrail" : "guardrails"}`
-                    : (v.message ?? "Nothing to add"),
+                  v.message ?? "Nothing to fix",
                 )
               }
             >
               {busy === "heal" && <LoaderCircle size={15} className="animate-spin" />}
-              Add guardrails
+              Propose fixes
             </button>
           )}
         </div>

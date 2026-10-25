@@ -59,6 +59,8 @@ import {
   parseConnectorList,
   SERPAPI_TOOLKIT,
 } from "@/lib/connectors";
+import { isGithubSandboxPath } from "@/lib/github-repo";
+import { ensureGithubCheckout } from "@/lib/github-sync";
 import { env, newId, serpApiEnabled } from "@/lib/env";
 import { recordModelTurn } from "@/lib/observability";
 import { redactSecrets } from "@/lib/secrets";
@@ -616,12 +618,40 @@ class RunEngine {
       agent.id,
     );
 
+    const restored = this.#frames.get(this.#frameKey(agent.id, taskId));
     const sandbox = new AgentSandbox(env.sandboxRoot, this.run.workspaceId, agent.id);
-    sandbox.provision({
-      agentName: agent.name,
-      role: agent.role,
-      summary: agent.summary || agent.instructions.slice(0, 200),
-    });
+    sandbox.provision();
+    // A resumed agent must keep its in-progress checkout, even if the shared cache changed.
+    if (this.run.operatorUserId && !restored) {
+      try {
+        const checkout = await ensureGithubCheckout({
+          sandbox,
+          workspaceId: this.run.workspaceId,
+          userId: this.run.operatorUserId,
+        });
+        if (checkout.synced && !checkout.skipped) {
+          await this.logger.emit(
+            {
+              type: "log",
+              level: "info",
+              message: `GitHub checkout ${checkout.repo}@${checkout.branch} (${checkout.files} files) is under repo/.`,
+              agentId: agent.id,
+            },
+            agent.id,
+          );
+        }
+      } catch (error) {
+        await this.logger.emit(
+          {
+            type: "log",
+            level: "warn",
+            message: `GitHub checkout skipped: ${error instanceof Error ? error.message : "unknown error"}`,
+            agentId: agent.id,
+          },
+          agent.id,
+        );
+      }
+    }
 
     const gateway: ModelGateway =
       this.#liveGateway ??
@@ -637,7 +667,6 @@ class RunEngine {
     contextFile.ensure();
     const held = heldToolNames(agent, this.#connectorsFor(agent), this.run.dataClass);
 
-    const restored = this.#frames.get(this.#frameKey(agent.id, taskId));
     const messages: ModelMessage[] = restored?.messages ?? [
       {
         role: "system",
@@ -1155,8 +1184,14 @@ class RunEngine {
     };
 
     const actionName = argsString(call.args, "action") ?? argsString(call.args, "tool") ?? "";
-    const risk =
-      call.name === "connector.call" ? connectorActionRisk(actionName) : (manifest?.risk ?? "high");
+    const githubWrite =
+      (call.name === "fs.write" || call.name === "fs.delete") &&
+      isGithubSandboxPath(argsString(call.args, "path") ?? "");
+    const risk = githubWrite
+      ? "high"
+      : call.name === "connector.call"
+        ? connectorActionRisk(actionName)
+        : (manifest?.risk ?? "high");
     const scopes = (manifest?.scopes ?? ["read"]) as Scope[];
 
     await this.logger.emit(
@@ -1252,11 +1287,18 @@ class RunEngine {
     };
     const [policy] = await getDb().select().from(workspaces).where(eq(workspaces.id, this.run.workspaceId));
     if (!policy) return this.#toolFailure(agent, call.id, call.name, Date.now() - started, "Workspace policy is unavailable.");
-    const decision = evaluatePermission(
+    let decision = evaluatePermission(
       permissionRequest,
       undefined,
       resolveActionEffects(policy.actionEffects),
     );
+    if (githubWrite && decision.effect !== "deny") {
+      decision = {
+        effect: "require_approval",
+        reason: "Writing the linked GitHub checkout commits back to the remote.",
+        matchedRuleId: "github-checkout-write",
+      };
+    }
 
     if (decision.effect === "deny") {
       return this.#toolFailure(

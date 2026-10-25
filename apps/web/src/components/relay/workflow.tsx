@@ -4,6 +4,8 @@ import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Archive, ArrowLeft, LoaderCircle, Play, Square } from "@/components/icons";
+import { applyAttachments, type ComposerAttachment } from "@/lib/composer-attachments";
+import { ComposerAttach, ComposerChips } from "./composer-attach";
 import { GraphSpace } from "@/components/graph/graph-space";
 import type { GraphSnapshot } from "@/lib/graph-data";
 import type { WorkflowView } from "@/lib/views";
@@ -34,7 +36,8 @@ export function Workflow({
     [startedRunId, setStartedRunId] = useState<string | null>(null),
     [busy, setBusy] = useState(false),
     [stopping, setStopping] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const archived = workflow.status === "archived";
   const on = workflow.status === "active";
   const liveId = startedRunId ?? workflow.liveRunId;
@@ -66,7 +69,7 @@ export function Workflow({
     router.refresh();
   }
   async function start() {
-    const goal = task.trim();
+    const goal = applyAttachments(task.trim(), attachments);
     const response = await fetch("/api/runs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -175,15 +178,24 @@ export function Workflow({
             if (on && task.trim().length >= 8) void act(start);
           }}
         >
-          <label className="field" style={{ margin: 0 }}>
-            Task
-            <textarea
-              value={task}
-              maxLength={4000}
-              placeholder="Give this workflow a task…"
-              onChange={(e) => setTask(e.target.value)}
-            />
-          </label>
+          <div className="wf-command-prompt">
+            <label className="field" style={{ margin: 0 }}>
+              Task
+              <textarea
+                value={task}
+                maxLength={4000}
+                placeholder="Give this workflow a task…"
+                onChange={(e) => setTask(e.target.value)}
+              />
+            </label>
+            <div className="composer-tools">
+              <ComposerAttach attachments={attachments} onChange={setAttachments} />
+              <ComposerChips
+                attachments={attachments}
+                onRemove={(item) => setAttachments(attachments.filter((row) => row !== item))}
+              />
+            </div>
+          </div>
           <button
             type="submit"
             className="btn primary"

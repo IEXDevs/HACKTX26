@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowUp, Check, LoaderCircle, Search, X } from "@/components/icons";
+import { applyAttachments, type ComposerAttachment } from "@/lib/composer-attachments";
+import { ComposerAttach, ComposerChips } from "./composer-attach";
 import { GraphSpace } from "@/components/graph/graph-space";
 import type { V2 } from "@/components/graph/graph-geometry";
 import { WORKFLOW_MODES, type WorkflowMode } from "@/lib/workflow-mode";
@@ -28,6 +30,7 @@ export function WorkflowBuilder({ mode, library, onBack }: {
   const [busy, setBusy] = useState(false);
   const [thinking, setThinking] = useState(false);
   const [error, setError] = useState("");
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const positions = useRef<Record<string, V2>>({});
   const serial = useRef(0);
   const graph = useMemo(() => selectionGraph(slots, library), [slots, library]);
@@ -103,7 +106,7 @@ export function WorkflowBuilder({ mode, library, onBack }: {
     try {
       const response = await fetch("/api/workflows/plan", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, prompt: prompt.trim(), current: JSON.stringify({ name, goal, nodes: slots }) }),
+        body: JSON.stringify({ mode, prompt: applyAttachments(prompt.trim(), attachments), current: JSON.stringify({ name, goal, nodes: slots }) }),
       });
       const value = await response.json();
       if (!response.ok) throw new Error(value.error ?? "The workflow could not be arranged.");
@@ -132,8 +135,10 @@ export function WorkflowBuilder({ mode, library, onBack }: {
           onLayoutChange={(next) => { positions.current = next; }}
           editor={{ selectedId, onSelect: openPicker, onAdd: mode === "dynamic" ? undefined : addChild, canAddChild, disabled: locked }} />
         {mode !== "manual" && <form className="wf-studio-command" onSubmit={(event) => { event.preventDefault(); void arrange(); }}>
+          <ComposerAttach attachments={attachments} onChange={setAttachments} />
           <input aria-label="Describe the workflow" placeholder={mode === "automatic" ? "Describe a tree for your agents…" : "Describe the task for the lead agent…"} value={prompt} maxLength={3000} onChange={(event) => setPrompt(event.target.value)} disabled={locked} />
-          <button type="submit" aria-label="Arrange agents" disabled={!prompt.trim() || locked}>{thinking ? <LoaderCircle size={16} className="animate-spin" /> : <ArrowUp size={16} />}</button>
+          <button type="submit" className="wf-studio-send" aria-label="Arrange agents" disabled={!prompt.trim() || locked}>{thinking ? <LoaderCircle size={16} className="animate-spin" /> : <ArrowUp size={16} />}</button>
+          <ComposerChips attachments={attachments} onRemove={(item) => setAttachments(attachments.filter((row) => row !== item))} />
         </form>}
         {(error || thinking) && <div className="wf-studio-status" role={error ? "alert" : "status"}>
           <span>{error || "Choosing agents…"}</span>{error && <button className="icon-btn" aria-label="Dismiss error" onClick={() => setError("")}><X size={13} /></button>}

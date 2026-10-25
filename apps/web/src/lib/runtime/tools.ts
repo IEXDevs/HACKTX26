@@ -11,6 +11,8 @@ import type { DataClass, RunEventPayload } from "@agent-os/core";
 import { and, desc, eq, like, or } from "drizzle-orm";
 import { executeComposioAction, normalizeToolkit, SERPAPI_TOOLKIT } from "@/lib/composio";
 import { persistContextFile } from "@/lib/connectors";
+import { githubPathFromSandbox, isGithubSandboxPath } from "@/lib/github-repo";
+import { deleteGithubFile, pushGithubFile } from "@/lib/github-sync";
 import { getDb } from "@/lib/db/client";
 import {
   agents,
@@ -162,7 +164,30 @@ async function fsWrite(ctx: ToolContext, args: Record<string, unknown>): Promise
     op: "created",
     bytes,
   });
-  return { ok: true, preview: `wrote ${bytes} bytes to ${target}` };
+  if (!isGithubSandboxPath(target)) {
+    return { ok: true, preview: `wrote ${bytes} bytes to ${target}` };
+  }
+  if (!ctx.operatorUserId || !(ctx.allowedConnectors ?? []).includes("github")) {
+    return {
+      ok: true,
+      preview: `wrote ${bytes} bytes to ${target} (local checkout only; GitHub is not granted to this agent)`,
+    };
+  }
+  const githubPath = githubPathFromSandbox(target);
+  const pushed = await pushGithubFile({
+    workspaceId: ctx.workspaceId,
+    userId: ctx.operatorUserId,
+    sandboxPath: target,
+    content,
+    message: `Astronom (${ctx.agentName}): update ${githubPath ?? target}`,
+  });
+  if (!pushed.ok) {
+    return {
+      ok: true,
+      preview: `wrote ${bytes} bytes to ${target}. GitHub push failed: ${pushed.error}`,
+    };
+  }
+  return { ok: true, preview: `wrote ${bytes} bytes to ${target} and ${pushed.preview}` };
 }
 
 async function fsDelete(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
@@ -176,6 +201,22 @@ async function fsDelete(ctx: ToolContext, args: Record<string, unknown>): Promis
     path: target,
     op: "deleted",
   });
+  if (
+    isGithubSandboxPath(target) &&
+    ctx.operatorUserId &&
+    (ctx.allowedConnectors ?? []).includes("github")
+  ) {
+    const deleted = await deleteGithubFile({
+      workspaceId: ctx.workspaceId,
+      userId: ctx.operatorUserId,
+      sandboxPath: target,
+      message: `Astronom (${ctx.agentName}): delete ${githubPathFromSandbox(target) ?? target}`,
+    });
+    if (!deleted.ok) {
+      return { ok: true, preview: `deleted ${target} locally. GitHub delete failed: ${deleted.error}` };
+    }
+    return { ok: true, preview: `deleted ${target} and ${deleted.preview}` };
+  }
   return { ok: true, preview: `deleted ${target}` };
 }
 

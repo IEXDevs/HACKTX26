@@ -4,10 +4,12 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowUp, LoaderCircle, ShieldCheck, Users } from "@/components/icons";
+import { applyAttachments, type ComposerAttachment } from "@/lib/composer-attachments";
 import { CHECK_MAX_USD, RED_TEAM_CATEGORIES } from "@/lib/loop/redteam-limits";
 import type { BuilderDraft } from "@/lib/runtime/builder-parse";
 import { plainText } from "@/lib/plain-text";
 import { RichText } from "./rich-text";
+import { ComposerAttach, ComposerChips } from "./composer-attach";
 import { WORKFLOW_MODES, type WorkflowMode } from "@/lib/workflow-mode";
 
 export interface BuilderTemplate {
@@ -45,15 +47,17 @@ export function Builder({ templates, workflowMode, onBack }: {
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     // Set after publishing: offers a red-team check before leaving.
-    [published, setPublished] = useState<{ id: string; name: string } | null>(null);
+    [published, setPublished] = useState<{ id: string; name: string } | null>(null),
+    [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (messages.length) end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, thinking]);
 
   async function send() {
-    const text = input.trim();
-    if (!text || thinking) return;
+    const raw = input.trim();
+    if (!raw || thinking) return;
+    const text = applyAttachments(raw, attachments);
     const history: Message[] = [...messages, { id: `y${messages.length}`, from: "you", text }];
     setMessages(history);
     setInput("");
@@ -247,6 +251,8 @@ export function Builder({ templates, workflowMode, onBack }: {
               disabled={thinking || !input.trim()}
               busy={thinking}
               autoFocus
+              attachments={attachments}
+              onAttachments={setAttachments}
             />
           </div>
         </>
@@ -273,6 +279,8 @@ export function Builder({ templates, workflowMode, onBack }: {
             submit="Start"
             disabled={thinking || !input.trim()}
             busy={thinking}
+            attachments={attachments}
+            onAttachments={setAttachments}
           />
           {error && <p className="error-text" style={{ marginTop: 12 }}>{error}</p>}
           <div className="composer-templates">
@@ -336,6 +344,8 @@ function Box({
   disabled,
   busy,
   autoFocus = false,
+  attachments,
+  onAttachments,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -346,6 +356,8 @@ function Box({
   disabled: boolean;
   busy: boolean;
   autoFocus?: boolean;
+  attachments: ComposerAttachment[];
+  onAttachments: (next: ComposerAttachment[]) => void;
 }) {
   const box = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -383,10 +395,17 @@ function Box({
           }}
         />
       </label>
-      <button type="submit" className="composer-send" disabled={disabled}>
-        {busy ? <LoaderCircle size={16} className="animate-spin" /> : <ArrowUp size={16} />}
-        {submit}
-      </button>
+      <div className="composer-tools">
+        <ComposerAttach attachments={attachments} onChange={onAttachments} />
+        <ComposerChips
+          attachments={attachments}
+          onRemove={(item) => onAttachments(attachments.filter((row) => row !== item))}
+        />
+        <button type="submit" className="composer-send" disabled={disabled}>
+          {busy ? <LoaderCircle size={16} className="animate-spin" /> : <ArrowUp size={16} />}
+          {submit}
+        </button>
+      </div>
     </form>
   );
 }

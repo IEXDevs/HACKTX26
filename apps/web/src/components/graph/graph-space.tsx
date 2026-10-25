@@ -14,7 +14,7 @@ import {
   ShieldHalf,
   Terminal,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 import { Button, Divider, KeyValue, Panel, StatusBadge, Tag } from "@/components/ui/primitives";
 import { DispatchPanel, type DispatchAgentOption } from "@/components/dispatch/dispatch-panel";
 import { relativeTime } from "@/lib/format";
@@ -40,42 +40,69 @@ export interface GraphAgent {
 }
 
 /* ------------------------------------------------------------------ */
-/* tokens (mirrors globals.css so canvas can paint with them)           */
+/* tokens (mirror the light theme in globals.css so the canvas matches) */
 /* ------------------------------------------------------------------ */
 
-const T = {
-  surface: "#0c0e11",
-  surface3: "#171b21",
-  lineStrong: "#2b323c",
-  ink: "#e8ecf1",
-  ink3: "#6b7684",
-  ink4: "#47525f",
-  accent: "#c6f24e",
-  info: "#59d6e8",
-  warn: "#f5b544",
-  danger: "#ff5c5c",
-  ok: "#4ade80",
-  audit: "#a78bfa",
-} as const;
-
-/** Status → halo colour. The halo IS the agent's status signal. */
-const HALO: Record<string, string> = {
-  running: T.accent,
-  queued: T.info,
-  awaiting_approval: T.warn,
-  succeeded: T.ok,
-  active: T.ok,
-  failed: T.danger,
-  halted: T.danger,
-  cancelled: T.warn,
-  blocked: T.warn,
-  paused: T.ink4,
-  draft: T.ink4,
-  idle: T.ink4,
-  archived: T.ink4,
+const LIGHT = {
+  canvas: "#f3f6f4",
+  surface: "#ffffff",
+  surface3: "#eef3ef",
+  lineStrong: "#c4cfc7",
+  ink: "#14231a",
+  ink3: "#55625a",
+  ink4: "#6b786f",
+  accent: "#2f7a4d",
+  info: "#1d6f86",
+  warn: "#b07400",
+  danger: "#b2361f",
+  ok: "#2e7d4f",
+  audit: "#6b4fb8",
+  tip: "rgba(255,255,255,0.96)",
+  inkRgb: "20,35,26",
+  dotRgb: "120,140,128",
 };
+const DARK: typeof LIGHT = {
+  canvas: "#0e1110",
+  surface: "#151917",
+  surface3: "#1c211f",
+  lineStrong: "#343c38",
+  ink: "#eef1ef",
+  ink3: "#9ba5a0",
+  ink4: "#7c8781",
+  accent: "#5fbf86",
+  info: "#59c8e0",
+  warn: "#f0b450",
+  danger: "#ff6b5b",
+  ok: "#5fd08e",
+  audit: "#a98bfa",
+  tip: "rgba(21,25,23,0.96)",
+  inkRgb: "238,241,239",
+  dotRgb: "90,100,95",
+};
+/** Live palette; draw() re-syncs it with html[data-theme] every frame. */
+const T = { ...LIGHT };
+function syncTheme() {
+  const want = document.documentElement.dataset.theme === "dark" ? DARK : LIGHT;
+  if (T.canvas !== want.canvas) Object.assign(T, want);
+}
+
+/** Status to halo colour. The halo is the status signal. */
+function haloColor(status: string): string {
+  const map: Record<string, string> = {
+    running: T.accent,
+    queued: T.info,
+    awaiting_approval: T.warn,
+    succeeded: T.ok,
+    active: T.ok,
+    failed: T.danger,
+    halted: T.danger,
+    cancelled: T.warn,
+    blocked: T.warn,
+  };
+  return map[status] ?? T.ink4;
+}
 function haloFor(agent: GraphAgent): string {
-  return HALO[agent.lastRun?.status ?? agent.status] ?? T.ink4;
+  return haloColor(agent.lastRun?.status ?? agent.status);
 }
 /** Mid-job → halo breathes, orbs orbit, edges stream. */
 function isBusy(agent: GraphAgent): boolean {
@@ -531,8 +558,9 @@ export function GraphSpace({
       }
 
       /* --- render --- */
+      syncTheme();
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.fillStyle = "#070809";
+      ctx.fillStyle = T.canvas;
       ctx.fillRect(0, 0, w, h);
 
       const zoom = cam.zoom;
@@ -558,7 +586,7 @@ export function GraphSpace({
         const rows = Math.ceil(h / (step * zoom)) + 2;
         const base = 0.24 + (zoom - 0.55) * 0.28;
         const alpha = Math.min(0.4, Math.max(0.06, base));
-        ctx.fillStyle = `rgba(43,50,60,${alpha.toFixed(2)})`;
+        ctx.fillStyle = `rgba(${T.dotRgb},${alpha.toFixed(2)})`;
         const dot = Math.max(1, Math.min(2.2, step * zoom * 0.028));
         for (let i = 0; i < cols; i += 1) {
           for (let k = 0; k < rows; k += 1) {
@@ -570,7 +598,7 @@ export function GraphSpace({
         }
         // anchor cross at world origin — the space's fixed point while exploring
         const o = S({ x: 0, y: 0 });
-        ctx.strokeStyle = "rgba(43,50,60,0.55)";
+        ctx.strokeStyle = `rgba(${T.dotRgb},0.55)`;
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(o.x - 7, o.y);
@@ -609,7 +637,7 @@ export function GraphSpace({
           ctx.lineWidth = related ? 3.2 : 2.6;
         } else {
           ctx.setLineDash([]);
-          ctx.strokeStyle = related ? "rgba(232,236,241,0.55)" : "rgba(43,50,60,0.9)";
+          ctx.strokeStyle = related ? `rgba(${T.inkRgb},0.55)` : `rgba(${T.dotRgb},0.9)`;
           ctx.lineWidth = related ? 2.4 : 2;
         }
         ctx.beginPath();
@@ -629,7 +657,7 @@ export function GraphSpace({
           const e1 = SP(a);
           const e2 = SP(b);
           const related = a.id === selId || b.id === selId;
-          ctx.strokeStyle = related ? `${T.info}88` : "rgba(43,50,60,0.68)";
+          ctx.strokeStyle = related ? `${T.info}88` : `rgba(${T.dotRgb},0.68)`;
           ctx.lineWidth = related ? 2.6 : 2;
           ctx.beginPath();
           ctx.moveTo(e1.x, e1.y);
@@ -660,7 +688,7 @@ export function GraphSpace({
         const speed = 0.24 + hash(a.id) * 0.12;
         for (let i = 0; i < 2; i += 1) {
           const frac = (t * speed + i * 0.5 + hash(a.id)) % 1;
-          particle(e1, e2, frac, p.busy && !a.busy ? "rgba(232,236,241,0.5)" : T.accent, 3);
+          particle(e1, e2, frac, p.busy && !a.busy ? `rgba(${T.inkRgb},0.5)` : T.accent, 3);
         }
       }
       // peer route — packets stream toward whoever holds the mic
@@ -700,9 +728,9 @@ export function GraphSpace({
         // halo — the status read from across the room
         const haloR = rad * (a.busy ? 1.85 + 0.14 * Math.sin(t * 3.4) : 1.6);
         const g = ctx.createRadialGradient(p.x, p.y, rad * 0.85, p.x, p.y, haloR);
-        g.addColorStop(0, `${a.halo}${a.busy ? "5c" : "40"}`);
-        g.addColorStop(0.6, `${a.halo}24`);
-        g.addColorStop(1, `${a.halo}00`);
+        g.addColorStop(0, `${haloFor(a)}${a.busy ? "5c" : "40"}`);
+        g.addColorStop(0.6, `${haloFor(a)}24`);
+        g.addColorStop(1, `${haloFor(a)}00`);
         ctx.globalAlpha = 0.95 * pulse;
         ctx.fillStyle = g;
         ctx.beginPath();
@@ -712,22 +740,22 @@ export function GraphSpace({
 
         // body
         const body = ctx.createRadialGradient(p.x - rad * 0.32, p.y - rad * 0.42, rad * 0.15, p.x, p.y, rad);
-        body.addColorStop(0, "#202634");
+        body.addColorStop(0, T.surface);
         body.addColorStop(1, T.surface3);
         ctx.fillStyle = body;
         ctx.beginPath();
         ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = a.busy
-          ? `${a.halo}${Math.round(28 + 20 * Math.sin(t * 4 + hash(a.id) * 7)).toString(16).padStart(2, "0")}`
-          : `${a.halo}17`;
+          ? `${haloFor(a)}${Math.round(28 + 20 * Math.sin(t * 4 + hash(a.id) * 7)).toString(16).padStart(2, "0")}`
+          : `${haloFor(a)}17`;
         ctx.beginPath();
         ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
         ctx.fill();
 
         // ring — grabbed bubbles pop
         ctx.lineWidth = dragged || sel ? 2.6 : hov ? 2.1 : 1.5;
-        ctx.strokeStyle = dragged || sel || hov ? T.ink : `${a.halo}cc`;
+        ctx.strokeStyle = dragged || sel || hov ? T.ink : `${haloFor(a)}cc`;
         ctx.beginPath();
         ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
         ctx.stroke();
@@ -767,13 +795,13 @@ export function GraphSpace({
 
         // caption, tucked under the bubble
         const labelAlpha = sel || hov ? 0.95 : 0.5;
-        ctx.fillStyle = `rgba(232,236,241,${labelAlpha})`;
+        ctx.fillStyle = `rgba(${T.inkRgb},${labelAlpha})`;
         ctx.font = MONO(10, sel || hov ? 600 : 500);
         ctx.textBaseline = "top";
         ctx.fillText(a.name, p.x, p.y + rad + 8);
         ctx.font = MONO(9);
         const statusLabel = (a.lastRun?.status ?? a.status).replace("_", " ");
-        ctx.fillStyle = a.busy ? `${T.accent}dd` : "rgba(71,82,95,0.9)";
+        ctx.fillStyle = a.busy ? `${T.accent}dd` : T.ink4;
         ctx.fillText(statusLabel, p.x, p.y + rad + 21);
 
         // hover tooltip
@@ -783,7 +811,7 @@ export function GraphSpace({
           const tw = Math.max(ctx.measureText(l1).width, ctx.measureText(l2).width) + 18;
           const tx = Math.min(Math.max(p.x, tw / 2 + 8), w - tw / 2 - 8);
           const ty = p.y - rad - 48;
-          ctx.fillStyle = "rgba(13,16,21,0.95)";
+          ctx.fillStyle = T.tip;
           ctx.strokeStyle = T.lineStrong;
           ctx.lineWidth = 1;
           ctx.beginPath();
@@ -1011,7 +1039,7 @@ export function GraphSpace({
       const res = await fetch("/api/runs", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ agentId: selected.id, goal: bubble.goal.trim(), mode: "scripted" }),
+        body: JSON.stringify({ agentId: selected.id, goal: bubble.goal.trim(), mode: "live" }),
       });
       const payload = (await res.json()) as { runId?: string; error?: string };
       if (!res.ok || !payload.runId) {

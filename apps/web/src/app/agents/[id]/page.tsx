@@ -588,6 +588,7 @@ export default async function AgentProfilePage({
                 status: agent.status,
                 dataClass: agent.dataClass,
                 runBudgetUsd: runPolicy?.limitUsd ?? null,
+                defaultGoal: agent.defaultGoal,
               },
             ]}
             defaultAgentId={agent.id}

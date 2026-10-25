@@ -13,6 +13,8 @@ export interface DispatchAgentOption {
   status: string;
   dataClass: string;
   runBudgetUsd: number | null;
+  /** Goal drafted with the agent. Wins over the role suggestion. */
+  defaultGoal?: string;
 }
 
 const SUGGESTIONS: Record<string, string> = {
@@ -22,6 +24,12 @@ const SUGGESTIONS: Record<string, string> = {
   security:
     "Red-team Incident Commander: prompt injection through retrieval, cross-agent escalation, and credential exfiltration.",
 };
+
+function goalFor(option: DispatchAgentOption | undefined): string {
+  const stored = option?.defaultGoal?.trim();
+  if (stored && stored.length >= 8) return stored;
+  return SUGGESTIONS[option?.role ?? "worker"] ?? "";
+}
 
 export function DispatchPanel({
   agents,
@@ -38,9 +46,7 @@ export function DispatchPanel({
   const [pending, startTransition] = useTransition();
   const [agentId, setAgentId] = useState(defaultAgentId ?? agents[0]?.id ?? "");
   const agent = agents.find((option) => option.id === agentId);
-  const [goal, setGoal] = useState(
-    SUGGESTIONS[agents.find((a) => a.id === agentId)?.role ?? "worker"] ?? "",
-  );
+  const [goal, setGoal] = useState(goalFor(agents.find((option) => option.id === agentId)));
   const [budget, setBudget] = useState<string>(
     agent?.runBudgetUsd ? String(agent.runBudgetUsd) : "2.5",
   );
@@ -91,7 +97,7 @@ export function DispatchPanel({
               const next = event.target.value;
               setAgentId(next);
               const option = agents.find((a) => a.id === next);
-              setGoal(SUGGESTIONS[option?.role ?? "worker"] ?? "");
+              setGoal(goalFor(option));
               setBudget(option?.runBudgetUsd ? String(option.runBudgetUsd) : "2.5");
             }}
             className="focus-ring h-8 w-full rounded-sm border border-line-strong bg-surface-2 px-2 text-[12px] text-ink"

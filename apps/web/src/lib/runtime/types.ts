@@ -45,6 +45,7 @@ export interface ModelRequest {
 
 export type ModelChunk =
   | { type: "text"; text: string }
+  | { type: "thinking"; text: string }
   | {
       type: "tool_call";
       call: { id: string; name: string; args: Record<string, unknown> };

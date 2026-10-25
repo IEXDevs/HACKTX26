@@ -12,8 +12,11 @@ import {
   Logo,
   Link2,
   ListTree,
+  LogOut,
   Moon,
   Scale,
+  ScrollText,
+  Settings,
   ShieldHalf,
   Sun,
 } from "@/components/icons";
@@ -37,6 +40,8 @@ export function Sidebar({
   spendTodayUsd,
   dailyBudgetUsd = 40,
   pendingApprovals,
+  signedIn = true,
+  canSignOut = false,
 }: {
   workspaceName: string;
   userName: string;
@@ -44,6 +49,8 @@ export function Sidebar({
   spendTodayUsd: number;
   dailyBudgetUsd?: number;
   pendingApprovals: number;
+  signedIn?: boolean;
+  canSignOut?: boolean;
 }) {
   const pathname = usePathname();
   const main: NavItem[] = [
@@ -56,9 +63,11 @@ export function Sidebar({
   ];
   const platform: NavItem[] = [
     { href: "/security", label: "Security", icon: ShieldHalf },
+    { href: "/observability", label: "Observability", icon: ScrollText },
     { href: "/evals", label: "Evaluations", icon: FlaskConical },
     { href: "/connectors", label: "Connectors", icon: Link2 },
     { href: "/policy", label: "Policy", icon: Scale },
+    { href: "/settings", label: "Settings", icon: Settings },
   ];
   const isActive = (item: NavItem) =>
     item.exact
@@ -114,6 +123,19 @@ export function Sidebar({
             </small>
           </div>
         </div>
+        {canSignOut ? (
+          <form action="/auth/signout" method="post">
+            <button type="submit" className="shell-signout">
+              <LogOut size={16} aria-hidden />
+              <span>Sign out</span>
+            </button>
+          </form>
+        ) : null}
+        {!signedIn ? (
+          <Link href="/login" className="shell-signout">
+            Sign in
+          </Link>
+        ) : null}
       </div>
     </aside>
   );

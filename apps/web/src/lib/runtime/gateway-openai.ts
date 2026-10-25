@@ -111,6 +111,8 @@ export class OpenAiGateway implements ModelGateway {
         choices?: Array<{
           delta?: {
             content?: string | null;
+            reasoning_content?: string | null;
+            reasoning?: string | { content?: string; text?: string } | null;
             tool_calls?: Array<{
               index: number;
               id?: string;
@@ -130,6 +132,14 @@ export class OpenAiGateway implements ModelGateway {
       const choice = parsed.choices?.[0];
       const text = choice?.delta?.content;
       if (text) yield { type: "text", text };
+      const reasoning = choice?.delta?.reasoning_content ?? choice?.delta?.reasoning;
+      const thinking =
+        typeof reasoning === "string"
+          ? reasoning
+          : reasoning && typeof reasoning === "object"
+            ? (reasoning.content ?? reasoning.text ?? "")
+            : "";
+      if (thinking) yield { type: "thinking", text: thinking };
 
       for (const fragment of choice?.delta?.tool_calls ?? []) {
         const existing = fragments.get(fragment.index) ?? {

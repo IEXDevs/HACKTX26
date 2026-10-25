@@ -10,7 +10,6 @@ import { getDb } from "@/lib/db/client";
 import {
   agents,
   agentVersions,
-  auditLog,
   findingCases,
   promptBlocks,
   runEvents,
@@ -27,6 +26,7 @@ import {
   type FindingCaseRow,
   type SecurityFindingRow,
 } from "@/lib/db/schema";
+import { writeAudit } from "@/lib/audit";
 import { newId } from "@/lib/env";
 import { redactSecrets } from "@/lib/secrets";
 import { lineDiff, proposalHash } from "./diff";
@@ -72,16 +72,7 @@ async function audit(
   targetId: string,
   detail: Record<string, unknown>,
 ) {
-  await getDb().insert(auditLog).values({
-    id: newId("aud"),
-    workspaceId,
-    actor,
-    action,
-    targetType,
-    targetId,
-    detail,
-    at: new Date(),
-  });
+  await writeAudit({ workspaceId, actor, action, targetType, targetId, detail });
 }
 
 async function loadFinding(findingId: string): Promise<SecurityFindingRow> {

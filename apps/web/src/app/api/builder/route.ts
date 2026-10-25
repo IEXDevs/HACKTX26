@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
+import { requireWorkspace } from "@/lib/queries";
 import { askBuilder } from "@/lib/runtime/builder";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,8 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "Expected { messages: [{ role, content }] }." }, { status: 400 });
   }
   try {
-    return Response.json(await askBuilder(parsed.data.messages));
+    const workspace = await requireWorkspace();
+    return Response.json(await askBuilder(parsed.data.messages, { workspaceId: workspace.id }));
   } catch (error) {
     return Response.json({ error: (error as Error).message }, { status: 502 });
   }

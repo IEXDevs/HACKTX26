@@ -40,6 +40,14 @@ export const workspaces = sqliteTable("workspaces", {
     .notNull()
     .default(sql`'[]'`),
   defaultRunBudgetUsd: real("default_run_budget_usd").notNull().default(2.5),
+  /**
+   * Operator-set access levels for the six named actions (fs.read, fs.write,
+   * http.fetch, shell.exec, secret.use, cli:prod-deploy). Empty means defaults.
+   */
+  actionEffects: text("action_effects", { mode: "json" })
+    .$type<Record<string, "allow" | "allow_with_log" | "require_approval" | "deny">>()
+    .notNull()
+    .default(sql`'{}'`),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 

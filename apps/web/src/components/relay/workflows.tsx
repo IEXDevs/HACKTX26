@@ -3,15 +3,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Archive, GitBranch, Plus, Search } from "@/components/icons";
+import { Archive, Plus, Search } from "@/components/icons";
 import type { WorkflowTile } from "@/lib/views";
-import { AdvancedSwitch, useAdvanced } from "./advanced";
 
 /** Workflows index: one tile per top-level agent, grouped by its latest run. */
 export function Workflows({ workflows }: { workflows: WorkflowTile[] }) {
   const router = useRouter();
-  const [advanced, toggleAdvanced] = useAdvanced(),
-    [archived, setArchived] = useState(false),
+  const [archived, setArchived] = useState(false),
     [search, setSearch] = useState(""),
     [busy, setBusy] = useState<string | null>(null),
     [error, setError] = useState("");
@@ -63,11 +61,6 @@ export function Workflows({ workflows }: { workflows: WorkflowTile[] }) {
       <div className="page-top">
         <h1>Workflows</h1>
         <div className="page-actions">
-          <AdvancedSwitch on={advanced} toggle={toggleAdvanced} />
-          <Link href="/graph" className="btn">
-            <GitBranch size={15} aria-hidden />
-            Graph
-          </Link>
           <Link href="/agents/new" className="btn primary">
             <Plus size={15} aria-hidden />
             New workflow
@@ -103,7 +96,7 @@ export function Workflows({ workflows }: { workflows: WorkflowTile[] }) {
             <h2>
               {group.title} · {group.items.length}
             </h2>
-            <div className="tile-grid">
+            <div className="tile-grid spaced">
               {group.items.map((w) => (
                 <article className="tile" key={w.id}>
                   <Link href={`/workflows/${w.id}`} className="tile-main">
@@ -116,8 +109,6 @@ export function Workflows({ workflows }: { workflows: WorkflowTile[] }) {
                   <footer className="tile-foot">
                     <span>
                       {w.team ? `Team of ${w.team + 1} agents` : "Single agent"}
-                      {advanced &&
-                        ` · ${w.runs} ${w.runs === 1 ? "run" : "runs"} · edited ${w.edited}`}
                     </span>
                     <button
                       className="icon-btn"

@@ -15,10 +15,15 @@ import {
   credentials,
   memories,
 } from "@/lib/db/schema";
-import { newId } from "@/lib/env";
+import { env, newId } from "@/lib/env";
 import { redactSecrets } from "@/lib/secrets";
 import { fetchFixture, searchKnowledgeBase } from "./kb";
 import type { AgentSandbox } from "./sandbox";
+import {
+  isContextPath,
+  WorkspaceContextFile,
+  type ContextDirective,
+} from "./workspace-context";
 
 export interface ToolContext {
   workspaceId: string;
@@ -95,9 +100,52 @@ async function fsList(ctx: ToolContext, args: Record<string, unknown>): Promise<
   };
 }
 
+function workspaceContext(ctx: ToolContext): WorkspaceContextFile {
+  return new WorkspaceContextFile(env.sandboxRoot, ctx.workspaceId);
+}
+
+async function contextRead(ctx: ToolContext): Promise<ToolResult> {
+  const file = workspaceContext(ctx);
+  const content = file.read();
+  await ctx.emit({
+    type: "file.changed",
+    agentId: ctx.agentId,
+    path: "CONTEXT.md",
+    op: "read",
+    bytes: Buffer.byteLength(content, "utf8"),
+  });
+  return { ok: true, preview: clip(content, 4_000) };
+}
+
+async function contextWrite(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+  const file = workspaceContext(ctx);
+  const include = str(args, "include");
+  const remove = str(args, "remove");
+  const content = str(args, "content");
+  let result: { bytes: number; content?: string };
+  if (include) {
+    result = file.apply({ op: "include", text: include } satisfies ContextDirective);
+  } else if (remove) {
+    result = file.apply({ op: "remove", text: remove } satisfies ContextDirective);
+  } else if (content !== null) {
+    result = file.write(content);
+  } else {
+    return fail("context.write requires content, include, or remove.");
+  }
+  await ctx.emit({
+    type: "file.changed",
+    agentId: ctx.agentId,
+    path: "CONTEXT.md",
+    op: "updated",
+    bytes: result.bytes,
+  });
+  return { ok: true, preview: `wrote ${result.bytes} bytes to CONTEXT.md` };
+}
+
 async function fsRead(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const target = str(args, "path");
   if (!target) return fail("fs.read requires a path.");
+  if (isContextPath(target)) return contextRead(ctx);
   const content = ctx.sandbox.read(target);
   await ctx.emit({
     type: "file.changed",
@@ -113,6 +161,7 @@ async function fsWrite(ctx: ToolContext, args: Record<string, unknown>): Promise
   const target = str(args, "path");
   const content = str(args, "content");
   if (!target || content === null) return fail("fs.write requires path and content.");
+  if (isContextPath(target)) return contextWrite(ctx, { content });
   const { bytes } = ctx.sandbox.write(target, content);
   await ctx.emit({
     type: "file.changed",
@@ -127,6 +176,7 @@ async function fsWrite(ctx: ToolContext, args: Record<string, unknown>): Promise
 async function fsDelete(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const target = str(args, "path");
   if (!target) return fail("fs.delete requires a path.");
+  if (isContextPath(target)) return fail("CONTEXT.md cannot be deleted. Clear a section with context.write instead.");
   ctx.sandbox.remove(target);
   await ctx.emit({
     type: "file.changed",
@@ -380,6 +430,10 @@ export async function executeTool(
   switch (tool) {
     case "fs.list":
       return fsList(ctx, args);
+    case "context.read":
+      return contextRead(ctx);
+    case "context.write":
+      return contextWrite(ctx, args);
     case "fs.read":
       return fsRead(ctx, args);
     case "fs.write":

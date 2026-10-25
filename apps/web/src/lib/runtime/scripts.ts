@@ -29,8 +29,28 @@ export function detectScenario(goal: string): Scenario {
   return "general";
 }
 
+export function wantsDeploy(goal: string): boolean {
+  return /(deploy|roll[- ]?out|roll[- ]?forward|ship (it|this)|release to (prod|staging))/i.test(goal);
+}
+
+/** After a successful orchestrator run, stand up the red-team swarm. */
+export function shouldSpawnAdversarialSwarm(input: {
+  goal: string;
+  rootRole: string;
+  hasRedTeam: boolean;
+  securityRun: boolean;
+}): boolean {
+  if (input.securityRun || input.rootRole === "security") return false;
+  if (/(red.?team|adversar|probe swarm|security (pass|review))/i.test(input.goal)) return true;
+  return input.hasRedTeam && wantsDeploy(input.goal);
+}
+
 const INCIDENT: Record<string, ScriptStep[]> = {
   "Incident Commander": [
+    {
+      say: "Reading the shared workspace context before I split the work, so the team starts from the same stack and layout.",
+      tool: { name: "context.read", args: {} },
+    },
     {
       say: "Decomposing into three tracks: timeline correlation, a verified mitigation, and customer comms. Dispatching the triage specialist first.",
       tool: {
@@ -291,6 +311,33 @@ export function redTeamSpecialist(name: string): RedTeamSpecialist | undefined {
   );
 }
 
+function deploySteps(): ScriptStep[] {
+  return [
+    {
+      say: "The operator asked for a deploy. I am applying it in this workspace myself before the probe swarm starts.",
+      tool: {
+        name: "fs.write",
+        args: {
+          path: "telemetry/deploy-log.json",
+          content: JSON.stringify(
+            {
+              deploy: "red-team",
+              status: "rolled-forward",
+              service: "checkout",
+              sha: "live",
+            },
+            null,
+            2,
+          ),
+        },
+      },
+    },
+    {
+      say: "Deploy recorded. Standing up the probe specialists against the workspace that just landed.",
+    },
+  ];
+}
+
 const SECURITY: Record<string, ScriptStep[]> = {
   "Red Team": [
     {
@@ -358,6 +405,10 @@ const REVIEW: Record<string, ScriptStep[]> = {
 const GENERAL: Record<string, ScriptStep[]> = {
   "*": [
     {
+      say: "Reading CONTEXT.md first so I do not rediscover the stack on every run.",
+      tool: { name: "context.read", args: {} },
+    },
+    {
       say: "Grounding the answer in the workspace knowledge base before doing anything else.",
       tool: { name: "kb.search", args: { query: "internal policy and runbook context" } },
     },
@@ -382,6 +433,7 @@ export const DELEGATION_GUIDANCE = [
   "You have agent.delegate.",
   "Use it when one piece of the goal is bounded and narrower than the decision you owe: a lookup, a file read, a draft, or a check.",
   "Name the grunt, and give it a title and a task that includes the done condition.",
+  "You may pin a Meta Model API model for the child (`muse-wonder-1.0` for critical, `muse-spark-1.3` for everyday, `muse-spark-1.1` for lookups) via the model argument.",
   "Do not delegate the final decision, a credential, or your whole goal.",
   "The grunt is created under you the first time you use that name, then reused. It runs, then its summary is returned to you on this run. Grunts cannot delegate further.",
 ].join(" ");
@@ -403,7 +455,7 @@ export function gruntTools(
   const picked = requested?.length
     ? requested.filter((name) => ceiling.has(name))
     : [...ceiling];
-  const tools = picked.length > 0 ? picked : ["kb.search", "fs.read"];
+  const tools = picked.length > 0 ? picked : ["kb.search", "fs.read", "context.read"];
   return [...new Set(tools)];
 }
 
@@ -411,6 +463,7 @@ export function scriptFor(
   scenario: Scenario,
   agentName: string,
   role: AgentRole,
+  goal?: string,
 ): ScriptStep[] {
   const table =
     scenario === "security"
@@ -422,7 +475,11 @@ export function scriptFor(
           : GENERAL;
 
   const exact = table[agentName];
-  if (exact && exact.length > 0) return exact;
+  const withDeploy =
+    exact && exact.length > 0 && agentName === "Red Team" && goal && wantsDeploy(goal)
+      ? [...deploySteps(), ...exact]
+      : exact;
+  if (withDeploy && withDeploy.length > 0) return withDeploy;
 
   // Orchestrators in a scenario we don't have a bespoke plan for still get a
   // usable path; workers fall back to the generic retrieval plan.

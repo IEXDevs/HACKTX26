@@ -17,6 +17,8 @@ export const ModelSchema = z.object({
   contextWindow: z.number().int().positive(),
   inputPerMTok: z.number().nonnegative(),
   outputPerMTok: z.number().nonnegative(),
+  /** Cached-prefix input, USD per million tokens. Falls back to inputPerMTok. */
+  cachedInputPerMTok: z.number().nonnegative().optional(),
   /** Data classifications this model is approved to receive. */
   allowedDataClasses: z.array(DataClassSchema),
   capabilities: z.array(
@@ -34,8 +36,9 @@ export type DataClass = z.infer<typeof DataClassSchema>;
 export type Capability = Model["capabilities"][number];
 
 /**
- * Illustrative catalogue. Prices are USD per million tokens and exist so the
- * budget ledger and router have something concrete to compute against.
+ * Model catalogue. Meta rows use published Model API rates
+ * (https://dev.meta.ai/docs/pricing-rate-limits, October 2026). Other
+ * providers are list prices so the budget ledger has something concrete.
  */
 export const MODEL_CATALOG: readonly Model[] = [
   {
@@ -124,11 +127,12 @@ export const MODEL_CATALOG: readonly Model[] = [
     contextWindow: 1_048_576,
     inputPerMTok: 4.0,
     outputPerMTok: 20.0,
+    cachedInputPerMTok: 0.2,
     allowedDataClasses: ["public", "internal", "confidential"],
     capabilities: ["tool_calling", "long_context", "vision", "code", "reasoning"],
     latencyMs: 1300,
     selfHosted: false,
-    notes: "Meta Model API. Frontier planner; reasoning tokens count toward output.",
+    notes: "Meta Model API. $4 / $20 per 1M tokens; cached input $0.20. No contributor tier.",
   },
   {
     id: "muse-spark-1.3",
@@ -138,10 +142,27 @@ export const MODEL_CATALOG: readonly Model[] = [
     contextWindow: 1_048_576,
     inputPerMTok: 1.25,
     outputPerMTok: 4.25,
+    cachedInputPerMTok: 0.15,
     allowedDataClasses: ["public", "internal", "confidential"],
     capabilities: ["tool_calling", "long_context", "vision", "code"],
     latencyMs: 800,
     selfHosted: false,
+    notes: "Meta Model API. $1.25 / $4.25 per 1M tokens; cached input $0.15.",
+  },
+  {
+    id: "muse-spark-1.2",
+    label: "Muse Spark 1.2",
+    provider: "meta",
+    tier: "balanced",
+    contextWindow: 1_048_576,
+    inputPerMTok: 1.25,
+    outputPerMTok: 4.25,
+    cachedInputPerMTok: 0.15,
+    allowedDataClasses: ["public", "internal", "confidential"],
+    capabilities: ["tool_calling", "long_context", "vision", "code"],
+    latencyMs: 850,
+    selfHosted: false,
+    notes: "Meta Model API. Same token price as Spark 1.3.",
   },
   {
     id: "muse-spark-1.1",
@@ -151,11 +172,12 @@ export const MODEL_CATALOG: readonly Model[] = [
     contextWindow: 1_048_576,
     inputPerMTok: 1.25,
     outputPerMTok: 4.25,
+    cachedInputPerMTok: 0.15,
     allowedDataClasses: ["public", "internal"],
     capabilities: ["tool_calling", "code"],
     latencyMs: 500,
     selfHosted: false,
-    notes: "Cheapest live option. Reasoning tokens count toward output.",
+    notes: "Meta Model API. Standard-mode only; same $1.25 / $4.25 as Spark 1.3.",
   },
   {
     id: "selfhost/llama-4-70b",
@@ -284,11 +306,42 @@ export function estimateCostUsd(
   model: Model,
   inputTokens: number,
   outputTokens: number,
+  cachedInputTokens = 0,
 ): number {
+  const cached = Math.min(Math.max(cachedInputTokens, 0), inputTokens);
+  const fresh = inputTokens - cached;
+  const cachedRate = model.cachedInputPerMTok ?? model.inputPerMTok;
   return (
-    (inputTokens / 1_000_000) * model.inputPerMTok +
+    (fresh / 1_000_000) * model.inputPerMTok +
+    (cached / 1_000_000) * cachedRate +
     (outputTokens / 1_000_000) * model.outputPerMTok
   );
+}
+
+const META_PROVISION_ORDER: Record<TaskComplexity, readonly string[]> = {
+  critical: ["muse-wonder-1.0", "muse-spark-1.3", "muse-spark-1.2", "muse-spark-1.1"],
+  complex: ["muse-wonder-1.0", "muse-spark-1.3", "muse-spark-1.2", "muse-spark-1.1"],
+  standard: ["muse-spark-1.3", "muse-spark-1.2", "muse-spark-1.1", "muse-wonder-1.0"],
+  trivial: ["muse-spark-1.1", "muse-spark-1.2", "muse-spark-1.3", "muse-wonder-1.0"],
+};
+
+/** True when the id is a Meta Model API Muse model. */
+export function isMetaModelId(id: string): boolean {
+  const model = MODEL_BY_ID.get(id);
+  return model?.provider === "meta" || id.startsWith("muse-");
+}
+
+/**
+ * Pin a Meta Model API model for a spawned task. Critical/complex work gets
+ * Wonder; everyday work gets Spark 1.3; lookups get Spark 1.1.
+ */
+export function provisionMetaModel(
+  complexity: TaskComplexity,
+  deniedModelIds: readonly string[] = [],
+): string {
+  const denied = new Set(deniedModelIds);
+  const picked = META_PROVISION_ORDER[complexity].find((id) => !denied.has(id) && MODEL_BY_ID.has(id));
+  return picked ?? "muse-spark-1.3";
 }
 
 /**

@@ -1,9 +1,9 @@
 import { eq } from "drizzle-orm";
 import { NextRequest } from "next/server";
 import { z } from "zod";
+import { writeAudit } from "@/lib/audit";
 import { getDb } from "@/lib/db/client";
-import { auditLog, promptBlocks } from "@/lib/db/schema";
-import { newId } from "@/lib/env";
+import { promptBlocks } from "@/lib/db/schema";
 import { getWorkspaceContext, requireWorkspace } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -44,8 +44,7 @@ export async function PATCH(
     .returning();
 
   const { user } = await getWorkspaceContext();
-  await db.insert(auditLog).values({
-    id: newId("aud"),
+  await writeAudit({
     workspaceId: workspace.id,
     actor: user?.email ?? "operator@local",
     action: "prompt_block.updated",
@@ -58,7 +57,6 @@ export async function PATCH(
       toVersion: block.version + 1,
       chars: parsed.data.content.length,
     },
-    at: new Date(),
   });
 
   return Response.json({ block: updated });

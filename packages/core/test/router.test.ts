@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MODEL_CATALOG, routeModel } from "../src/protocol/models";
+import { MODEL_CATALOG, provisionMetaModel, routeModel } from "../src/protocol/models";
 
 describe("routeModel", () => {
   it("routes a trivial task to a cheap model", () => {
@@ -70,6 +70,20 @@ describe("routeModel", () => {
       deniedModelIds: ["selfhost/llama-4-70b", "selfhost/qwen-3-coder-32b"],
     });
     expect(result.chosenModel.startsWith("selfhost/")).toBe(false);
+  });
+
+  it("provisions Meta Model API models by task weight", () => {
+    expect(provisionMetaModel("critical")).toBe("muse-wonder-1.0");
+    expect(provisionMetaModel("standard")).toBe("muse-spark-1.3");
+    expect(provisionMetaModel("trivial")).toBe("muse-spark-1.1");
+    expect(provisionMetaModel("complex", ["muse-wonder-1.0"])).toBe("muse-spark-1.3");
+    const wonder = MODEL_CATALOG.find((m) => m.id === "muse-wonder-1.0");
+    expect(wonder?.inputPerMTok).toBe(4);
+    expect(wonder?.outputPerMTok).toBe(20);
+    expect(wonder?.cachedInputPerMTok).toBe(0.2);
+    const spark = MODEL_CATALOG.find((m) => m.id === "muse-spark-1.3");
+    expect(spark?.inputPerMTok).toBe(1.25);
+    expect(spark?.outputPerMTok).toBe(4.25);
   });
 
   it("fails loudly when nothing satisfies policy", () => {

@@ -75,7 +75,7 @@ export default async function AgentConsolePage({
   const dayPolicy = policies.find((policy) => policy.agentId === null && policy.period === "day");
 
   return (
-    <div className="space-y-4">
+    <div className="page space-y-4">
       <div className="flex items-center gap-3">
         <Link
           href={`/agents/${agent.id}`}
@@ -87,6 +87,12 @@ export default async function AgentConsolePage({
         <span className="mono flex items-center gap-1 text-[10px] text-ink-3">
           <TerminalSquare size={10} /> console
         </span>
+        <Link
+          href={`/agents/${agent.id}/trail`}
+          className="focus-ring mono text-[10px] text-ink-4 hover:text-ink-2"
+        >
+          trail
+        </Link>
         <StatusBadge status={agent.status} className="ml-auto" />
       </div>
 

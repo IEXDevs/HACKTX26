@@ -1,7 +1,10 @@
 import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { RunEvent, RunEventPayload } from "@agent-os/core";
+import { getSessionUser } from "./auth";
 import { ensureBootstrapped } from "./bootstrap";
 import { getDb } from "@/lib/db/client";
+import { supabaseAuthEnabled } from "./env";
+import { spendSince } from "./observability";
 import {
   agents,
   approvals,
@@ -55,6 +58,12 @@ export async function requireWorkspace(slug = DEFAULT_WORKSPACE_SLUG) {
 
 export async function getCurrentUser(workspaceId: string) {
   const db = getDb();
+  const session = await getSessionUser();
+  if (session?.email) {
+    const [matched] = await db.select().from(users).where(eq(users.email, session.email)).limit(1);
+    if (matched) return matched;
+  }
+  if (supabaseAuthEnabled()) return null;
   const [user] = await db
     .select()
     .from(users)
@@ -71,17 +80,18 @@ export async function getWorkspaceContext() {
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
 
-  const [[user], spendRow, pendingRow, agentRows] = await Promise.all([
-    db
-      .select()
-      .from(users)
-      .where(eq(users.workspaceId, workspace.id))
-      .orderBy(asc(users.createdAt))
-      .limit(1),
+  const [user, spendRow, pendingRow, agentRows, cloudSpend] = await Promise.all([
+    getCurrentUser(workspace.id),
     db
       .select({ total: sql<number>`coalesce(sum(${runs.costUsd}), 0)` })
       .from(runs)
-      .where(and(eq(runs.workspaceId, workspace.id), gte(runs.startedAt, startOfDay))),
+      .where(
+        and(
+          eq(runs.workspaceId, workspace.id),
+          eq(runs.mode, "live"),
+          gte(runs.startedAt, startOfDay),
+        ),
+      ),
     db
       .select({ total: sql<number>`count(*)` })
       .from(approvals)
@@ -89,12 +99,13 @@ export async function getWorkspaceContext() {
         and(eq(approvals.workspaceId, workspace.id), eq(approvals.status, "pending")),
       ),
     db.select().from(agents).where(eq(agents.workspaceId, workspace.id)),
+    spendSince(workspace.id, startOfDay),
   ]);
 
   return {
     workspace,
     user: user ?? null,
-    spendTodayUsd: Number(spendRow[0]?.total ?? 0),
+    spendTodayUsd: cloudSpend ?? Number(spendRow[0]?.total ?? 0),
     pendingApprovals: Number(pendingRow[0]?.total ?? 0),
     agentCount: agentRows.length,
     activeAgentCount: agentRows.filter((a) => a.status === "active").length,

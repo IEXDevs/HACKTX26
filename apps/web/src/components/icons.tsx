@@ -200,6 +200,14 @@ export const Scale = icon(
     <path d="M5.5 7 2.8 13a2.7 2.7 0 0 0 5.4 0zM18.5 7l-2.7 6a2.7 2.7 0 0 0 5.4 0z" />
   </>,
 );
+export const Settings = icon(
+  "Settings",
+  <>
+    <SoftCircle cx="12" cy="12" r="3.2" />
+    <circle cx="12" cy="12" r="3.2" />
+    <path d="M12 3.2v2.2M12 18.6V20.8M4.93 6.34l1.56 1.56M17.51 16.1l1.56 1.56M3.2 12h2.2M18.6 12h2.2M4.93 17.66l1.56-1.56M17.51 7.9l1.56-1.56" />
+  </>,
+);
 export const GitBranch = icon(
   "GitBranch",
   <>
@@ -248,6 +256,13 @@ export const Pause = icon(
     <rect x="14" y="5" width="4" height="14" rx="1.5" />
   </>,
 );
+export const Square = icon(
+  "Square",
+  <>
+    <SoftRect x="6" y="6" width="12" height="12" rx="2" />
+    <rect x="6" y="6" width="12" height="12" rx="2" />
+  </>,
+);
 export const LoaderCircle = icon(
   "LoaderCircle",
   <>
@@ -262,6 +277,14 @@ export const Save = icon(
     <SoftRect x="4" y="4" width="16" height="16" rx="3" />
     <path d="M7 4h8.5L20 8.5V17a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3z" />
     <path d="M8 4v4h7V4M8 20v-5.5h8V20" />
+  </>,
+);
+export const Pencil = icon(
+  "Pencil",
+  <>
+    <Soft d="M14 5.5 18.5 10 9 19.5H4.5V15z" />
+    <path d="M14 5.5 18.5 10 9 19.5H4.5V15z" />
+    <path d="M12.5 7 17 11.5" />
   </>,
 );
 export const Maximize = icon(
@@ -561,5 +584,12 @@ export const Moon = icon(
   <>
     <Soft d="M19.5 14.5A7.8 7.8 0 1 1 9.5 4.5a6.2 6.2 0 0 0 10 10z" />
     <path d="M19.5 14.5A7.8 7.8 0 1 1 9.5 4.5a6.2 6.2 0 0 0 10 10z" />
+  </>,
+);
+export const LogOut = icon(
+  "LogOut",
+  <>
+    <SoftRect x="4" y="4.5" width="10" height="15" rx="2" />
+    <path d="M4 6.5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zM14 12h7M18 9l3 3-3 3" />
   </>,
 );

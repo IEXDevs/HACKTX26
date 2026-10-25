@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { AGENT_RANK_LABEL, hardwareForComplexity, type TaskComplexity } from "@agent-os/core";
 import { AgentDetail } from "@/components/relay/agent-detail";
 import { usd } from "@/lib/format";
-import { getAgentDetail, listBudgetPolicies, listRuns } from "@/lib/queries";
+import { getAgentDetail, getWorkspace, listBudgetPolicies, listRuns } from "@/lib/queries";
 import { routedModel, runTile } from "@/lib/views";
 
 export const dynamic = "force-dynamic";
@@ -12,9 +12,10 @@ export default async function AgentPage({ params }: { params: Promise<{ id: stri
   const detail = await getAgentDetail(id);
   if (!detail) notFound();
   const { agent, parent, children, blocks, proposals } = detail;
-  const [policies, runs] = await Promise.all([
+  const [policies, runs, workspace] = await Promise.all([
     listBudgetPolicies(agent.workspaceId),
     listRuns(agent.workspaceId, { agentId: agent.id, limit: 10 }),
+    getWorkspace(),
   ]);
   const runPolicy = policies.find((p) => p.agentId === agent.id && p.period === "run");
 
@@ -54,7 +55,7 @@ export default async function AgentPage({ params }: { params: Promise<{ id: stri
         })),
         runs: runs.map(runTile),
         advanced: {
-          model: routedModel(agent),
+          model: routedModel(agent, workspace?.deniedModelIds ?? []),
           hardware: hardwareForComplexity(agent.complexity as TaskComplexity).label,
           dataClass: agent.dataClass,
           complexity: agent.complexity,

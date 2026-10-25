@@ -1,7 +1,8 @@
 /* Agent builder and agent page: orb hero, prompt box, templates, chat. */
 .composer {
-  max-width: 960px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
   color: var(--ink);
 }
 .glass-pill {
@@ -35,8 +36,21 @@ button.glass-pill:hover:not(:disabled) {
 }
 .composer-tabs {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  overflow: hidden;
+  align-items: stretch;
+  border: 1px solid var(--glass-edge);
+  border-radius: 14px;
+  background: var(--glass);
+}
+.composer-tabs .glass-pill {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  border-right: 1px solid var(--hairline);
+  backdrop-filter: none;
+}
+.composer-tabs .glass-pill:last-child {
+  border-right: 0;
 }
 .glass-pill.on {
   background: var(--glass-strong);
@@ -69,9 +83,30 @@ button.glass-pill:hover:not(:disabled) {
 .composer-hero {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
-  margin: 64px 0 36px;
+  margin: 28px 0 20px;
+}
+.agent-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px 20px;
+  margin: 20px 0 8px;
+}
+.agent-head .composer-orb {
+  width: 56px;
+  height: 56px;
+  margin: 0;
+  flex: none;
+}
+.agent-head .agent-copy {
+  flex: 1;
+  min-width: 220px;
+}
+.agent-head .agent-actions {
+  margin-left: auto;
+  margin-top: 6px;
 }
 .composer-orb {
   width: 92px;
@@ -93,7 +128,7 @@ button.glass-pill:hover:not(:disabled) {
   font-size: 36px;
   font-weight: 600;
   letter-spacing: -1px;
-  text-align: center;
+  text-align: left;
 }
 .composer-form {
   display: grid;
@@ -163,8 +198,15 @@ button.glass-pill:hover:not(:disabled) {
 .composer-templates {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 14px;
+  gap: 0;
   margin-top: 20px;
+  overflow: hidden;
+  border: 1px solid var(--glass-edge);
+  border-radius: 16px;
+  background: var(--glass);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
 }
 .composer-card {
   display: flex;
@@ -173,19 +215,17 @@ button.glass-pill:hover:not(:disabled) {
   justify-content: flex-start;
   gap: 8px;
   padding: 18px;
-  border: 1px solid var(--glass-edge);
-  border-radius: 18px;
-  background: var(--glass);
-  box-shadow: var(--glass-shadow);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
+  border: 0;
+  border-right: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  border-radius: 0;
+  background: transparent;
   text-align: left;
   color: var(--ink);
   font-weight: 400;
 }
 .composer-card:hover {
   background: var(--glass-strong);
-  border-color: var(--glass-edge-hover);
 }
 .composer-card-top {
   display: flex;
@@ -246,8 +286,8 @@ button.glass-pill:hover:not(:disabled) {
   flex-direction: column;
   gap: 18px;
   width: 100%;
-  max-width: 760px;
-  margin: 32px auto 24px;
+  max-width: none;
+  margin: 24px 0;
 }
 .chat p {
   margin: 0;
@@ -348,8 +388,8 @@ button.glass-pill:hover:not(:disabled) {
   position: sticky;
   bottom: 16px;
   width: 100%;
-  max-width: 760px;
-  margin: 0 auto;
+  max-width: none;
+  margin: 0;
   display: grid;
   gap: 8px;
 }
@@ -372,19 +412,18 @@ button.glass-pill:hover:not(:disabled) {
   cursor: not-allowed;
 }
 .composer-summary {
-  max-width: 620px;
-  margin: 4px auto 0;
-  text-align: center;
+  max-width: none;
+  margin: 4px 0 0;
+  text-align: left;
   font-size: 16px;
   line-height: 1.5;
   color: var(--muted);
 }
 .agent-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-  margin-top: 18px;
+  display: inline-flex;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  margin-top: 0;
 }
 .card {
   padding: 16px 18px;

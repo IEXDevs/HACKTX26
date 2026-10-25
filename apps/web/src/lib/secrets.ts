@@ -60,6 +60,7 @@ export function secretsEqual(a: string, b: string): boolean {
 export function redactSecrets(input: string): string {
   return input
     .replace(/\b(sk|pk|ghp|gho|ghs|xox[abp])[-_][A-Za-z0-9_-]{12,}\b/g, "[redacted-token]")
+    .replace(/\bLLM_[A-Za-z0-9_]+/g, "[redacted-token]")
     .replace(/\b[A-Za-z0-9+/]{40,}={0,2}\b/g, "[redacted-blob]")
     .replace(/\bBearer\s+[A-Za-z0-9._-]+/gi, "Bearer [redacted]");
 }

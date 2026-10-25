@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft } from "@/components/icons";
-import type { RunLive, StepState } from "@/lib/views";
+import { ArrowLeft, Square } from "@/components/icons";
+import type { RunLive } from "@/lib/views";
 import { plainText } from "@/lib/plain-text";
-import { AdvancedSwitch, useAdvanced } from "./advanced";
 import { RichText } from "./rich-text";
 
 export interface RunViewData extends RunLive {
@@ -23,35 +22,49 @@ export interface RunViewData extends RunLive {
   approvals: Array<{ id: string; ask: string; reason: string }>;
 }
 
-const stateLabel: Record<StepState, string> = {
-  done: "Done",
-  working: "Working",
-  next: "Next",
-  failed: "Stopped",
-};
-
-/** Plain run view. The full event trace sits behind Advanced. */
+/** Plain run view. */
 export function RunView({
   run,
-  trace,
   embedded = false,
 }: {
   run: RunViewData;
-  trace: ReactNode;
   /** Drops the back bar and title, for pages that show the run inside their own header. */
   embedded?: boolean;
 }) {
   const router = useRouter();
-  const [advanced, toggleAdvanced] = useAdvanced(),
-    [deciding, setDeciding] = useState<string | null>(null),
+  const [deciding, setDeciding] = useState<string | null>(null),
+    [stopping, setStopping] = useState(false),
     [error, setError] = useState("");
   const waiting = run.approvals.length > 0;
+  const history = run.history ?? [];
+  const live = run.active || waiting;
 
   useEffect(() => {
-    if (!run.active && !waiting) return;
+    if (!live) return;
     const timer = setInterval(() => router.refresh(), 3000);
     return () => clearInterval(timer);
-  }, [run.active, waiting, router]);
+  }, [live, router]);
+
+  async function stop() {
+    setStopping(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/runs/${run.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "stop" }),
+      });
+      if (!response.ok) {
+        const value = await response.json().catch(() => ({}));
+        throw new Error(value.error ?? "Could not stop the run.");
+      }
+      router.refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setStopping(false);
+    }
+  }
 
   async function decide(id: string, decision: "approved" | "denied") {
     setDeciding(id);
@@ -96,9 +109,14 @@ export function RunView({
               <ArrowLeft size={16} aria-hidden />
               Runs
             </Link>
-            <div className="composer-bar-end">
-              <AdvancedSwitch on={advanced} toggle={toggleAdvanced} />
-            </div>
+            {live ? (
+              <div className="composer-bar-end">
+                <button className="btn danger" disabled={stopping} onClick={() => void stop()}>
+                  <Square size={14} aria-hidden />
+                  {stopping ? "Stopping" : "Force stop"}
+                </button>
+              </div>
+            ) : null}
           </div>
           <div className="page-top" style={{ marginTop: 24 }}>
             <div>
@@ -109,9 +127,14 @@ export function RunView({
           </div>
         </>
       )}
-      <p className="composer-summary" style={{ textAlign: "left", margin: "6px 0 0" }}>
-        {run.goal}
-      </p>
+      {embedded && live ? (
+        <div className="composer-bar-end" style={{ justifyContent: "flex-end", margin: "8px 0 0" }}>
+          <button className="btn danger" disabled={stopping} onClick={() => void stop()}>
+            <Square size={14} aria-hidden />
+            {stopping ? "Stopping" : "Force stop"}
+          </button>
+        </div>
+      ) : null}
 
       <div className="run-bar">
         <div className="run-bar-track" style={{ cursor: "default" }}>
@@ -152,41 +175,42 @@ export function RunView({
         </section>
       )}
 
-      {run.result && !run.active && (
+      {(history.length > 0 || run.draft) && (
         <section className="section">
-          <h2>Result</h2>
-          <div className="card">
-            <RichText text={run.result} className={run.tone === "stopped" ? "stopped" : ""} />
-          </div>
-        </section>
-      )}
-
-      {run.steps.length > 0 && (
-        <section className="section">
-          <h2>Steps</h2>
-          <ol className="run-steps">
-            {run.steps.map((s, i) => (
-              <li key={i} className={s.state}>
-                <span>{s.name}</span>
-                <span>{stateLabel[s.state]}</span>
-              </li>
-            ))}
-          </ol>
-        </section>
-      )}
-
-      {(run.feed.length > 0 || run.draft) && (
-        <section className="section">
-          <h2>What the agents said</h2>
+          <h2>History</h2>
           <div className="card" style={{ display: "grid", gap: 16 }}>
-            {run.feed.length > 0 && (
+            {history.length > 0 && (
               <ol className="run-feed">
-                {run.feed.map((o) => (
-                  <li key={o.id}>
-                    <time>{o.at}</time>
+                {history.map((item) => (
+                  <li
+                    key={item.id}
+                    className={
+                      item.kind === "tool" || item.kind === "handoff"
+                        ? "run-tool"
+                        : item.kind === "thinking"
+                          ? "run-thinking"
+                          : undefined
+                    }
+                  >
+                    <time>{item.at}</time>
                     <div>
-                      <b>{o.who}</b>
-                      <RichText text={o.text} />
+                      <b>
+                        {item.who}
+                        {item.kind === "thinking" ? (
+                          <span className="run-tool-name"> thinking</span>
+                        ) : item.kind === "tool" || item.kind === "handoff" ? (
+                          <span className="run-tool-name">
+                            {" "}
+                            {item.tool}
+                            {item.status ? ` · ${item.status}` : ""}
+                          </span>
+                        ) : null}
+                      </b>
+                      {item.kind === "thought" || item.kind === "thinking" ? (
+                        <RichText text={item.text} />
+                      ) : item.text && item.text !== item.tool ? (
+                        <p className="run-tool-preview">{plainText(item.text).slice(0, 280)}</p>
+                      ) : null}
                     </div>
                   </li>
                 ))}
@@ -202,13 +226,6 @@ export function RunView({
               </div>
             )}
           </div>
-        </section>
-      )}
-
-      {advanced && (
-        <section className="section">
-          <h2>Full trace · {run.cost}</h2>
-          {trace}
         </section>
       )}
     </div>

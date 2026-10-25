@@ -4,7 +4,6 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FlaskConical, LoaderCircle, Play, ShieldCheck } from "@/components/icons";
-import { AdvancedSwitch, useAdvanced } from "./advanced";
 
 export interface SuiteCard {
   id: string;
@@ -12,6 +11,8 @@ export interface SuiteCard {
   description: string;
   agentId: string;
   agent: string;
+  templateId: string | null;
+  template: string;
   passed: number;
   total: number;
   status: "passed" | "failed" | "never";
@@ -23,24 +24,32 @@ export interface SuiteCard {
   cases: string[];
 }
 
+export interface TemplateGroup {
+  id: string;
+  name: string;
+  suites: SuiteCard[];
+  totals: { toolAccuracy: number; taskSuccess: number; intervention: number };
+}
+
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 
 export function EvalsView({
   suites,
+  groups,
   totals,
   healable,
 }: {
   suites: SuiteCard[];
+  groups: TemplateGroup[];
   totals: { toolAccuracy: number; taskSuccess: number; intervention: number };
   healable: number;
 }) {
   const router = useRouter();
-  const [advanced, toggleAdvanced] = useAdvanced(),
-    [busy, setBusy] = useState<string | null>(null),
+  const [busy, setBusy] = useState<string | null>(null),
     [note, setNote] = useState(""),
     [error, setError] = useState("");
 
-  async function post(key: string, url: string, body: unknown, done: (v: any) => string) {
+  async function post(key: string, url: string, body: unknown, done: (v: { casesPassed?: number; casesTotal?: number; suites?: number }) => string) {
     setBusy(key);
     setError("");
     setNote("");
@@ -65,25 +74,7 @@ export function EvalsView({
     <div className="page">
       <div className="page-top">
         <h1>Evaluations</h1>
-        <div className="page-actions">
-          <AdvancedSwitch on={advanced} toggle={toggleAdvanced} />
-        </div>
       </div>
-
-      <dl className="stats">
-        <div>
-          <dt>Uses the right tools</dt>
-          <dd>{pct(totals.toolAccuracy)}</dd>
-        </div>
-        <div>
-          <dt>Finishes the task</dt>
-          <dd>{pct(totals.taskSuccess)}</dd>
-        </div>
-        <div>
-          <dt>Needs a person</dt>
-          <dd>{pct(totals.intervention)}</dd>
-        </div>
-      </dl>
 
       {(healable > 0 || note || error) && (
         <div className="callout">
@@ -110,7 +101,7 @@ export function EvalsView({
               disabled={busy === "heal"}
               onClick={() =>
                 post("heal", "/api/evals/autoheal", { limit: Math.min(healable, 10) }, (v) =>
-                  v.message ?? "Nothing to fix",
+                  (v as { message?: string }).message ?? "Nothing to fix",
                 )
               }
             >
@@ -122,10 +113,74 @@ export function EvalsView({
       )}
 
       <section className="section">
-        <h2>Test suites</h2>
-        {suites.length ? (
-          <div className="tile-grid">
-            {suites.map((s) => (
+        <div className="section-head">
+          <h2>Overall</h2>
+          {suites.length > 0 && (
+            <button
+              className="btn small"
+              disabled={busy === "overall"}
+              onClick={() =>
+                post("overall", "/api/evals/run", { overall: true }, (v) =>
+                  `Overall: ${v.casesPassed ?? "?"} of ${v.casesTotal ?? "?"} cases pass across ${v.suites ?? suites.length} suites`,
+                )
+              }
+            >
+              {busy === "overall" ? <LoaderCircle size={14} className="animate-spin" /> : <Play size={14} />}
+              Run all
+            </button>
+          )}
+        </div>
+        <dl className="stats">
+          <div>
+            <dt>Uses the right tools</dt>
+            <dd>{pct(totals.toolAccuracy)}</dd>
+          </div>
+          <div>
+            <dt>Finishes the task</dt>
+            <dd>{pct(totals.taskSuccess)}</dd>
+          </div>
+          <div>
+            <dt>Needs a person</dt>
+            <dd>{pct(totals.intervention)}</dd>
+          </div>
+        </dl>
+      </section>
+
+      {groups.map((group) => (
+        <section className="section" key={group.id}>
+          <div className="section-head">
+            <h2>{group.name}</h2>
+            {group.id !== "other" && (
+              <button
+                className="btn small"
+                disabled={busy === group.id}
+                onClick={() =>
+                  post(group.id, "/api/evals/run", { templateId: group.id }, (v) =>
+                    `${group.name}: ${v.casesPassed ?? "?"} of ${v.casesTotal ?? "?"} cases pass`,
+                  )
+                }
+              >
+                {busy === group.id ? <LoaderCircle size={14} className="animate-spin" /> : <Play size={14} />}
+                Run
+              </button>
+            )}
+          </div>
+          <dl className="stats">
+            <div>
+              <dt>Uses the right tools</dt>
+              <dd>{pct(group.totals.toolAccuracy)}</dd>
+            </div>
+            <div>
+              <dt>Finishes the task</dt>
+              <dd>{pct(group.totals.taskSuccess)}</dd>
+            </div>
+            <div>
+              <dt>Needs a person</dt>
+              <dd>{pct(group.totals.intervention)}</dd>
+            </div>
+          </dl>
+          <div className="tile-grid" style={{ marginTop: 16 }}>
+            {group.suites.map((s) => (
               <article className="tile" key={s.id}>
                 <div className="tile-main">
                   <span
@@ -139,14 +194,6 @@ export function EvalsView({
                     {s.total ? ` · ${s.passed} of ${s.total} cases pass` : ""}
                   </p>
                   {s.accuracy.length > 1 && <Spark values={s.accuracy} />}
-                  {advanced && (
-                    <p className="detail">
-                      Tools {pct(s.toolAccuracy)} · Task {pct(s.taskSuccess)} · Person{" "}
-                      {pct(s.intervention)}
-                      <br />
-                      {s.cases.join(" · ")}
-                    </p>
-                  )}
                 </div>
                 <footer className="tile-foot">
                   <span>{s.when}</span>
@@ -159,24 +206,22 @@ export function EvalsView({
                       )
                     }
                   >
-                    {busy === s.id ? (
-                      <LoaderCircle size={14} className="animate-spin" />
-                    ) : (
-                      <Play size={14} />
-                    )}
+                    {busy === s.id ? <LoaderCircle size={14} className="animate-spin" /> : <Play size={14} />}
                     Run
                   </button>
                 </footer>
               </article>
             ))}
           </div>
-        ) : (
-          <p className="empty">
-            <FlaskConical size={16} style={{ display: "inline", marginRight: 6 }} />
-            No test suites yet.
-          </p>
-        )}
-      </section>
+        </section>
+      ))}
+
+      {suites.length === 0 && (
+        <p className="empty">
+          <FlaskConical size={16} style={{ display: "inline", marginRight: 6 }} />
+          No test suites yet.
+        </p>
+      )}
     </div>
   );
 }

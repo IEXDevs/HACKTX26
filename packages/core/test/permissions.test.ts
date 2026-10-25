@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_ACTION_EFFECTS,
   DEFAULT_POLICY_RULES,
   evaluatePermission,
   minimizeScopes,
+  resolveActionEffects,
 } from "../src/protocol/permissions";
 
 describe("permission evaluation", () => {
@@ -83,6 +85,63 @@ describe("permission evaluation", () => {
       [],
     );
     expect(d.effect).toBe("require_approval");
+  });
+
+  it("lets workspace policy override the production freeze", () => {
+    const d = evaluatePermission(
+      { resource: "cli:prod-deploy", scopes: ["execute"], risk: "high" },
+      DEFAULT_POLICY_RULES,
+      { "cli:prod-deploy": "allow" },
+    );
+    expect(d.effect).toBe("allow");
+    expect(d.matchedRuleId).toBe("workspace:cli:prod-deploy");
+  });
+
+  it("applies the six named workspace defaults when none are stored", () => {
+    const effects = resolveActionEffects({});
+    expect(effects).toEqual(DEFAULT_ACTION_EFFECTS);
+    expect(
+      evaluatePermission(
+        { resource: "fs.read", scopes: ["read"], risk: "low" },
+        DEFAULT_POLICY_RULES,
+        effects,
+      ).effect,
+    ).toBe("allow");
+    expect(
+      evaluatePermission(
+        { resource: "fs.write", scopes: ["write"], risk: "medium" },
+        DEFAULT_POLICY_RULES,
+        effects,
+      ).effect,
+    ).toBe("allow_with_log");
+    expect(
+      evaluatePermission(
+        { resource: "http.fetch", scopes: ["net", "read"], risk: "medium" },
+        DEFAULT_POLICY_RULES,
+        effects,
+      ).effect,
+    ).toBe("allow_with_log");
+    expect(
+      evaluatePermission(
+        { resource: "shell.exec", scopes: ["execute"], risk: "high" },
+        DEFAULT_POLICY_RULES,
+        effects,
+      ).effect,
+    ).toBe("require_approval");
+    expect(
+      evaluatePermission(
+        { resource: "secret.use", scopes: ["secret"], risk: "critical" },
+        DEFAULT_POLICY_RULES,
+        effects,
+      ).effect,
+    ).toBe("require_approval");
+    expect(
+      evaluatePermission(
+        { resource: "cli:prod-deploy", scopes: ["execute"], risk: "high" },
+        DEFAULT_POLICY_RULES,
+        effects,
+      ).effect,
+    ).toBe("deny");
   });
 });
 

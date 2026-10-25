@@ -1,65 +1,64 @@
-import { eq } from "drizzle-orm";
 import { SecurityView } from "@/components/relay/security";
-import { getDb } from "@/lib/db/client";
-import { findingCases } from "@/lib/db/schema";
 import { relativeTime } from "@/lib/format";
-import {
-  getWorkspaceContext,
-  listAgents,
-  listFindings,
-  listPendingApprovals,
-  listRuns,
-} from "@/lib/queries";
-import { askFor } from "@/lib/views";
+import { listCheckReports, liveChecks } from "@/lib/loop/redteam-check";
+import { CHECK_MAX_USD, CHECK_RUN_BUDGET_USD } from "@/lib/loop/redteam-limits";
+import { getWorkspaceContext, listAgents } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
-const severityRank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
-
 export default async function SecurityPage() {
   const { workspace } = await getWorkspaceContext();
-  const [agents, findings, approvals, runs, cases] = await Promise.all([
-    listAgents(workspace.id),
-    listFindings(workspace.id, 200),
-    listPendingApprovals(workspace.id, 20),
-    listRuns(workspace.id, { limit: 500 }),
-    getDb()
-      .select({ id: findingCases.id, findingId: findingCases.findingId })
-      .from(findingCases)
-      .where(eq(findingCases.workspaceId, workspace.id)),
-  ]);
-  const caseFor = new Map(cases.map((c) => [c.findingId, c.id]));
-  const name = new Map(agents.map((a) => [a.id, a.name]));
-  const checkers = agents.filter((a) => a.role === "security");
+  const [agents, reports] = await Promise.all([listAgents(workspace.id), listCheckReports(workspace.id, 20)]);
+  const live = liveChecks().filter((check) => agents.some((agent) => agent.id === check.agentId));
+  const published = agents
+    .filter((agent) => agent.status === "active" && agent.role !== "security")
+    .sort((a, b) => {
+      const rank = (agent: typeof a) => (agent.role === "orchestrator" ? 0 : agent.parentAgentId ? 2 : 1);
+      return rank(a) - rank(b) || a.name.localeCompare(b.name);
+    });
 
   return (
     <SecurityView
-      approvals={approvals.map((a) => ({
-        id: a.id,
-        runId: a.runId,
-        ask: askFor(a.resource),
-        agent: name.get(a.agentId) ?? "Agent",
-        reason: a.reason,
-        risk: a.risk,
+      agents={published.map((agent) => ({
+        id: agent.id,
+        name: agent.name,
+        role: agent.role,
+        parent: Boolean(agent.parentAgentId),
       }))}
-      issues={[...findings]
-        .sort((a, b) => (severityRank[a.severity] ?? 9) - (severityRank[b.severity] ?? 9))
-        .map((f) => ({
-          id: f.id,
-          title: f.title,
-          detail: f.detail,
-          remediation: f.remediation,
-          evidence: f.evidence,
-          severity: f.severity,
-          category: f.category,
-          status: f.status,
-          agent: name.get(f.targetAgentId ?? f.agentId) ?? "Agent",
-          runId: f.runId,
-          when: relativeTime(f.createdAt),
-          caseId: caseFor.get(f.id) ?? null,
-        }))}
-      probes={runs.filter((r) => checkers.some((c) => c.id === r.agentId)).length}
-      checkers={checkers.map((c) => ({ id: c.id, name: c.name, status: c.status }))}
+      live={live.map((check) => ({
+        agentId: check.agentId,
+        agentName: agents.find((agent) => agent.id === check.agentId)?.name ?? check.agentName,
+        probesDone: check.probesDone,
+        probesTotal: check.probesTotal,
+        spentUsd: check.spentUsd,
+        maxUsd: check.maxUsd,
+        current: check.currentCategory,
+      }))}
+      reports={reports.map((report) => {
+        const held = report.probes.filter((probe) => probe.held).length;
+        const open = report.probes.length - held;
+        return {
+          id: report.id,
+          agentId: report.agentId,
+          agent: report.agentName,
+          when: relativeTime(report.at),
+          held,
+          open,
+          probes: report.probes.map((probe) => ({
+            category: probe.category,
+            title: probe.title,
+            held: probe.held,
+            note: probe.note,
+            runId: probe.runId,
+            findingId: probe.findingId,
+          })),
+        };
+      })}
+      defaults={{
+        agentId: reports[0]?.agentId ?? published[0]?.id ?? "",
+        limitUsd: CHECK_MAX_USD,
+        probeCost: CHECK_RUN_BUDGET_USD,
+      }}
     />
   );
 }

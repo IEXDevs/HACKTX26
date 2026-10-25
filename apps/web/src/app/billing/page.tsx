@@ -1,7 +1,9 @@
 import Link from "next/link";
-import { eq, desc } from "drizzle-orm";
+import { MODEL_CATALOG } from "@agent-os/core";
+import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { runs } from "@/lib/db/schema";
+import { spendSince } from "@/lib/observability";
 import { getWorkspaceContext, listAgents, listBudgetPolicies } from "@/lib/queries";
 import { BillingSpend } from "@/components/relay/billing-spend";
 
@@ -10,18 +12,29 @@ const money = (value: number) => new Intl.NumberFormat("en-US", { style: "curren
 const dateKey = (date: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
 
 export default async function BillingPage() {
-  const { workspace } = await getWorkspaceContext();
-  const [policies, agents, history] = await Promise.all([
+  const { workspace, spendTodayUsd } = await getWorkspaceContext();
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+  // Only live runs are billed; seeded demo runs are not.
+  const [policies, agents, history, cloudMonth] = await Promise.all([
     listBudgetPolicies(workspace.id),
     listAgents(workspace.id),
-    getDb().select().from(runs).where(eq(runs.workspaceId, workspace.id)).orderBy(desc(runs.startedAt)),
+    getDb()
+      .select()
+      .from(runs)
+      .where(and(eq(runs.workspaceId, workspace.id), eq(runs.mode, "live")))
+      .orderBy(desc(runs.startedAt)),
+    spendSince(workspace.id, monthStart),
   ]);
   const today = dateKey(new Date());
   const month = today.slice(0, 7);
   const monthRuns = history.filter((run) => dateKey(run.startedAt).startsWith(month));
   const sum = (items: typeof history) => items.reduce((total, run) => total + run.costUsd, 0);
-  const todaySpent = sum(history.filter((run) => dateKey(run.startedAt) === today));
-  const monthSpent = sum(monthRuns);
+  // Match the sidebar: cloud usage when it is configured, local live runs otherwise.
+  const todaySpent = spendTodayUsd;
+  const monthSpent = cloudMonth ?? sum(monthRuns);
+  const models = MODEL_CATALOG.filter((model) => model.provider === "meta" || model.id.startsWith("muse-"));
   const daily = policies.find((policy) => policy.agentId === null && policy.period === "day");
   const names = new Map(agents.map((agent) => [agent.id, agent.name]));
   const days = Array.from({ length: 30 }, (_, index) => {
@@ -70,7 +83,23 @@ export default async function BillingPage() {
           })}
         </tbody></table>{policies.length === 0 && <p className="bill-empty">No spending limits set.</p>}</div>
       </section>
-      <p className="bill-caption bill-disclaimer">Estimated model costs in USD. No payments are collected.</p>
+      <section className="bill-section">
+        <div className="bill-section-title"><h2>Model prices</h2><span>Meta Model API rates as published</span></div>
+        <ul className="list">
+          {models.map((model) => (
+            <li key={model.id}>
+              <div>
+                <b>{model.label}</b>
+                <small>
+                  {model.id} · ${model.inputPerMTok} / ${model.outputPerMTok} per 1M tokens
+                  {model.cachedInputPerMTok != null ? ` · cached in $${model.cachedInputPerMTok}` : ""}
+                </small>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
+      <p className="bill-caption bill-disclaimer">Estimated costs from live model usage, in USD. Seeded demo runs are not billed. No payments are collected.</p>
     </div>
   );
 }

@@ -13,13 +13,15 @@ export async function GET(request: NextRequest) {
   return startGoogleLogin(request);
 }
 
+// 303, not the default 307: the button posts a form, and a 307 would make the
+// browser repeat that POST against Supabase's authorize URL, which only takes GET.
 async function startGoogleLogin(request: NextRequest) {
   if (!supabaseAuthEnabled()) {
-    return NextResponse.redirect(new URL("/login?error=Auth%20is%20not%20configured", request.url));
+    return NextResponse.redirect(new URL("/login?error=Auth%20is%20not%20configured", request.url), 303);
   }
   const supabase = await createSupabaseServerClient();
   if (!supabase) {
-    return NextResponse.redirect(new URL("/login?error=Auth%20is%20not%20configured", request.url));
+    return NextResponse.redirect(new URL("/login?error=Auth%20is%20not%20configured", request.url), 303);
   }
 
   const formNext =
@@ -49,8 +51,9 @@ async function startGoogleLogin(request: NextRequest) {
     });
     return NextResponse.redirect(
       new URL(`/login?error=${encodeURIComponent(error?.message ?? "Google sign-in failed")}`, origin),
+      303,
     );
   }
 
-  return NextResponse.redirect(data.url);
+  return NextResponse.redirect(data.url, 303);
 }

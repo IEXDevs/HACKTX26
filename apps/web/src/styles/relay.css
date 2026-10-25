@@ -2545,6 +2545,30 @@ div.rich li {
 .sec-report + .sec-report {
   margin-top: 16px;
 }
+/* Each report folds down to its header line. */
+.sec-report > summary {
+  cursor: pointer;
+  list-style: none;
+}
+.sec-report > summary::-webkit-details-marker {
+  display: none;
+}
+.sec-report > summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.sec-report:not([open]) > summary {
+  border-bottom: 0;
+}
+.sec-report-chevron {
+  display: inline-block;
+  margin-left: 10px;
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+.sec-report[open] .sec-report-chevron {
+  transform: rotate(90deg);
+}
 @media (max-width: 720px) {
   .sec-command {
     grid-template-columns: 1fr;

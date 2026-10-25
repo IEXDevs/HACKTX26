@@ -599,7 +599,9 @@ export async function refreshContextCatalog(workspaceId: string, userId: string)
             `  Working checkout: \`${working.repo}\` @ \`${working.branch}\` lives in the sandbox under \`repo/\`. Read with fs.read, edit with fs.write (commits back after approval).`,
           );
         } else {
-          lines.push("  No working repository yet. The operator picks one on the Connectors page.");
+          lines.push(
+            "  Linked. If the prompt names a repository, work on that checkout under `repo/`. Otherwise use connector.call and pick the repo the job needs.",
+          );
         }
       }
     }

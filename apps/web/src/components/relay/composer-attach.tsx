@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { LoaderCircle, Plug, Plus, X } from "@/components/icons";
-import type { ComposerAttachment } from "@/lib/composer-attachments";
+import { attachmentKey, attachmentLabel, type ComposerAttachment } from "@/lib/composer-attachments";
 
 type Repo = { fullName: string; defaultBranch: string; private: boolean };
+type ConnectedApp = { slug: string; name: string };
 
 export function ComposerAttach({
   attachments,
@@ -16,7 +17,7 @@ export function ComposerAttach({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [github, setGithub] = useState(false);
+  const [apps, setApps] = useState<ConnectedApp[] | null>(null);
   const [repos, setRepos] = useState<Repo[] | null>(null);
   const root = useRef<HTMLDivElement>(null);
 
@@ -30,17 +31,19 @@ export function ComposerAttach({
 
   async function openMenu() {
     setOpen((value) => !value);
-    if (repos || busy) return;
+    if (apps || busy) return;
     setBusy(true);
     setError(null);
     try {
       const catalog = await fetch("/api/connectors");
       const listed = (await catalog.json().catch(() => ({}))) as {
-        connectors?: { slug: string; connected?: boolean }[];
+        connectors?: { slug: string; name?: string; connected?: boolean }[];
       };
-      const connected = Boolean(listed.connectors?.some((row) => row.slug === "github" && row.connected));
-      setGithub(connected);
-      if (!connected) return;
+      const connected = (listed.connectors ?? [])
+        .filter((row) => row.connected)
+        .map((row) => ({ slug: row.slug, name: row.name || row.slug }));
+      setApps(connected);
+      if (!connected.some((row) => row.slug === "github")) return;
       const response = await fetch("/api/connectors/github/repos");
       const value = (await response.json().catch(() => ({}))) as { repos?: Repo[]; error?: string };
       if (!response.ok) {
@@ -54,6 +57,16 @@ export function ComposerAttach({
     } finally {
       setBusy(false);
     }
+  }
+
+  function toggleApp(app: ConnectedApp) {
+    const exists = attachments.some((item) => item.kind === "app" && item.slug === app.slug);
+    onChange(
+      exists
+        ? attachments.filter((item) => !(item.kind === "app" && item.slug === app.slug))
+        : [...attachments, { kind: "app", slug: app.slug, name: app.name }],
+    );
+    setOpen(false);
   }
 
   async function pickRepo(repo: Repo) {
@@ -86,29 +99,51 @@ export function ComposerAttach({
             </p>
           ) : error ? (
             <p className="composer-attach-note">{error}</p>
-          ) : !github ? (
-            <p className="composer-attach-note">Connect GitHub on Connectors, then pick a repo here.</p>
-          ) : repos && repos.length === 0 ? (
-            <p className="composer-attach-note">No repositories on this GitHub account.</p>
+          ) : !apps?.length ? (
+            <p className="composer-attach-note">Connect an app on Connectors, then attach it here.</p>
           ) : (
             <>
-              <p className="composer-attach-label">
-                <Plug size={13} /> GitHub
-              </p>
-              <div className="composer-attach-list">
-                {(repos ?? []).map((repo) => (
+              {(apps ?? [])
+                .filter((app) => app.slug !== "github")
+                .map((app) => (
                   <button
-                    key={repo.fullName}
+                    key={app.slug}
                     type="button"
                     role="menuitem"
-                    className={attachments.some((item) => item.repo === repo.fullName) ? "on" : undefined}
-                    onClick={() => void pickRepo(repo)}
+                    className={
+                      "composer-attach-app" +
+                      (attachments.some((item) => item.kind === "app" && item.slug === app.slug) ? " on" : "")
+                    }
+                    onClick={() => toggleApp(app)}
                   >
-                    {repo.fullName}
-                    {repo.private ? " · private" : ""}
+                    <Plug size={13} /> {app.name}
                   </button>
                 ))}
-              </div>
+              {apps.some((app) => app.slug === "github") ? (
+                <>
+                  <p className="composer-attach-label">
+                    <Plug size={13} /> GitHub
+                  </p>
+                  {repos && repos.length === 0 ? (
+                    <p className="composer-attach-note">No repositories on this GitHub account.</p>
+                  ) : (
+                    <div className="composer-attach-list">
+                      {(repos ?? []).map((repo) => (
+                        <button
+                          key={repo.fullName}
+                          type="button"
+                          role="menuitem"
+                          className={attachments.some((item) => item.kind === "github" && item.repo === repo.fullName) ? "on" : undefined}
+                          onClick={() => void pickRepo(repo)}
+                        >
+                          {repo.fullName}
+                          {repo.private ? " · private" : ""}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : null}
             </>
           )}
         </div>
@@ -128,9 +163,9 @@ export function ComposerChips({
   return (
     <div className="composer-chips">
       {attachments.map((item) => (
-        <span key={`${item.kind}:${item.repo}`} className="composer-chip">
-          {item.repo}
-          <button type="button" aria-label={`Remove ${item.repo}`} onClick={() => onRemove(item)}>
+        <span key={attachmentKey(item)} className="composer-chip">
+          {attachmentLabel(item)}
+          <button type="button" aria-label={`Remove ${attachmentLabel(item)}`} onClick={() => onRemove(item)}>
             <X size={11} />
           </button>
         </span>

@@ -316,14 +316,26 @@ button.glass-pill:hover:not(:disabled) {
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
 }
-.start-run-tools {
-  position: relative;
+.start-run-box {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: -4px 0 16px;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px 8px 8px 12px;
 }
-.start-run-tools .composer-attach-menu {
+.start-run-box textarea {
+  min-height: 96px;
+  padding: 8px 4px;
+  font-size: 15px;
+}
+.start-run-box .composer-tools {
+  flex: none;
+  width: 100%;
+  padding: 0;
+}
+.start-run-box .composer-attach-menu {
   bottom: auto;
   top: calc(100% + 8px);
 }
@@ -360,7 +372,27 @@ button.glass-pill:hover:not(:disabled) {
   box-shadow: none;
 }
 .composer-attach-list button:hover,
-.composer-attach-list button.on {
+.composer-attach-list button.on,
+.composer-attach-app.on {
+  background: var(--glass);
+}
+.composer-attach-app {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  box-shadow: none;
+}
+.composer-attach-app:hover {
   background: var(--glass);
 }
 .composer-chips {
@@ -402,6 +434,9 @@ button.glass-pill:hover:not(:disabled) {
 }
 .composer-tools .composer-send {
   margin-left: auto;
+}
+.console-prompt-tools {
+  padding: 0;
 }
 .composer-send {
   height: 44px;

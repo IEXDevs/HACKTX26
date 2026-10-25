@@ -22,6 +22,7 @@ import type { AgentSandbox } from "./sandbox";
 
 export interface ToolContext {
   workspaceId: string;
+  runId: string;
   agentId: string;
   agentName: string;
   sandbox: AgentSandbox;
@@ -229,7 +230,7 @@ async function memoryWrite(ctx: ToolContext, args: Record<string, unknown>): Pro
     kind,
     content: clip(content, 2_000),
     importance: 0.65,
-    sourceRunId: null,
+    sourceRunId: ctx.runId,
     createdAt: new Date(),
   });
 

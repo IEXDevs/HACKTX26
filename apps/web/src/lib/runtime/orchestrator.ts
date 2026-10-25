@@ -888,6 +888,7 @@ class RunEngine {
     } else {
       const ctx: ToolContext = {
         workspaceId: this.run.workspaceId,
+        runId: this.run.id,
         agentId: agent.id,
         agentName: agent.name,
         sandbox,

@@ -43,15 +43,20 @@ export default async function AgentConsolePage({
   const tree = sandbox.tree();
   const latest = runs[0] ?? null;
   let toolCalls: ConsoleToolCall[] = [];
+  let toolCallRunId: string | null = null;
 
-  if (latest) {
-    const events = await getRunEvents(latest.id);
-    const projection = projectRun(events, latest.id);
-    toolCalls = [...projection.toolCalls.values()]
+  // The latest run may be a pure-delegation turn (no direct tool calls by this
+  // agent). Walk back until a run shows this agent touching its sandbox.
+  for (const run of runs) {
+    const events = await getRunEvents(run.id);
+    const projection = projectRun(events, run.id);
+    const calls = [...projection.toolCalls.values()]
       .filter((call) => call.agentId === agent.id)
       .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
-      .slice(0, 15)
-      .map((call) => ({
+      .slice(0, 15);
+    if (calls.length > 0) {
+      toolCallRunId = run.id;
+      toolCalls = calls.map((call) => ({
         id: call.id,
         tool: call.tool,
         status: call.status,
@@ -60,6 +65,8 @@ export default async function AgentConsolePage({
         error: call.error,
         at: call.startedAt,
       }));
+      break;
+    }
   }
 
   const runPolicy = policies.find(
@@ -107,8 +114,9 @@ export default async function AgentConsolePage({
         }
         dataClass={agent.dataClass}
         initialTree={tree}
-        root={sandbox.root}
+        root={`workspaces/${agent.workspaceId}/${agent.id}`}
         toolCalls={toolCalls}
+        toolCallRunId={toolCallRunId}
         recentRun={
           latest
             ? {

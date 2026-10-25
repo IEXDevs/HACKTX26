@@ -42,7 +42,7 @@ export const TOOL_MANIFEST: readonly ToolManifestEntry[] = [
     name: "fs.list",
     label: "List files",
     description:
-      "List files in this agent's sandbox. Paths are relative to the sandbox root (README.md, not <agent-id>/README.md).",
+      "List files in this agent's sandbox. Paths are relative to the sandbox root. A linked GitHub repo is checked out under repo/.",
     category: "filesystem",
     scopes: ["read"],
     risk: "low",
@@ -52,7 +52,7 @@ export const TOOL_MANIFEST: readonly ToolManifestEntry[] = [
     name: "fs.read",
     label: "Read file",
     description:
-      "Read a UTF-8 file from the agent sandbox. Path is relative to the sandbox root (e.g. README.md, not <agent-id>/README.md).",
+      "Read a UTF-8 file from the agent sandbox. Path is relative to the sandbox root (e.g. repo/src/app.ts for the linked GitHub checkout).",
     category: "filesystem",
     scopes: ["read"],
     risk: "low",
@@ -62,7 +62,8 @@ export const TOOL_MANIFEST: readonly ToolManifestEntry[] = [
   {
     name: "fs.write",
     label: "Write file",
-    description: "Create or overwrite a file inside the agent sandbox.",
+    description:
+      "Create or overwrite a file inside the agent sandbox. Writes under repo/ commit back to the linked GitHub repository after approval.",
     category: "filesystem",
     scopes: ["write"],
     risk: "medium",

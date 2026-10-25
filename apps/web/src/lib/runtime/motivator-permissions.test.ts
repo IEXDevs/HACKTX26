@@ -100,6 +100,35 @@ describe("motivator permission decisions", () => {
     expect((await getDb().select().from(approvals))[0]).toMatchObject({ status: "denied", decidedBy: `mot_${runId}` });
   });
 
+  it.each(["request", "motivator"] as const)("gates linked GitHub writes in %s mode even when local file writes are allowed", async (mode) => {
+    const { runId, rootId } = await fixture(mode);
+    await getDb().update(agents).set({ allowedTools: ["fs.write"] }).where(eq(agents.id, rootId));
+    turns = [[{ type: "tool_call", call: { id: "github_write", name: "fs.write", args: { path: "repo/src/check.ts", content: "export const checked = true;" } } }], [report]];
+    humanDecision = "denied";
+    await executeRun(runId);
+    const [approval] = await getDb().select().from(approvals).where(eq(approvals.runId, runId));
+    expect(approval).toMatchObject({ resource: "fs.write", risk: "high", status: mode === "motivator" ? "approved" : "denied" });
+    expect(approval!.reason).toContain("commits back to the remote");
+    if (mode === "motivator") {
+      expect(reviews.find((review) => review.proposal === "permission")!.permission).toMatchObject({ tool: "fs.write", risk: "high", args: { path: "repo/src/check.ts" } });
+      expect(broker.waitForApprovalDecision).not.toHaveBeenCalled();
+      expect(tools.executeTool).toHaveBeenCalledTimes(1);
+    } else {
+      expect(broker.waitForApprovalDecision).toHaveBeenCalledTimes(1);
+      expect(tools.executeTool).not.toHaveBeenCalled();
+    }
+  });
+
+  it("keeps ordinary local writes available without treating them as GitHub commits", async () => {
+    const { runId, rootId } = await fixture();
+    await getDb().update(agents).set({ allowedTools: ["fs.write"] }).where(eq(agents.id, rootId));
+    turns = [[{ type: "tool_call", call: { id: "local_write", name: "fs.write", args: { path: "notes/report.md", content: "# Findings" } } }], [report]];
+    await executeRun(runId);
+    expect(reviews.some((review) => review.proposal === "permission")).toBe(false);
+    expect(await getDb().select().from(approvals)).toHaveLength(0);
+    expect(tools.executeTool).toHaveBeenCalledTimes(1);
+  });
+
   it("asks the human when the motivator cannot establish the user's intent", async () => {
     decision = { verdict: "ask_user", reason: "Only the user can confirm the destination.", question: "Should this action target the shared workspace?", nextSteps: [] };
     humanDecision = "denied";

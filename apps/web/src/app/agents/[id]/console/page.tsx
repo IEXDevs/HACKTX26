@@ -4,6 +4,10 @@ import { ArrowLeft, TerminalSquare } from "@/components/icons";
 import { projectRun } from "@agent-os/core";
 import { AgentConsole, type ConsoleToolCall } from "@/components/console/agent-console";
 import { PageHeader, StatusBadge } from "@/components/ui/primitives";
+import { getSessionUser } from "@/lib/auth";
+import { getGithubWorkingRepo, operatorIdFor } from "@/lib/connectors";
+import { env } from "@/lib/env";
+import { ensureGithubCheckout } from "@/lib/github-sync";
 import {
   getAgent,
   getRunEvents,
@@ -13,7 +17,6 @@ import {
   listRuns,
 } from "@/lib/queries";
 import { AgentSandbox } from "@/lib/runtime/sandbox";
-import { env } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 
@@ -42,12 +45,16 @@ export default async function AgentConsolePage({
   }
 
   const sandbox = new AgentSandbox(env.sandboxRoot, agent.workspaceId, agent.id);
-  if (!sandbox.exists()) {
-    sandbox.provision({
-      agentName: agent.name,
-      role: agent.role,
-      summary: agent.summary || agent.instructions.slice(0, 200),
-    });
+  sandbox.provision();
+  const session = await getSessionUser();
+  const operatorId = operatorIdFor(session?.id, ctx.user?.id);
+  const github = await getGithubWorkingRepo(agent.workspaceId, operatorId);
+  if (github) {
+    await ensureGithubCheckout({
+      sandbox,
+      workspaceId: agent.workspaceId,
+      userId: operatorId,
+    }).catch(() => undefined);
   }
 
   const tree = sandbox.tree();
@@ -151,6 +158,11 @@ export default async function AgentConsolePage({
           spentTodayUsd: ctx.spendTodayUsd,
         }}
         workflowHref={`/workflows/${workflowId}`}
+        githubHint={
+          github
+            ? { repo: github.repo, branch: github.branch }
+            : null
+        }
       />
     </div>
   );

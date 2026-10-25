@@ -610,6 +610,7 @@ export function GraphSpace({
 
       /* --- directional info packets: who is talking to whom --- */
       const particle = (from: V2, to: V2, frac: number, color: string, size: number) => {
+        if (!ctx) return;
         const fx = from.x + (to.x - from.x) * frac;
         const fy = from.y + (to.y - from.y) * frac;
         const trail = Math.max(0.02, frac - 0.06);

@@ -4,6 +4,8 @@ import { z } from "zod";
 import { getDb } from "@/lib/db/client";
 import { auditLog, securityFindings } from "@/lib/db/schema";
 import { newId } from "@/lib/env";
+import { advanceTarget } from "@/lib/loop/blue-team";
+import { closeDismissedCase } from "@/lib/loop/cases";
 import { canTransition } from "@/lib/loop/lifecycle";
 import { getWorkspaceContext, requireWorkspace } from "@/lib/queries";
 
@@ -71,6 +73,10 @@ export async function PATCH(
     },
     at: new Date(),
   });
+
+  // Its case, if any, closes, and the next case for the same agent moves on.
+  const closed = await closeDismissedCase(id, actor);
+  if (closed) await advanceTarget(closed.workspaceId, closed.targetAgentId);
 
   return Response.json({ finding: updated });
 }

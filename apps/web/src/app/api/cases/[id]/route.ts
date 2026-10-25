@@ -12,8 +12,8 @@ import {
   loadCase,
   person,
   proposeFix,
-  startRetest,
 } from "@/lib/loop/cases";
+import { retestApplied } from "@/lib/loop/blue-team";
 import { getWorkspaceContext } from "@/lib/queries";
 import { askCaseReview } from "@/lib/runtime/case-review";
 
@@ -42,8 +42,9 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
 
 /**
  * The case conversation. Messages go to the agent creator, which may propose
- * a change. "approve" is the person's approval of one proposal by hash; the
- * platform then applies it as a new version and starts the retest.
+ * a change; the blue team's Fix Drafter posts its diffs here too. "approve" is
+ * the person's approval of one proposal by hash; the platform then applies it
+ * as a new version, and the blue team starts the retest.
  */
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
@@ -73,9 +74,9 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     if (body.action === "approve") {
       await approveFix(row.id, body.proposalHash, person(actor));
       await applyFix(row.id);
-      return Response.json({ case: await startRetest(row.id) });
+      return Response.json({ case: await retestApplied(row.id) });
     }
-    if (body.action === "retest") return Response.json({ case: await startRetest(row.id) });
+    if (body.action === "retest") return Response.json({ case: await retestApplied(row.id) });
     return Response.json({ case: await checkRetest(row.id) });
   } catch (error) {
     return Response.json({ error: (error as Error).message }, { status: 409 });

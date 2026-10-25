@@ -55,17 +55,24 @@ import { createApprovalRequest, waitForApprovalDecision } from "./approvals";
 import { RunLogger } from "./emitter";
 import { createLiveGateway, liveGatewayAvailable } from "./gateway";
 import { ScriptedGateway } from "./gateway-scripted";
+import { CASE_TOOL_BY_NAME, executeCaseTool, mayUseCaseTool } from "@/lib/loop/case-tools";
 import {
+  bindCase,
+  BLUE_TEAM_SPECIALISTS,
+  blueTeamSpecialist,
+  caseIdFromGoal,
   DELEGATION_GUIDANCE,
   detectScenario,
   gruntTools,
   redTeamSpecialist,
   RED_TEAM_SPECIALISTS,
   scriptFor,
+  SEVERITY_RUBRIC,
   shouldSpawnAdversarialSwarm,
   wantsDeploy,
   type RedTeamSpecialist,
   type Scenario,
+  type TeamSpecialist,
 } from "./scripts";
 import { insertHelperAgent, reactivateHelper } from "./helper-agents";
 import { AgentLifecycle, type AgentOutcome } from "./lifecycle";
@@ -516,9 +523,13 @@ class RunEngine {
 
     const gateway: ModelGateway =
       this.#liveGateway ??
-      new ScriptedGateway(scriptFor(this.#scenario, agent.name, agent.role as AgentRole, this.run.goal), {
-        chunkDelayMs: 0,
-      });
+      new ScriptedGateway(
+        bindCase(
+          scriptFor(this.#scenario, agent.name, agent.role as AgentRole, this.run.goal),
+          caseIdFromGoal(this.run.goal),
+        ),
+        { chunkDelayMs: 0 },
+      );
 
     const contextFile = new WorkspaceContextFile(env.sandboxRoot, this.run.workspaceId);
     contextFile.ensure();
@@ -797,16 +808,16 @@ class RunEngine {
   }
 
   #toolSpecs(agent: AgentRow): ToolSpec[] {
-    const names = new Set(agent.allowedTools);
+    const names = new Set(agent.allowedTools.filter((name) => !CASE_TOOL_BY_NAME.has(name) || mayUseCaseTool(agent, name)));
     if (mayDelegate(agent)) names.add("agent.delegate");
-    if (agent.role === "security") names.add("security.report");
+    if (agent.role === "security" && agent.team !== "blue") names.add("security.report");
     names.add("context.read");
     if (agent.role === "orchestrator" || names.has("fs.write") || names.has("context.write")) {
       names.add("context.write");
     }
 
     return [...names]
-      .map((name) => TOOL_BY_NAME.get(name))
+      .map((name) => TOOL_BY_NAME.get(name) ?? CASE_TOOL_BY_NAME.get(name))
       .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
       .map((entry) => ({
         name: entry.name,
@@ -835,6 +846,12 @@ class RunEngine {
             detail: { type: "string" },
             evidence: { type: "string" },
             remediation: { type: "string" },
+            case: { type: "string" },
+            note: { type: "string" },
+            instructions: { type: "string" },
+            rule: { type: "string" },
+            reply: { type: "string" },
+            removeTools: { type: "array", items: { type: "string" } },
           },
           additionalProperties: true,
         },
@@ -851,7 +868,7 @@ class RunEngine {
     depth: number,
   ): Promise<{ ok: boolean; preview: string; error?: string }> {
     const started = Date.now();
-    const manifest = TOOL_BY_NAME.get(call.name);
+    const manifest = TOOL_BY_NAME.get(call.name) ?? CASE_TOOL_BY_NAME.get(call.name);
     const emitAsAgent = async (payload: RunEventPayload): Promise<void> => {
       await this.logger.emit(payload, agent.id);
     };
@@ -883,10 +900,13 @@ class RunEngine {
       );
     }
 
-    const roleAllowed =
-      (call.name === "agent.delegate" && mayDelegate(agent)) ||
-      (call.name === "security.report" && agent.role === "security") ||
-      agent.allowedTools.includes(call.name);
+    // Case tools belong to the blue team; security.report to the red team.
+    // Neither can be granted by an agent.
+    const roleAllowed = CASE_TOOL_BY_NAME.has(call.name)
+      ? mayUseCaseTool(agent, call.name)
+      : (call.name === "agent.delegate" && mayDelegate(agent)) ||
+        (call.name === "security.report" && agent.role === "security" && agent.team !== "blue") ||
+        agent.allowedTools.includes(call.name);
 
     if (!roleAllowed) {
       return this.#toolFailure(
@@ -1073,6 +1093,8 @@ class RunEngine {
       result = await this.#delegate(agent, taskId, call, depth, started);
     } else if (call.name === "security.report") {
       result = await this.#reportFinding(agent, call);
+    } else if (CASE_TOOL_BY_NAME.has(call.name)) {
+      result = await executeCaseTool(agent, call.name, call.args, caseIdFromGoal(this.run.goal));
     } else {
       const ctx: ToolContext = {
         workspaceId: this.run.workspaceId,
@@ -1134,6 +1156,12 @@ class RunEngine {
       row.name.toLowerCase() === normalised || row.id === requested || row.slug === normalised;
 
     let child = this.agentRows.find((row) => row.parentAgentId === agent.id && nameMatch(row));
+
+    if (isBlueLead(agent)) {
+      const assigned = await this.#delegateCaseWork(agent, requested, call.args);
+      if ("error" in assigned) return { ok: false, preview: "", error: assigned.error };
+      child = assigned.child;
+    }
 
     if (!child && isProbeLead(agent)) {
       if (!agent.canSpawnSubagents) {
@@ -1262,23 +1290,70 @@ class RunEngine {
     };
   }
 
-  /** Insert a probe specialist under the lead and keep it for later runs. */
-  async #spawnSpecialist(parent: AgentRow, spec: RedTeamSpecialist): Promise<AgentRow> {
+  /**
+   * The Blue Team Lead hands one step of one case to a grunt made for it: a
+   * Triage per finding, a Fix Drafter per case, a Verifier per round. The
+   * roster comes from scripts.ts; the separation rules from lib/loop/blue-team.ts.
+   */
+  async #delegateCaseWork(
+    lead: AgentRow,
+    requested: string,
+    args: Record<string, unknown>,
+  ): Promise<{ child: AgentRow } | { error: string }> {
+    const spec = blueTeamSpecialist(requested);
+    if (!spec) {
+      const names = BLUE_TEAM_SPECIALISTS.map((item) => item.name).join(", ");
+      return { error: `${lead.name} hands case work only to its roster: ${names}.` };
+    }
+    if (!lead.canSpawnSubagents) {
+      return { error: `${lead.name} does not have dynamic subagent creation turned on.` };
+    }
+    const caseId = argsString(args, "case") ?? caseIdFromGoal(this.run.goal);
+    if (!caseId) return { error: `Name the case ${spec.name} should work on.` };
+    const blue = await import("@/lib/loop/blue-team");
+    try {
+      const name = await blue.crewMemberName(caseId, spec.crewRole, spec.name);
+      const child =
+        this.agentRows.find((row) => row.parentAgentId === lead.id && row.name === name) ??
+        (await this.#spawnSpecialist(lead, spec, name));
+      await blue.assignCrew(caseId, spec.crewRole, child.id, lead.id);
+      return { child };
+    } catch (error) {
+      return { error: redactSecrets((error as Error).message) };
+    }
+  }
+
+  /**
+   * Insert a team specialist under its lead. Specialists are grunts. Red ones
+   * are kept for later runs; blue ones are made per case and retire with it.
+   */
+  async #spawnSpecialist(parent: AgentRow, spec: TeamSpecialist, name = spec.name): Promise<AgentRow> {
     const now = new Date();
     const id = newId("agt");
+    const slugBase =
+      name === spec.name
+        ? spec.slug
+        : name
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/(^-|-$)/g, "")
+            .slice(0, 48);
     const slugTaken = this.agentRows.some(
-      (row) => row.workspaceId === parent.workspaceId && row.slug === spec.slug,
+      (row) => row.workspaceId === parent.workspaceId && row.slug === slugBase,
     );
-    const slug = slugTaken ? `${spec.slug}-${id.slice(4, 8)}` : spec.slug;
-    const grants = grantsForSpecialist(spec.tools);
+    const slug = slugTaken ? `${slugBase}-${id.slice(4, 8)}` : slugBase;
+    const tools = specialistTools(spec.tools);
+    const grants = grantsForSpecialist(tools);
+    const role = spec.team === "red" ? "security" : "worker";
 
     const { row: created, created: isNew } = await insertHelperAgent({
         id,
         workspaceId: parent.workspaceId,
-        name: spec.name,
+        name,
         slug,
-        role: "security",
-        rank: childRank(parent),
+        role,
+        rank: "grunt",
+        team: spec.team,
         canSpawnSubagents: false,
         proposeTemplates: false,
         parentAgentId: parent.id,
@@ -1288,7 +1363,7 @@ class RunEngine {
         inheritedPromptBlockIds: parent.inheritedPromptBlockIds,
         modelPolicy: pinnedMetaPolicy("complex", this.workspace.deniedModelIds),
         grants,
-        allowedTools: spec.tools,
+        allowedTools: tools,
         complexity: "complex",
         maxSteps: 8,
         dataClass: parent.dataClass,
@@ -1307,19 +1382,23 @@ class RunEngine {
       {
         type: "log",
         level: "info",
-        message: `${parent.name} created red-team specialist ${spec.name} (${created.id}).`,
+        message: `${parent.name} created ${spec.team}-team specialist ${created.name} (${created.id}).`,
         agentId: parent.id,
       },
       parent.id,
     );
+    // Filed under the roster name, so per-case copies do not file one each.
     await this.#noteTemplateProposal(parent, {
-      name: created.name,
+      name: spec.name,
       summary: created.summary,
       instructions: created.instructions,
       tools: created.allowedTools,
-      role: "security",
+      role,
       complexity: "complex",
-      reason: `${parent.name} stood up ${created.name} as a probe it will reuse on later runs.`,
+      reason:
+        spec.team === "red"
+          ? `${parent.name} stood up ${created.name} as a probe it will reuse on later runs.`
+          : `${parent.name} makes a ${spec.name} for each case it works.`,
     });
 
     return created;
@@ -1519,6 +1598,9 @@ class RunEngine {
         const loop = await import("@/lib/loop/cases");
         const opened = await loop.openCase(findingId, { kind: "agent", agentId: agent.id });
         await loop.elevateCase(opened.id);
+        // The blue team takes it from here, when the workspace has one.
+        const blue = await import("@/lib/loop/blue-team");
+        await blue.advanceCase(opened.id);
       } catch (error) {
         await this.logger.emit(
           {
@@ -1728,6 +1810,7 @@ class RunEngine {
       slug: "red-team",
       role: "security",
       rank: childRank(parent) === "grunt" ? "intermediate" : childRank(parent),
+      team: "red",
       canSpawnSubagents: true,
       proposeTemplates: false,
       parentAgentId: parent.id,
@@ -1802,14 +1885,15 @@ class RunEngine {
         .where(eq(triggers.id, this.run.triggerId));
     }
 
-    if (this.run.purpose === "retest") {
+    const root = this.agentRows.find((row) => row.id === this.run.agentId);
+    if (this.run.purpose === "retest" || (root && isBlueLead(root))) {
       // Imported lazily to keep the loop module out of the engine's import graph.
       try {
-        const { noteRunFinished } = await import("@/lib/loop/cases");
+        const { noteRunFinished } = await import("@/lib/loop/blue-team");
         await noteRunFinished(this.run.id);
       } catch (error) {
         // eslint-disable-next-line no-console
-        console.error(`[run ${this.run.id}] retest check failed`, error);
+        console.error(`[run ${this.run.id}] feedback-loop check failed`, error);
       }
     }
   }
@@ -1839,21 +1923,53 @@ function delegationGuidance(agent: AgentRow): string {
 function isProbeLead(agent: AgentRow): boolean {
   return (
     agent.role === "security" &&
+    agent.team !== "blue" &&
     agent.rank !== "grunt" &&
     redTeamSpecialist(agent.name) === undefined
   );
 }
 
+function isBlueLead(agent: AgentRow): boolean {
+  return agent.team === "blue" && agent.rank !== "grunt";
+}
+
 function specialistRoster(agent: AgentRow): string {
+  if (isBlueLead(agent)) {
+    const names = BLUE_TEAM_SPECIALISTS.map((spec) => spec.name).join(", ");
+    return [
+      "",
+      "",
+      "You lead the blue team. Do not triage, draft, or verify yourself.",
+      `Delegate each step with agent.delegate and pass the case id as "case". The roster is: ${names}. Each is created for one case (a Verifier for one round) and retires when the case closes.`,
+      "The Verifier is never the Fix Drafter. A person approves every change; the platform applies it. Start a retest only with case.start_retest, after a Verifier has the round.",
+    ].join("\n");
+  }
   if (!isProbeLead(agent)) return "";
   const names = RED_TEAM_SPECIALISTS.map((spec) => spec.name).join(", ");
   return [
     "",
     "",
-    "You lead the probe. Do not run the vectors yourself.",
+    "You lead the probe. Plan the probes from the run goal. Do not run the vectors yourself.",
     `Delegate each one with agent.delegate. A specialist is created on first use and reused after that: ${names}.`,
     "Each specialist files its own finding. A denied credential request is the control working, not a finding.",
+    "Accept a finding only when its reproduction is exact: the input, the output or action observed, and the steps to repeat it.",
+    SEVERITY_RUBRIC,
+    "Test data is synthetic and labeled as test data, and stays in sandbox corpora. Use canary secrets only; a real secret never goes into a finding, a case, a diff, or a log.",
   ].join("\n");
+}
+
+/**
+ * A specialist holds low and medium tools from its roster entry, never
+ * delegation. The one exception is the Egress Prober's secret.use: asking is
+ * the probe, and the engine always denies it to security agents.
+ */
+function specialistTools(tools: readonly string[]): string[] {
+  return tools.filter((name) => {
+    if (name === "agent.delegate" || name === "security.report") return false;
+    if (name === "secret.use") return true;
+    const entry = TOOL_BY_NAME.get(name) ?? CASE_TOOL_BY_NAME.get(name);
+    return entry?.risk === "low" || entry?.risk === "medium";
+  });
 }
 
 function complexityForTask(task: string, requested?: string | null): TaskComplexity {
@@ -1889,8 +2005,9 @@ function grantsForSpecialist(tools: readonly string[]): PermissionGrant[] {
     grants.push({
       resource: entry.name,
       scopes: entry.scopes,
-      grantedBy: "red-team-lead",
-      note: "Standing grant for a spawned probe specialist.",
+      // From the roster a person approved, never from the lead that spawned it.
+      grantedBy: "team-roster",
+      note: "Standing grant for a team specialist.",
     });
   }
   return grants;

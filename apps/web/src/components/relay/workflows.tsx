@@ -128,7 +128,7 @@ export function Workflows({ workflows }: { workflows: WorkflowTile[] }) {
             ? "Nothing is archived."
             : search
               ? "No workflows match that search."
-              : "No workflows yet. Start one with New workflow."}
+              : "No workflows yet."}
         </p>
       )}
     </div>

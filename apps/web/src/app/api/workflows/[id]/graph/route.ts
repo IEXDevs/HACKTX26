@@ -13,5 +13,5 @@ export async function GET(
   if (!snapshot) {
     return Response.json({ error: "Workflow not found." }, { status: 404 });
   }
-  return Response.json(snapshot);
+  return Response.json(snapshot, { headers: { "Cache-Control": "no-store" } });
 }

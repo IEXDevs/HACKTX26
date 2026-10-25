@@ -55,12 +55,8 @@ export function ActionPolicy({
   }
 
   return (
-    <section>
+    <section className="section">
       <h2>What agents may do</h2>
-      <p className="wf-meta" style={{ marginBottom: 12 }}>
-        Access levels apply to every agent. Pick Allowed, Allowed and logged, Asks you first, or
-        Blocked for each action.
-      </p>
       {error ? <p className="error-text">{error}</p> : null}
       <ul className="list">
         {ACTION_POLICIES.map((row) => {

@@ -60,6 +60,7 @@ export function selectionGraph(slots: WorkflowSlot[], library: LibraryAgent[]): 
       complexity: agent?.complexity ?? "standard", dataClass: agent?.dataClass ?? "internal", tools: agent?.tools ?? [],
       grants: [], maxSteps: 12, version: 1, lastRun: null, openFindings: 0, budgetUsd: null, spentUsd: 0,
       inputTokens: 0, outputTokens: 0, durationMs: null, filesTouched: [], diff: { reads: 0, writes: 0, deletes: 0 }, trailHref: "", consoleHref: "",
+      rank: slot.parentId ? "grunt" : "orchestrator", createdAt: "",
     };
   });
 }

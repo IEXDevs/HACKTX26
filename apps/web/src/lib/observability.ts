@@ -1,6 +1,6 @@
 /**
- * Cloud ledger for real model usage, prompt traces, auth, and platform
- * activity. Writes are best-effort: a downed Supabase must never fail a run.
+ * Cloud ledger for real model usage, prompt traces, and platform activity.
+ * Writes are best-effort: a downed Supabase must never fail a run.
  */
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -40,16 +40,6 @@ export interface ModelTurn {
   outputTokens: number;
   costUsd?: number;
   dataClass?: string | null;
-}
-
-export interface AuthEventInput {
-  userId?: string | null;
-  email?: string | null;
-  event: "signed_in" | "signed_out" | "login_failed" | "token_refreshed";
-  provider?: string | null;
-  ip?: string | null;
-  userAgent?: string | null;
-  metadata?: Record<string, unknown>;
 }
 
 export interface ActivityEventInput {
@@ -207,22 +197,6 @@ export async function recordModelTurn(turn: ModelTurn): Promise<void> {
   }
 }
 
-export async function recordAuthEvent(event: AuthEventInput): Promise<void> {
-  try {
-    await insert("auth_events", {
-      user_id: event.userId ?? null,
-      email: event.email ?? null,
-      event: event.event,
-      provider: event.provider ?? null,
-      ip: event.ip ?? null,
-      user_agent: event.userAgent ?? null,
-      metadata: event.metadata ?? {},
-    });
-  } catch (error) {
-    warn("recordAuthEvent", error);
-  }
-}
-
 export async function recordActivity(event: ActivityEventInput): Promise<void> {
   try {
     await insert("activity_events", {
@@ -273,14 +247,6 @@ export interface CloudPromptRow {
   completion: string | null;
   inputTokens: number | null;
   outputTokens: number | null;
-  createdAt: Date;
-}
-
-export interface CloudAuthRow {
-  id: string;
-  email: string | null;
-  event: string;
-  provider: string | null;
   createdAt: Date;
 }
 
@@ -366,30 +332,6 @@ export async function listPromptLogs(
     completion: (row.completion as string | null) ?? null,
     inputTokens: (row.input_tokens as number | null) ?? null,
     outputTokens: (row.output_tokens as number | null) ?? null,
-    createdAt: new Date(String(row.created_at)),
-  }));
-}
-
-export async function listAuthEvents(limit = 40): Promise<CloudAuthRow[] | null> {
-  if (!observabilityEnabled()) return null;
-  const client = admin();
-  if (!client) return null;
-  const { data, error } = await client
-    .from("auth_events")
-    .select("id, email, event, provider, created_at")
-    .order("created_at", { ascending: false })
-    .limit(limit);
-  const rows = error
-    ? isPrivilegeError(error.message)
-      ? readFallback("auth_events").reverse().slice(0, limit)
-      : (warn("listAuthEvents", error.message), null)
-    : (data ?? []);
-  if (!rows) return null;
-  return rows.map((row) => ({
-    id: String(row.id),
-    email: (row.email as string | null) ?? null,
-    event: String(row.event ?? ""),
-    provider: (row.provider as string | null) ?? null,
     createdAt: new Date(String(row.created_at)),
   }));
 }

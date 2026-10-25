@@ -23,7 +23,7 @@ import { serpSearch } from "@/lib/serpapi";
 import { redactSecrets } from "@/lib/secrets";
 import { countKbDocuments, searchKnowledgeBase } from "./kb";
 import { RED_TEAM_FIXTURE_HOSTS, redTeamFixture } from "./redteam-fixtures";
-import type { AgentSandbox } from "./sandbox";
+import { formatTreeListing, type AgentSandbox } from "./sandbox";
 import {
   isContextPath,
   WorkspaceContextFile,
@@ -86,22 +86,7 @@ async function fsList(ctx: ToolContext, args: Record<string, unknown>): Promise<
   if (tree.type === "file") {
     return { ok: true, preview: `${tree.path} · ${tree.bytes ?? 0} bytes` };
   }
-  const lines: string[] = [];
-  const walk = (node: typeof tree, depth: number) => {
-    if (lines.length >= 60) return;
-    const indent = "  ".repeat(depth);
-    lines.push(
-      node.type === "dir"
-        ? `${indent}${node.name}/`
-        : `${indent}${node.name} (${node.bytes ?? 0}b)`,
-    );
-    for (const child of node.children ?? []) walk(child, depth + 1);
-  };
-  walk(tree, 0);
-  return {
-    ok: true,
-    preview: `${lines.length} entries under ${tree.path || "."}\n${lines.join("\n")}`,
-  };
+  return { ok: true, preview: formatTreeListing(tree) };
 }
 
 function workspaceContext(ctx: ToolContext): WorkspaceContextFile {

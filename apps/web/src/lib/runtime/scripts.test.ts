@@ -32,6 +32,11 @@ describe("red-team specialists", () => {
     expect(redTeamSpecialist("Red Team")).toBeUndefined();
   });
 
+  it("does not treat an invented worker name as a red-team specialist", () => {
+    expect(redTeamSpecialist("Research Grunt")).toBeUndefined();
+    expect(redTeamSpecialist("Subagent 1")).toBeUndefined();
+  });
+
   it("sends an unmatched orchestrator goal to a grunt and keeps credentials off the grunt", () => {
     const steps = scriptFor("general", "Vendor Review", "orchestrator");
     expect(steps[0]?.tool?.name).toBe("agent.delegate");

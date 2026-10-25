@@ -10,8 +10,8 @@ import type { WorkflowView } from "@/lib/views";
 import { WorkspaceContextPanel } from "./workspace-context";
 
 /**
- * One workflow page. The draft view shows this workflow's agent map and runs the task.
- * Picking a run from the history shows that run in place.
+ * One workflow page. The map stays on screen while a run is live so the team
+ * is visible as subagents appear. Click an agent on the map to read its log.
  */
 export function Workflow({
   workflow,
@@ -24,17 +24,20 @@ export function Workflow({
   graph: GraphSnapshot | null;
   context: { content: string; stub: boolean };
   runId: string | null;
-  /** The selected run, rendered by the server. */
+  /** Historical run log, only when the URL asked for a specific run. */
   run: ReactNode;
 }) {
   const router = useRouter();
-  const [task, setTask] = useState(workflow.task),
+  const [task, setTask] = useState(workflow.task || ""),
+    [runningGoal, setRunningGoal] = useState(""),
+    [startedRunId, setStartedRunId] = useState<string | null>(null),
     [busy, setBusy] = useState(false),
     [stopping, setStopping] = useState(false),
     [error, setError] = useState("");
   const archived = workflow.status === "archived";
   const on = workflow.status === "active";
-  const base = `/workflows/${workflow.id}`;
+  const liveId = startedRunId ?? workflow.liveRunId;
+  const live = Boolean(liveId) && (!runId || runId === liveId);
 
   async function act(fn: () => Promise<void>) {
     setBusy(true);
@@ -62,18 +65,21 @@ export function Workflow({
     router.refresh();
   }
   async function start() {
+    const goal = task.trim();
     const response = await fetch("/api/runs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agentId: workflow.id, goal: task.trim(), mode: "live" }),
+      body: JSON.stringify({ agentId: workflow.id, goal, mode: "live" }),
     });
     const value = await response.json();
     if (!response.ok) throw new Error(value.error ?? "The run could not start.");
-    router.push(`${base}?run=${value.runId}`);
+    setStartedRunId(value.runId);
+    setRunningGoal(goal);
+    setTask("");
     router.refresh();
   }
   async function stop() {
-    const id = runId ?? workflow.liveRunId;
+    const id = liveId;
     if (!id) return;
     setStopping(true);
     setError("");
@@ -85,6 +91,7 @@ export function Workflow({
       });
       const value = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(value.error ?? "Could not stop the run.");
+      setStartedRunId(null);
       router.refresh();
     } catch (e) {
       setError((e as Error).message);
@@ -102,7 +109,7 @@ export function Workflow({
         </Link>
         <div className="composer-bar-end">
           <div className="btn-group">
-            {workflow.liveRunId && (!runId || runId === workflow.liveRunId) ? (
+            {live ? (
               <button
                 className="btn danger"
                 disabled={stopping || busy}
@@ -132,70 +139,80 @@ export function Workflow({
 
       {error && <p className="error-text" style={{ marginTop: 12 }}>{error}</p>}
 
-      {runId ? (
-        <>
-          <button className="link-btn" style={{ marginTop: 8 }} onClick={() => router.push(base)}>
-            Back to workflow
-          </button>
-          <div style={{ marginTop: 12 }}>{run}</div>
-        </>
-      ) : (
-        <>
-          {!on && !archived && (
-            <div className="callout">
-              <div>
-                <b>This workflow is off.</b>
-              </div>
-              <button
-                className="btn primary"
-                disabled={busy}
-                onClick={() => void act(() => setStatus(workflow.agentIds, "active"))}
-              >
-                Turn on
-              </button>
-            </div>
-          )}
-
-          <form
-            className="wf-command"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (on && task.trim().length >= 8) void act(start);
-            }}
+      {!on && !archived && (
+        <div className="callout">
+          <div>
+            <b>This workflow is off.</b>
+          </div>
+          <button
+            className="btn primary"
+            disabled={busy}
+            onClick={() => void act(() => setStatus(workflow.agentIds, "active"))}
           >
-            <label className="field" style={{ margin: 0 }}>
-              Task
-              <textarea
-                value={task}
-                maxLength={4000}
-                placeholder="Give this workflow a task…"
-                onChange={(e) => setTask(e.target.value)}
-              />
-            </label>
-            <button
-              type="submit"
-              className="btn primary"
-              disabled={busy || !on || task.trim().length < 8}
-            >
-              {busy ? <LoaderCircle size={15} className="animate-spin" aria-hidden /> : <Play size={15} aria-hidden />}
-              Run
-            </button>
-          </form>
-
-          <WorkspaceContextPanel initial={context} />
-
-          {graph ? (
-            <div className="wf-graph">
-              <GraphSpace
-                workflowId={workflow.id}
-                agents={graph.agents}
-                tasks={graph.tasks}
-                flows={graph.flows}
-              />
-            </div>
-          ) : null}
-        </>
+            Turn on
+          </button>
+        </div>
       )}
+
+      {live ? (
+        <div className="wf-live">
+          <div>
+            <b>Running</b>
+            <small>{runningGoal || workflow.task || graph?.now || "The team is working."}</small>
+          </div>
+          {liveId ? (
+            <Link href={`/runs/${liveId}`} className="btn small">
+              Open run log
+            </Link>
+          ) : null}
+        </div>
+      ) : (
+        <form
+          className="wf-command"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (on && task.trim().length >= 8) void act(start);
+          }}
+        >
+          <label className="field" style={{ margin: 0 }}>
+            Task
+            <textarea
+              value={task}
+              maxLength={4000}
+              placeholder="Give this workflow a task…"
+              onChange={(e) => setTask(e.target.value)}
+            />
+          </label>
+          <button
+            type="submit"
+            className="btn primary"
+            disabled={busy || !on || task.trim().length < 8}
+          >
+            {busy ? <LoaderCircle size={15} className="animate-spin" aria-hidden /> : <Play size={15} aria-hidden />}
+            Run
+          </button>
+        </form>
+      )}
+
+      <WorkspaceContextPanel initial={context} defaultOpen={false} />
+
+      {graph ? (
+        <div className={"wf-graph" + (live ? " live" : "")}>
+          <GraphSpace
+            workflowId={workflow.id}
+            agents={graph.agents}
+            tasks={graph.tasks}
+            flows={graph.flows}
+          />
+        </div>
+      ) : null}
+
+      {runId && run ? (
+        <details className="wf-run-log">
+          <summary>Selected run log</summary>
+          <div>{run}</div>
+        </details>
+      ) : null}
     </div>
   );
 }

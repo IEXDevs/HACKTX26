@@ -34,9 +34,6 @@ export default function PrivacyPage() {
               <b>Prompt traces.</b> Messages, thinking, and completions. Secrets are
               redacted and long text is clipped before it is stored.
             </li>
-            <li>
-              <b>Auth.</b> Sign-in and sign-out events, including provider and time.
-            </li>
           </ul>
         </article>
 
@@ -49,8 +46,8 @@ export default function PrivacyPage() {
             </li>
             <li>
               <b>Supabase.</b> When the project URL and service role key are set, live
-              usage, prompt traces, auth events, and activity sync to your Supabase
-              project. Writes are best-effort: a downed ledger never fails a run.
+              usage, prompt traces, and activity sync to your Supabase project. Writes
+              are best-effort: a downed ledger never fails a run.
             </li>
             <li>
               <b>This browser.</b> Theme (light or dark) is saved in local storage on
@@ -98,7 +95,7 @@ export default function PrivacyPage() {
         <article>
           <h2>Your controls</h2>
           <p>
-            Open Usage for token spend, Observability for prompt traces and sign-ins,
+            Open Usage for token spend, Observability for prompt traces,
             and a run’s trace for thinking and tool calls. Sign out from the sidebar.
             Appearance lives in Settings and does not leave this browser.
           </p>

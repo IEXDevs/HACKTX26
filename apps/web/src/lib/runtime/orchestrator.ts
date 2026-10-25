@@ -63,7 +63,7 @@ import { createApprovalRequest, waitForApprovalDecision } from "./approvals";
 import { RunLogger } from "./emitter";
 import { createLiveGateway, liveGatewayAvailable } from "./gateway";
 import { ScriptedGateway } from "./gateway-scripted";
-import { CASE_TOOL_BY_NAME, executeCaseTool, mayUseCaseTool } from "@/lib/loop/case-tools";
+import { CASE_TOOL_BY_NAME, executeCaseTool } from "@/lib/loop/case-tools";
 import {
   bindCase,
   BLUE_TEAM_SPECIALISTS,
@@ -81,6 +81,14 @@ import {
   type Scenario,
   type TeamSpecialist,
 } from "./scripts";
+import {
+  closedRosterNames,
+  delegateAgentName,
+  delegateToolDescription,
+  heldToolNames,
+  isBlueLead,
+  isProbeLead,
+} from "./capabilities";
 import { insertHelperAgent, reactivateHelper } from "./helper-agents";
 import { AgentLifecycle, type AgentOutcome } from "./lifecycle";
 import { cancelledRuns, HEARTBEAT_MS, liveRuns } from "./reaper";
@@ -544,11 +552,12 @@ class RunEngine {
 
     const contextFile = new WorkspaceContextFile(env.sandboxRoot, this.run.workspaceId);
     contextFile.ensure();
+    const held = heldToolNames(agent, this.#connectorsFor(agent), this.run.dataClass);
 
     const messages: ModelMessage[] = [
       {
         role: "system",
-        content: `${prompt.text}${specialistRoster(agent)}${delegationGuidance(agent)}${contextFile.promptBlock()}`,
+        content: `${prompt.text}${specialistRoster(agent)}${delegationGuidance(agent)}${contextFile.promptBlock({ canWrite: held.has("context.write") })}`,
       },
       {
         role: "user",
@@ -820,25 +829,15 @@ class RunEngine {
   }
 
   #toolSpecs(agent: AgentRow): ToolSpec[] {
-    const names = new Set(agent.allowedTools.filter((name) => !CASE_TOOL_BY_NAME.has(name) || mayUseCaseTool(agent, name)));
-    if (mayDelegate(agent)) names.add("agent.delegate");
-    if (agent.role === "security" && agent.team !== "blue") names.add("security.report");
-    names.add("context.read");
-    if (agent.role === "orchestrator" || names.has("fs.write") || names.has("context.write")) {
-      names.add("context.write");
-    }
-    const connectors = this.#connectorsFor(agent);
-    if (connectors.length > 0) names.add("connector.call");
-    const publicWeb =
-      this.run.dataClass !== "confidential" && this.run.dataClass !== "restricted";
-    if (publicWeb && connectors.includes(SERPAPI_TOOLKIT)) names.add("web.search");
+    const names = heldToolNames(agent, this.#connectorsFor(agent), this.run.dataClass);
 
     return [...names]
       .map((name) => TOOL_BY_NAME.get(name) ?? CASE_TOOL_BY_NAME.get(name))
       .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
       .map((entry) => ({
         name: entry.name,
-        description: entry.description,
+        description:
+          entry.name === "agent.delegate" ? delegateToolDescription(agent) : entry.description,
         parameters: {
           type: "object",
           properties: {
@@ -877,6 +876,7 @@ class RunEngine {
             num: { type: "number" },
           },
           additionalProperties: true,
+          ...(entry.name === "agent.delegate" ? { required: ["agent", "task"] } : {}),
         },
       }));
   }
@@ -926,18 +926,10 @@ class RunEngine {
     }
 
     // Case tools belong to the blue team; security.report to the red team.
-    // Neither can be granted by an agent.
-    const roleAllowed = CASE_TOOL_BY_NAME.has(call.name)
-      ? mayUseCaseTool(agent, call.name)
-      : (call.name === "agent.delegate" && mayDelegate(agent)) ||
-        (call.name === "security.report" && agent.role === "security" && agent.team !== "blue") ||
-        (call.name === "connector.call"
-          ? this.#connectorsFor(agent).length > 0
-          : call.name === "web.search"
-            ? this.#connectorsFor(agent).includes(SERPAPI_TOOLKIT)
-            : agent.allowedTools.includes(call.name));
-
-    if (!roleAllowed) {
+    // Neither can be granted by an agent. The set here is the same one the
+    // model saw in its tool list, so a denial cannot follow an advertisement.
+    const held = heldToolNames(agent, this.#connectorsFor(agent), this.run.dataClass);
+    if (!held.has(call.name)) {
       return this.#toolFailure(
         agent,
         call.id,
@@ -1170,12 +1162,14 @@ class RunEngine {
     depth: number,
     started: number,
   ): Promise<{ ok: boolean; preview: string; error?: string }> {
-    const requested = argsString(call.args, "agent");
+    const requested = delegateAgentName(call.args);
     const title = argsString(call.args, "title") ?? "Delegated task";
     const task = argsString(call.args, "task") ?? "Complete the delegated task.";
 
     if (!requested) {
-      return { ok: false, preview: "", error: "agent.delegate requires an agent name." };
+      const roster = closedRosterNames(agent);
+      const hint = roster ? ` Use one of: ${roster}.` : "";
+      return { ok: false, preview: "", error: `agent.delegate requires an agent name.${hint}` };
     }
     if (agent.rank === "grunt") {
       return { ok: false, preview: "", error: "Grunts cannot create or delegate to subagents." };
@@ -1407,6 +1401,18 @@ class RunEngine {
     // Another run created it a moment ago: reuse it.
     if (!isNew) return created;
 
+    this.#spawned.add(created.id);
+    await this.logger.emit(
+      {
+        type: "agent.spawned",
+        agentId: created.id,
+        parentAgentId: parent.id,
+        name: created.name,
+        role: created.role as AgentRole,
+        model: created.modelPolicy.pinnedModelId ?? provisionMetaModel("complex", this.workspace.deniedModelIds),
+      },
+      created.id,
+    );
     await this.logger.emit(
       {
         type: "log",
@@ -1504,6 +1510,18 @@ class RunEngine {
     this.#runConnectors.set(created.id, granted);
     await persistConnectorGrants(this.run.workspaceId, created.id, granted, parent.id);
     if (!isNew) return created;
+    this.#spawned.add(created.id);
+    await this.logger.emit(
+      {
+        type: "agent.spawned",
+        agentId: created.id,
+        parentAgentId: parent.id,
+        name: created.name,
+        role: "worker",
+        model: created.modelPolicy.pinnedModelId ?? provisionMetaModel("standard", this.workspace.deniedModelIds),
+      },
+      created.id,
+    );
     await this.logger.emit(
       {
         type: "log",
@@ -1975,10 +1993,6 @@ class RunEngine {
   }
 }
 
-function mayDelegate(agent: AgentRow): boolean {
-  return agent.rank !== "grunt";
-}
-
 function childRank(parent: AgentRow): AgentRank {
   return nextAgentRank(parent.rank) ?? "grunt";
 }
@@ -1987,6 +2001,10 @@ function delegationGuidance(agent: AgentRow): string {
   if (agent.rank === "grunt") {
     return "\n\nYou are a grunt. Do the assigned task and report upward. You cannot create subagents or propose templates.";
   }
+  // Team leads already get a closed roster in specialistRoster. Generic
+  // "name a grunt" guidance made Red Team invent extra workers the platform
+  // then refused.
+  if (isProbeLead(agent) || isBlueLead(agent)) return "";
   const spawn = agent.canSpawnSubagents
     ? " Dynamic subagent creation is on: a missing child is created one rank below you."
     : " Dynamic subagent creation is off: you can only delegate to a child that already exists.";
@@ -1996,19 +2014,6 @@ function delegationGuidance(agent: AgentRow): string {
   return `\n\n${DELEGATION_GUIDANCE}${spawn}${approval}`;
 }
 
-function isProbeLead(agent: AgentRow): boolean {
-  return (
-    agent.role === "security" &&
-    agent.team !== "blue" &&
-    agent.rank !== "grunt" &&
-    redTeamSpecialist(agent.name) === undefined
-  );
-}
-
-function isBlueLead(agent: AgentRow): boolean {
-  return agent.team === "blue" && agent.rank !== "grunt";
-}
-
 function specialistRoster(agent: AgentRow): string {
   if (isBlueLead(agent)) {
     const names = BLUE_TEAM_SPECIALISTS.map((spec) => spec.name).join(", ");
@@ -2016,7 +2021,7 @@ function specialistRoster(agent: AgentRow): string {
       "",
       "",
       "You lead the blue team. Do not triage, draft, or verify yourself.",
-      `Delegate each step with agent.delegate and pass the case id as "case". The roster is: ${names}. Each is created for one case (a Verifier for one round) and retires when the case closes.`,
+      `Delegate each step with agent.delegate, passing agent as one of: ${names}, and pass the case id as "case". Each is created for one case (a Verifier for one round) and retires when the case closes. Do not invent other agents.`,
       "The Verifier is never the Fix Drafter. A person approves every change; the platform applies it. Start a retest only with case.start_retest, after a Verifier has the round.",
     ].join("\n");
   }
@@ -2026,7 +2031,7 @@ function specialistRoster(agent: AgentRow): string {
     "",
     "",
     "You lead the probe. Plan the probes from the run goal. Do not run the vectors yourself.",
-    `Delegate each one with agent.delegate. A specialist is created on first use and reused after that: ${names}.`,
+    `Delegate each one with agent.delegate, passing agent as one of: ${names}. A specialist is created on first use and reused after that. Do not invent other agents or extra workers.`,
     "Each specialist files its own finding. A denied credential request is the control working, not a finding.",
     "Accept a finding only when its reproduction is exact: the input, the output or action observed, and the steps to repeat it.",
     SEVERITY_RUBRIC,

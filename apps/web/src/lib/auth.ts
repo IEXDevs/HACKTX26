@@ -6,7 +6,7 @@ import { getDb } from "./db/client";
 import { users, workspaces, type User } from "./db/schema";
 import { DEMO_LOGIN, emailFromLogin } from "./auth-identity";
 import { newId, now, observabilityEnabled } from "./env";
-import { recordAuthEvent, touchProfile } from "./observability";
+import { touchProfile } from "./observability";
 import { createSupabaseServerClient, supabaseAdmin } from "./supabase";
 
 export { DEMO_LOGIN, emailFromLogin } from "./auth-identity";
@@ -86,23 +86,8 @@ export async function upsertLocalUser(
   return row;
 }
 
-export async function acceptSignedInUser(
-  authUser: AuthUser,
-  request: Request,
-): Promise<User> {
+export async function acceptSignedInUser(authUser: AuthUser): Promise<User> {
   const local = await upsertLocalUser(authUser);
-  await recordAuthEvent({
-    userId: authUser.id,
-    email: authUser.email,
-    event: "signed_in",
-    provider: authUser.app_metadata?.provider ?? "google",
-    ip: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
-    userAgent: request.headers.get("user-agent"),
-    metadata: {
-      localUserId: local.id,
-      workspaceId: local.workspaceId,
-    },
-  });
   await touchProfile(authUser.id);
   return local;
 }

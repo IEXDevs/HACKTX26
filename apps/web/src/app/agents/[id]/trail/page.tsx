@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MODEL_BY_ID, projectRun } from "@agent-os/core";
-import { ArrowLeft, ScrollText } from "@/components/icons";
+import { ArrowLeft, Bot, FolderOpen, ScrollText } from "@/components/icons";
 import { AgentTrail, type TrailCall, type TrailFile, type TrailThought } from "@/components/agents/agent-trail";
+import { LiveRefresh } from "@/components/relay/live-refresh";
 import { StatusBadge } from "@/components/ui/primitives";
 import { getAgent, getRunEvents, getWorkspace, listAgents, listRuns } from "@/lib/queries";
 import { routedModel } from "@/lib/views";
@@ -83,28 +84,39 @@ export default async function AgentTrailPage({ params }: { params: Promise<{ id:
     if (!latestFiles.has(file.path)) latestFiles.set(file.path, file);
   }
 
+  const live = runs.some(
+    (run) => run.status === "running" || run.status === "queued" || run.status === "awaiting_approval",
+  );
+
   return (
     <div className="page">
+      {live ? <LiveRefresh intervalMs={2000} /> : null}
       <div className="composer-bar">
-        <Link href={`/workflows/${rootId}`} className="glass-pill">
+        <Link href="/agents" className="glass-pill">
           <ArrowLeft size={16} aria-hidden />
-          Workflow
+          Agents
         </Link>
-        <span className="mono" style={{ fontSize: 12, color: "var(--muted)" }}>
-          <ScrollText size={14} aria-hidden /> trail · {model}
+        <span className="trail-kicker">
+          <ScrollText size={14} aria-hidden />
+          Trail · {model}
         </span>
         <StatusBadge status={agent.status} />
-      </div>
-      <div className="page-top" style={{ marginTop: 24 }}>
-        <div>
-          <h1>{agent.name}</h1>
-          <p className="wf-meta">Tool calls, files, and a short trail of thought — not the full trace.</p>
+        <div className="composer-bar-end">
+          <Link href={`/agents/${agent.id}`} className="glass-pill">
+            <Bot size={15} aria-hidden />
+            Agent profile
+          </Link>
+          <Link href={`/agents/${agent.id}/console`} className="glass-pill">
+            <FolderOpen size={15} aria-hidden />
+            Files
+          </Link>
         </div>
       </div>
+      <div className="page-top" style={{ marginTop: 24 }}>
+        <h1>{agent.name}</h1>
+      </div>
       <AgentTrail
-        agentId={agent.id}
         agentName={agent.name}
-        model={model}
         calls={calls.slice(0, 40)}
         thoughts={thoughts.slice(0, 24)}
         files={[...latestFiles.values()].slice(0, 24)}

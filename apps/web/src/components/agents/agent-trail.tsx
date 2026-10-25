@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { FileText, FolderOpen, Terminal, Wrench } from "@/components/icons";
-import { duration, relativeTime } from "@/lib/format";
+import { FileText, Wrench } from "@/components/icons";
+import { clockTime, duration, relativeTime } from "@/lib/format";
+import { plainText } from "@/lib/plain-text";
 
 export interface TrailCall {
   id: string;
@@ -26,64 +27,56 @@ export interface TrailFile {
 }
 
 export function AgentTrail({
-  agentId,
   agentName,
-  model,
   calls,
   thoughts,
   files,
 }: {
-  agentId: string;
   agentName: string;
-  model: string;
   calls: TrailCall[];
   thoughts: TrailThought[];
   files: TrailFile[];
 }) {
+  const items = interleave(thoughts, calls);
   return (
     <div className="trail">
-      <div className="trail-main">
-        <ol className="trail-log">
-          {thoughts.length === 0 && calls.length === 0 ? (
-            <li className="trail-empty">No trail yet. Dispatch {agentName} and the log will land here.</li>
-          ) : null}
-          {interleave(thoughts, calls).map((item) =>
+      <ol className="log-stream trail-log">
+        {items.length === 0 ? (
+          <li className="trail-empty">
+            Nothing from {agentName} yet.
+          </li>
+        ) : (
+          items.map((item) =>
             item.kind === "thought" ? (
-              <li key={`t-${item.at}-${item.text.slice(0, 24)}`} className="trail-thought">
-                <span className="trail-when">{relativeTime(item.at)}</span>
-                <p>{item.text}</p>
+              <li key={`t-${item.at}-${item.text.slice(0, 24)}`} className="log-row log-thought">
+                <time dateTime={item.at}>{clockTime(item.at)}</time>
+                <span className="log-kind">said</span>
+                <span className="log-who">{agentName}</span>
+                <span className="log-text">{plainText(item.text)}</span>
               </li>
             ) : (
-              <li key={item.id} className={`trail-call ${item.status}`}>
-                <span className="trail-when">{relativeTime(item.at)}</span>
-                <div>
-                  <b>
-                    <Wrench size={12} aria-hidden /> {item.tool}
-                  </b>
-                  <small>
-                    {item.status}
-                    {item.durationMs != null ? ` · ${duration(item.durationMs)}` : ""}
-                    {" · "}
-                    <Link href={`/runs/${item.runId}`}>run</Link>
-                  </small>
-                  {item.error ? <p className="trail-error">{item.error}</p> : null}
-                  {item.preview ? <pre>{item.preview}</pre> : null}
-                </div>
+              <li key={item.id} className={`log-row log-tool${item.status === "failed" ? " failed" : ""}`}>
+                <time dateTime={item.at}>{clockTime(item.at)}</time>
+                <span className="log-kind">{item.tool}</span>
+                <span className="log-who">
+                  <Wrench size={11} aria-hidden />
+                  {item.status}
+                  {item.durationMs != null ? ` · ${duration(item.durationMs)}` : ""}
+                </span>
+                <span className="log-text">
+                  {plainText(item.error || item.preview || "")}
+                  {" · "}
+                  <Link href={`/runs/${item.runId}`}>run</Link>
+                </span>
               </li>
             ),
-          )}
-        </ol>
-      </div>
-      <aside className="trail-side">
-        <div className="trail-card">
-          <h3>Model</h3>
-          <p className="mono">{model}</p>
-        </div>
-        <div className="trail-card">
-          <h3>Files touched</h3>
-          {files.length === 0 ? (
-            <p className="trail-empty">None in recent runs.</p>
-          ) : (
+          )
+        )}
+      </ol>
+      {files.length > 0 ? (
+        <aside className="trail-side">
+          <div className="trail-card">
+            <h3>Files touched</h3>
             <ul>
               {files.map((file) => (
                 <li key={`${file.path}-${file.at}`}>
@@ -97,15 +90,9 @@ export function AgentTrail({
                 </li>
               ))}
             </ul>
-          )}
-        </div>
-        <Link href={`/agents/${agentId}/console`} className="btn">
-          <FolderOpen size={14} aria-hidden /> Open filesystem
-        </Link>
-        <Link href={`/agents/${agentId}`} className="link-btn">
-          <Terminal size={14} aria-hidden /> Agent profile
-        </Link>
-      </aside>
+          </div>
+        </aside>
+      ) : null}
     </div>
   );
 }

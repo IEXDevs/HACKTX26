@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LoaderCircle } from "@/components/icons";
+import { ChevronRight, LoaderCircle } from "@/components/icons";
 import { CATEGORY_LABELS, probeCountForLimit } from "@/lib/loop/redteam-limits";
 import { useAutoRefresh } from "./use-auto-refresh";
 
@@ -95,9 +95,6 @@ export function SecurityView({
 
       <section className="sec-pick" aria-labelledby="sec-pick-label">
         <h2 id="sec-pick-label">Pick an agent to test</h2>
-        <p className="sec-hint" style={{ marginBottom: 12 }}>
-          Choose the agent these tests will run against.
-        </p>
         {agents.length ? (
           <div className="sec-agents" role="radiogroup" aria-labelledby="sec-pick-label">
             {agents.map((agent) => (
@@ -172,9 +169,16 @@ export function SecurityView({
             : check.current;
         return (
           <section className="home-running" key={check.agentId} style={{ marginTop: 24 }}>
-            <h2>Testing {check.agentName}</h2>
+            <h2>
+              Testing{" "}
+              <Link href={`/agents/${check.agentId}`}>{check.agentName}</Link>
+            </h2>
             <article className="run-bar">
-              <div className="run-bar-track" aria-label={`${check.agentName}, ${check.probesDone} of ${check.probesTotal} probes`}>
+              <Link
+                href={`/agents/${check.agentId}/trail`}
+                className="run-bar-track"
+                aria-label={`Open ${check.agentName}. ${check.probesDone} of ${check.probesTotal} probes`}
+              >
                 <span className="run-bar-label">
                   <span className="run-bar-title">
                     <b>{check.agentName}</b>
@@ -200,7 +204,8 @@ export function SecurityView({
                     </span>
                   </span>
                 </span>
-              </div>
+                <ChevronRight size={18} className="run-bar-chevron" aria-hidden />
+              </Link>
             </article>
           </section>
         );
@@ -245,7 +250,7 @@ export function SecurityView({
             </details>
           ))
         ) : (
-          <p className="empty">No tests yet. Pick an agent, set a limit, and hit Go.</p>
+          <p className="empty">No tests yet.</p>
         )}
       </section>
     </div>

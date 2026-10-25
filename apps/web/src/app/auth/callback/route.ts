@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { acceptSignedInUser } from "@/lib/auth";
-import { recordAuthEvent } from "@/lib/observability";
 import { authOrigin, createSupabaseRequestClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -15,11 +14,6 @@ export async function GET(request: NextRequest) {
     request.nextUrl.searchParams.get("error_description") ??
     request.nextUrl.searchParams.get("error");
   if (errorParam) {
-    await recordAuthEvent({
-      event: "login_failed",
-      provider: "google",
-      metadata: { message: errorParam },
-    });
     return loginError(origin, errorParam);
   }
 
@@ -36,11 +30,6 @@ export async function GET(request: NextRequest) {
 
   const { error } = await client.supabase.auth.exchangeCodeForSession(code);
   if (error) {
-    await recordAuthEvent({
-      event: "login_failed",
-      provider: "google",
-      metadata: { message: error.message },
-    });
     return loginError(origin, error.message);
   }
 
@@ -48,7 +37,7 @@ export async function GET(request: NextRequest) {
     data: { user },
   } = await client.supabase.auth.getUser();
   if (user) {
-    await acceptSignedInUser(user, request);
+    await acceptSignedInUser(user);
   }
 
   const nextRaw = request.cookies.get("auth-next")?.value ?? "/";

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ComponentType } from "react";
+import { useEffect, useMemo, useState, type ComponentType } from "react";
 import { useRouter } from "next/navigation";
 import {
   Check,
@@ -22,6 +22,8 @@ export interface ConnectorView {
   builtin: boolean;
   status: "connected" | "pending" | "disconnected" | "error";
   connected: boolean;
+  repo?: string | null;
+  branch?: string | null;
 }
 export interface KeyRow {
   id: string;
@@ -232,48 +234,26 @@ export function ConnectorsView({
     }
   }
 
-  function Card({ connector }: { connector: ConnectorView }) {
-    const needsComposio = !connector.builtin && !composio;
-    const actionLabel = connector.builtin
-      ? connector.connected
-        ? "Ready"
-        : "Needs key"
-      : connector.connected
-        ? "Disconnect"
-        : needsComposio
-          ? "Needs key"
-          : "Connect";
+  function card(connector: ConnectorView) {
     return (
-      <article className="tile" key={connector.slug} style={{ minHeight: 150 }}>
-        <div className="tile-main">
-          <KindIcon slug={connector.slug} logoUrl={connector.logoUrl} />
-          <b>{connector.name}</b>
-          <p>{connector.description || connector.category || connector.slug}</p>
-        </div>
-        <footer className="tile-foot">
-          <span className={`conn-state ${connector.status === "connected" ? "connected" : connector.status === "error" ? "degraded" : ""}`}>
-            {connector.status === "connected" ? <Check size={13} strokeWidth={2.2} /> : null}
-            {statusWord[connector.status]}
-          </span>
-          <button
-            className="btn small"
-            disabled={busy === connector.slug || (connector.builtin && connector.connected) || needsComposio}
-            onClick={() =>
-              void (connector.connected && !connector.builtin
-                ? disconnect(connector.slug)
-                : connect(connector.slug, connector.builtin))
-            }
-          >
-            {busy === connector.slug && <LoaderCircle size={14} className="animate-spin" />}
-            {actionLabel}
-          </button>
-        </footer>
-      </article>
+      <ConnectorCard
+        key={connector.slug}
+        connector={connector}
+        composio={composio}
+        busy={busy}
+        setMessage={setMessage}
+        onConnect={connect}
+        onDisconnect={disconnect}
+        onGithubSaved={() => {
+          void refresh();
+          router.refresh();
+        }}
+      />
     );
   }
 
   return (
-    <div className="page">
+    <div className="page conn-page">
       <div className="page-top">
         <h1>Connectors</h1>
       </div>
@@ -303,23 +283,19 @@ export function ConnectorsView({
       {message ? <p className="detail conn-note">{message}</p> : null}
 
       {connected.length > 0 ? (
-        <section>
+        <section className="section">
           <h2>Linked</h2>
           <div className="tile-grid spaced">
-            {connected.map((connector) => (
-              <Card key={connector.slug} connector={connector} />
-            ))}
+            {connected.map((connector) => card(connector))}
           </div>
         </section>
       ) : null}
 
-      <section>
+      <section className="section">
         <h2>{query ? "Matches" : "Popular"}</h2>
         {popular.length || rest.length ? (
           <div className="tile-grid spaced">
-            {(query ? [...popular, ...rest] : popular).map((connector) => (
-              <Card key={connector.slug} connector={connector} />
-            ))}
+            {(query ? [...popular, ...rest] : popular).map((connector) => card(connector))}
           </div>
         ) : (
           <p className="empty">Nothing matches “{query}”.</p>
@@ -327,7 +303,7 @@ export function ConnectorsView({
       </section>
 
       <div className="page-split">
-      <section>
+      <section className="section">
         <h2>Saved keys</h2>
         {keys.length ? (
           <ul className="list">
@@ -362,7 +338,7 @@ export function ConnectorsView({
         )}
       </section>
 
-      <section>
+      <section className="section">
         <div className="toolbar">
           <h2>Your documents</h2>
           <span className="detail" style={{ color: "var(--muted)" }}>
@@ -487,5 +463,158 @@ export function ConnectorsView({
       </section>
       </div>
     </div>
+  );
+}
+
+function ConnectorCard({
+  connector,
+  composio,
+  busy,
+  setMessage,
+  onConnect,
+  onDisconnect,
+  onGithubSaved,
+}: {
+  connector: ConnectorView;
+  composio: boolean;
+  busy: string | null;
+  setMessage: (value: string | null) => void;
+  onConnect: (slug: string, builtin: boolean) => Promise<void>;
+  onDisconnect: (slug: string) => Promise<void>;
+  onGithubSaved: () => void;
+}) {
+  const needsComposio = !connector.builtin && !composio;
+  const actionLabel = connector.builtin
+    ? connector.connected
+      ? "Ready"
+      : "Needs key"
+    : connector.connected
+      ? "Disconnect"
+      : needsComposio
+        ? "Needs key"
+        : "Connect";
+  return (
+    <article className="tile" style={{ minHeight: 150 }}>
+      <div className="tile-main">
+        <KindIcon slug={connector.slug} logoUrl={connector.logoUrl} />
+        <b>{connector.name}</b>
+        <p>{connector.description || connector.category || connector.slug}</p>
+        {connector.slug === "github" && connector.connected ? (
+          <GitHubCardRepos
+            currentRepo={connector.repo ?? ""}
+            currentBranch={connector.branch ?? "main"}
+            setMessage={setMessage}
+            onSaved={onGithubSaved}
+          />
+        ) : null}
+      </div>
+      <footer className="tile-foot">
+        <span className={`conn-state ${connector.status === "connected" ? "connected" : connector.status === "error" ? "degraded" : ""}`}>
+          {connector.status === "connected" ? <Check size={13} strokeWidth={2.2} /> : null}
+          {statusWord[connector.status]}
+        </span>
+        <button
+          className="btn small"
+          disabled={busy === connector.slug || (connector.builtin && connector.connected) || needsComposio}
+          onClick={() =>
+            void (connector.connected && !connector.builtin
+              ? onDisconnect(connector.slug)
+              : onConnect(connector.slug, connector.builtin))
+          }
+        >
+          {busy === connector.slug && <LoaderCircle size={14} className="animate-spin" />}
+          {actionLabel}
+        </button>
+      </footer>
+    </article>
+  );
+}
+
+function GitHubCardRepos({
+  currentRepo,
+  currentBranch,
+  setMessage,
+  onSaved,
+}: {
+  currentRepo: string;
+  currentBranch: string;
+  setMessage: (value: string | null) => void;
+  onSaved: () => void;
+}) {
+  const [repos, setRepos] = useState<{ fullName: string; defaultBranch: string; private: boolean }[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      setLoading(true);
+      try {
+        const response = await fetch("/api/connectors/github/repos");
+        const value = (await response.json().catch(() => ({}))) as {
+          repos?: { fullName: string; defaultBranch: string; private: boolean }[];
+          error?: string;
+        };
+        if (cancelled) return;
+        if (!response.ok) {
+          setMessage(value.error ?? "Could not list GitHub repositories.");
+          setRepos([]);
+          return;
+        }
+        setRepos(value.repos ?? []);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [setMessage]);
+
+  async function save(repo: string) {
+    const match = repos?.find((item) => item.fullName === repo);
+    const branch = match?.defaultBranch || currentBranch || "main";
+    setSaving(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/connectors/github/repo", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repo, branch }),
+      });
+      const value = (await response.json().catch(() => ({}))) as { error?: string; repo?: string };
+      if (!response.ok) {
+        setMessage(value.error ?? "Could not save the repository.");
+        return;
+      }
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <label className="github-card-repo">
+      <span className="sr-only">Working repository</span>
+      <select
+        value={currentRepo}
+        disabled={loading || saving}
+        onChange={(event) => {
+          const next = event.target.value;
+          if (next) void save(next);
+        }}
+      >
+        <option value="">{loading ? "Loading repos…" : "Pick a repo for agents"}</option>
+        {currentRepo && !(repos ?? []).some((item) => item.fullName === currentRepo) ? (
+          <option value={currentRepo}>{currentRepo}</option>
+        ) : null}
+        {(repos ?? []).map((item) => (
+          <option key={item.fullName} value={item.fullName}>
+            {item.fullName}
+            {item.private ? " (private)" : ""}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }

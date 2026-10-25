@@ -3356,12 +3356,28 @@ div.rich li {
   }
 }
 
-.conn-search {
+.conn-page > .section {
+  margin-top: 36px;
+}
+.conn-page h2 {
   margin: 0 0 18px;
+}
+.conn-page .toolbar {
+  margin-bottom: 16px;
+}
+.conn-page .toolbar h2 {
+  margin: 0;
+}
+.conn-page .page-split {
+  margin-top: 36px;
+  gap: 28px;
+}
+.conn-search {
+  margin: 0 0 8px;
   max-width: 560px;
 }
 .conn-note {
-  margin: 0 0 18px;
+  margin: 8px 0 0;
   color: var(--muted);
 }
 .conn-logo {
@@ -3369,6 +3385,21 @@ div.rich li {
   height: 18px;
   object-fit: contain;
   border-radius: 4px;
+}
+.github-card-repo {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+}
+.github-card-repo select {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 10px;
+  background: var(--glass-strong);
+  color: var(--ink);
+  font-size: 13px;
 }
 .tile-foot .btn {
   margin-left: auto;

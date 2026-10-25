@@ -153,6 +153,7 @@ export function AgentConsole({
   recentRun,
   budgets,
   workflowHref,
+  githubHint,
 }: {
   agentId: string;
   agentName: string;
@@ -168,6 +169,7 @@ export function AgentConsole({
   recentRun: ConsoleRun | null;
   budgets: { runUsd: number | null; dayUsd: number | null; spentTodayUsd: number };
   workflowHref?: string;
+  githubHint?: { repo: string; branch: string } | null;
 }) {
   const router = useRouter();
   const [tree, setTree] = useState<ConsoleNode>(initialTree);
@@ -189,7 +191,7 @@ export function AgentConsole({
   const [error, setError] = useState<string | null>(null);
   const [newPath, setNewPath] = useState<string | null>(null);
   const [goal, setGoal] = useState(
-    "Read the workspace, state what you can do inside your current grants, and write a short note.",
+    "State what you can do inside your current grants. If you need a note, write it in the sandbox.",
   );
   const [dispatching, setDispatching] = useState(false);
   const [activityTab, setActivityTab] = useState<"tools" | "files">("tools");
@@ -249,6 +251,7 @@ export function AgentConsole({
         bytes?: number;
         tree?: ConsoleNode;
         error?: string;
+        github?: { ok: boolean; preview?: string; error?: string } | null;
       };
       if (!response.ok || !payload.ok) {
         setError(payload.error ?? "Write refused.");
@@ -256,7 +259,12 @@ export function AgentConsole({
       }
       if (payload.tree) setTree(payload.tree);
       setDirty(false);
-      setStatusLine(`saved ${payload.bytes} bytes · audited as sandbox.write`);
+      const githubLine = payload.github
+        ? payload.github.ok
+          ? ` · ${payload.github.preview}`
+          : ` · GitHub: ${payload.github.error ?? "push failed"}`
+        : "";
+      setStatusLine(`saved ${payload.bytes} bytes · audited as sandbox.write${githubLine}`);
       router.refresh();
     } catch (cause) {
       setError((cause as Error).message || "Could not save that file.");
@@ -353,6 +361,13 @@ export function AgentConsole({
           </button>
         </div>
         <div className="max-h-[520px] flex-1 overflow-auto px-1.5 py-1.5">
+          {files.length === 0 && newPath === null ? (
+            <p className="px-2 py-6 text-[12px] leading-relaxed text-ink-4">
+              {githubHint
+                ? `GitHub ${githubHint.repo}@${githubHint.branch} will show under repo/ after the first sync.`
+                : "Empty. Files this agent writes show up here. Link a GitHub repo on Connectors to load a codebase."}
+            </p>
+          ) : null}
           {newPath !== null ? (
             <div className="mb-1.5 flex items-center gap-1 px-1">
               <input
@@ -387,12 +402,14 @@ export function AgentConsole({
               </button>
             </div>
           ) : null}
-          <TreeEntry
-            node={tree}
-            depth={0}
-            selected={selected}
-            onSelect={openFile}
-          />
+          {files.length > 0 ? (
+            <TreeEntry
+              node={tree}
+              depth={0}
+              selected={selected}
+              onSelect={openFile}
+            />
+          ) : null}
         </div>
         <div className="border-t border-line px-2.5 py-2">
           <div className="mono break-all text-[8.5px] leading-relaxed text-ink-4">{root}</div>
@@ -452,7 +469,9 @@ export function AgentConsole({
             spellCheck={false}
             disabled={!selected}
             className="mono min-h-[400px] flex-1 resize-none bg-transparent px-3 py-2 text-[10.5px] leading-[1.65] text-ink-2 outline-none placeholder:text-ink-4"
-            placeholder="Select a file from the sandbox tree."
+            placeholder={
+              selected ? "Select a file from the sandbox tree." : "Nothing here yet. Create a file or let the agent write one."
+            }
           />
         </div>
 

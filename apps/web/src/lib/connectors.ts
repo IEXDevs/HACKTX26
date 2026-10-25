@@ -30,6 +30,7 @@ import {
 import { env, newId, serpApiEnabled } from "./env";
 import { observabilityEnabled } from "./env";
 import { supabaseAdmin } from "./supabase";
+import { parseGithubMetadata, type GithubWorkingRepo } from "./github-repo";
 import {
   hasContextContent,
   upsertConnectedToolsSection,
@@ -48,6 +49,8 @@ export interface ConnectorView {
   builtin: boolean;
   status: "connected" | "pending" | "disconnected" | "error";
   connected: boolean;
+  repo?: string | null;
+  branch?: string | null;
 }
 
 export function operatorIdFor(sessionId: string | null | undefined, localUserId?: string | null): string {
@@ -120,6 +123,7 @@ async function mirrorAccount(row: {
   authConfigId: string | null;
   status: string;
   scopes: string[];
+  metadata?: Record<string, unknown>;
 }): Promise<void> {
   const client = supabaseAdmin();
   if (!client || !observabilityEnabled()) return;
@@ -134,7 +138,7 @@ async function mirrorAccount(row: {
       auth_config_id: row.authConfigId,
       status: row.status,
       scopes: row.scopes,
-      metadata: {},
+      metadata: row.metadata ?? {},
       last_sync_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     },
@@ -207,7 +211,7 @@ export async function syncConnectedAccounts(workspaceId: string, userId: string)
       authConfigId: item.authConfigId,
       status: item.status,
       scopes: [] as string[],
-      metadata: {},
+      metadata: existing?.metadata ?? {},
       lastSyncAt: now,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
@@ -269,6 +273,7 @@ export async function listConnectorViews(input: {
         ? "connected"
         : "disconnected"
       : account?.status ?? "disconnected";
+    const github = item.slug === "github" ? parseGithubMetadata(account?.metadata) : null;
     return {
       slug: item.slug,
       name: item.name,
@@ -279,12 +284,15 @@ export async function listConnectorViews(input: {
       builtin,
       status,
       connected: status === "connected",
+      repo: github?.repo ?? null,
+      branch: github?.branch ?? null,
     };
   });
 
   if (!query) {
     for (const account of accounts) {
       if (connectors.some((item) => item.slug === account.toolkit)) continue;
+      const github = account.toolkit === "github" ? parseGithubMetadata(account.metadata) : null;
       connectors.push({
         slug: account.toolkit,
         name: account.toolkitName,
@@ -295,12 +303,83 @@ export async function listConnectorViews(input: {
         builtin: false,
         status: account.status,
         connected: account.status === "connected",
+        repo: github?.repo ?? null,
+        branch: github?.branch ?? null,
       });
     }
   }
 
   connectors.sort((a, b) => Number(b.connected) - Number(a.connected) || Number(b.popular) - Number(a.popular) || a.name.localeCompare(b.name));
   return { connectors, composio: Boolean(env.composio.apiKey), serpapi: serpApiEnabled() };
+}
+
+export async function getConnectedComposioAccountId(
+  workspaceId: string,
+  userId: string,
+  toolkit: string,
+): Promise<string | null> {
+  const [row] = await getDb()
+    .select()
+    .from(connectedAccounts)
+    .where(
+      and(
+        eq(connectedAccounts.workspaceId, workspaceId),
+        eq(connectedAccounts.userId, userId),
+        eq(connectedAccounts.toolkit, normalizeToolkit(toolkit)),
+        eq(connectedAccounts.status, "connected"),
+      ),
+    )
+    .limit(1);
+  return row?.composioAccountId ?? null;
+}
+
+export async function getGithubWorkingRepo(
+  workspaceId: string,
+  userId: string,
+): Promise<GithubWorkingRepo | null> {
+  const [row] = await getDb()
+    .select()
+    .from(connectedAccounts)
+    .where(
+      and(
+        eq(connectedAccounts.workspaceId, workspaceId),
+        eq(connectedAccounts.userId, userId),
+        eq(connectedAccounts.toolkit, "github"),
+        eq(connectedAccounts.status, "connected"),
+      ),
+    )
+    .limit(1);
+  return parseGithubMetadata(row?.metadata);
+}
+
+export async function setGithubWorkingRepo(
+  workspaceId: string,
+  userId: string,
+  repo: string,
+  branch?: string,
+): Promise<GithubWorkingRepo> {
+  const parsed = parseGithubMetadata({ repo, branch: branch?.trim() || "main" });
+  if (!parsed) throw new Error("Use owner/name for the repository, like acme/checkout.");
+  const [row] = await getDb()
+    .select()
+    .from(connectedAccounts)
+    .where(
+      and(
+        eq(connectedAccounts.workspaceId, workspaceId),
+        eq(connectedAccounts.userId, userId),
+        eq(connectedAccounts.toolkit, "github"),
+        eq(connectedAccounts.status, "connected"),
+      ),
+    )
+    .limit(1);
+  if (!row) throw new Error("Connect GitHub before picking a repository.");
+  const metadata = { ...(row.metadata ?? {}), repo: parsed.repo, branch: parsed.branch };
+  await getDb()
+    .update(connectedAccounts)
+    .set({ metadata, updatedAt: new Date() })
+    .where(eq(connectedAccounts.id, row.id));
+  await mirrorAccount({ ...row, metadata });
+  return parsed;
 }
 
 export async function connectedToolkitsFor(workspaceId: string, userId: string): Promise<string[]> {
@@ -513,6 +592,16 @@ export async function refreshContextCatalog(workspaceId: string, userId: string)
             ? "web.search"
             : "(actions load after connect)";
       lines.push(`- ${known?.name ?? slug} (\`${slug}\`): ${actionList}`);
+      if (slug === "github") {
+        const working = await getGithubWorkingRepo(workspaceId, userId);
+        if (working) {
+          lines.push(
+            `  Working checkout: \`${working.repo}\` @ \`${working.branch}\` lives in the sandbox under \`repo/\`. Read with fs.read, edit with fs.write (commits back after approval).`,
+          );
+        } else {
+          lines.push("  No working repository yet. The operator picks one on the Connectors page.");
+        }
+      }
     }
   }
   const next = upsertConnectedToolsSection(content, lines.join("\n"));

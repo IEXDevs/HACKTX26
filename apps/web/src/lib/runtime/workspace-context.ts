@@ -161,7 +161,7 @@ export class WorkspaceContextFile {
       content.trim(),
       ...(stub ? canWrite ? ["",
           "The workspace CONTEXT.md still has unfinished sections.",
-          "On this first run: inspect the repo (fs.list, README, package.json, kb.search)",
+          "On this first run: inspect what is already here (fs.list, kb.search, context.read)",
           "and write a first draft with context.write covering the missing tech stack, layout, and conventions.",
           "Preserve existing builder context and operator notes while filling in the missing sections.",
         ] : ["", "The workspace CONTEXT.md still has unfinished sections.",

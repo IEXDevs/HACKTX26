@@ -1460,3 +1460,219 @@
   background: color-mix(in oklab, var(--stopped) 14%, transparent);
   color: var(--stopped);
 }
+
+/* ---------- Workflow page ---------- */
+.wf-meta {
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+.wf-history select {
+  height: 44px;
+  max-width: 260px;
+  padding: 0 12px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 99px;
+  background: var(--glass);
+  color: var(--ink);
+  font-size: 14px;
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+.wf-command {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  margin-top: 24px;
+  padding: 16px 18px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 16px;
+  background: var(--glass);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+.wf-command textarea {
+  min-height: 64px;
+}
+.wf-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  margin-top: 16px;
+}
+.wf-canvas {
+  min-height: 360px;
+  padding: 32px 16px;
+  overflow-x: auto;
+  border: 1px solid var(--glass-edge);
+  border-radius: 16px;
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+.wf-panel {
+  align-self: start;
+  padding: 18px 20px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 16px;
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+.wf-panel h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.wf-panel small {
+  display: block;
+  margin-top: 16px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.wf-panel p {
+  margin: 4px 0 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+.wf-panel .link-btn {
+  display: inline-block;
+  margin-top: 16px;
+}
+
+/* Team tree: nested lists joined by hairline connectors. */
+.wf-tree {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: max-content;
+  min-width: 100%;
+}
+.wf-you {
+  padding: 6px 14px;
+  border-radius: 99px;
+  background: var(--hairline);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.wf-tree ul {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  margin: 0;
+  padding: 24px 0 0;
+  list-style: none;
+}
+.wf-tree li {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 8px 0;
+}
+.wf-tree > ul {
+  padding-top: 0;
+}
+.wf-tree > ul > li {
+  padding-top: 24px;
+}
+/* Vertical line into each node and the horizontal bar across siblings. */
+.wf-tree li::before,
+.wf-tree li::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  height: 24px;
+  border-top: 1.5px solid var(--hairline-strong);
+}
+.wf-tree li::before {
+  right: 50%;
+  width: 50%;
+}
+.wf-tree li::after {
+  left: 50%;
+  width: 50%;
+  border-left: 1.5px solid var(--hairline-strong);
+}
+.wf-tree li:only-child::before {
+  display: none;
+}
+.wf-tree li:only-child::after {
+  border-top: 0;
+}
+.wf-tree li:first-child::before,
+.wf-tree li:last-child::after {
+  border-top: 0;
+}
+.wf-tree li:last-child::before {
+  border-right: 1.5px solid var(--hairline-strong);
+}
+.wf-tree li:last-child:not(:only-child)::after {
+  border-left: 0;
+}
+/* Line down from a parent to its children's bar. */
+.wf-tree li > ul::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  height: 24px;
+  border-left: 1.5px solid var(--hairline-strong);
+}
+.wf-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 148px;
+  padding: 14px 10px 12px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 14px;
+  background: var(--raised);
+  color: var(--ink);
+  font-size: 13px;
+  text-align: center;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.wf-node:hover {
+  border-color: var(--glass-edge-hover);
+}
+.wf-node[aria-pressed="true"] {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px var(--green-soft);
+}
+.wf-node b {
+  font-weight: 600;
+  line-height: 1.3;
+}
+.wf-node small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.wf-node-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--green-soft);
+  color: var(--green);
+}
+@media (max-width: 900px) {
+  .wf-stage {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 560px) {
+  .wf-command {
+    grid-template-columns: 1fr;
+  }
+}

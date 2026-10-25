@@ -8,15 +8,22 @@ const key = "relay-advanced";
 export function useAdvanced() {
   const [advanced, setAdvanced] = useState(false);
   useEffect(() => {
-    try {
-      setAdvanced(localStorage.getItem(key) === "1");
-    } catch {}
+    const read = () => {
+      try {
+        setAdvanced(localStorage.getItem(key) === "1");
+      } catch {}
+    };
+    read();
+    // Keep every switch on the page in step.
+    window.addEventListener(key, read);
+    return () => window.removeEventListener(key, read);
   }, []);
   function toggle() {
-    setAdvanced(!advanced);
     try {
       localStorage.setItem(key, advanced ? "0" : "1");
     } catch {}
+    window.dispatchEvent(new Event(key));
+    setAdvanced(!advanced);
   }
   return [advanced, toggle] as const;
 }

@@ -29,7 +29,16 @@ const stateLabel: Record<StepState, string> = {
 };
 
 /** Plain run view. The full event trace sits behind Advanced. */
-export function RunView({ run, trace }: { run: RunViewData; trace: ReactNode }) {
+export function RunView({
+  run,
+  trace,
+  embedded = false,
+}: {
+  run: RunViewData;
+  trace: ReactNode;
+  /** Drops the back bar and title, for pages that show the run inside their own header. */
+  embedded?: boolean;
+}) {
   const router = useRouter();
   const [advanced, toggleAdvanced] = useAdvanced(),
     [deciding, setDeciding] = useState<string | null>(null),
@@ -77,27 +86,30 @@ export function RunView({ run, trace }: { run: RunViewData; trace: ReactNode }) 
   );
 
   return (
-    <div className="page">
-      <div className="composer-bar">
-        <Link href="/runs" className="glass-pill">
-          <ArrowLeft size={16} aria-hidden />
-          Runs
-        </Link>
-        <div className="composer-bar-end">
-          <AdvancedSwitch on={advanced} toggle={toggleAdvanced} />
-        </div>
-      </div>
-
-      <div className="page-top" style={{ marginTop: 24 }}>
-        <div>
-          <h1>
-            <Link href={`/agents/${run.agentId}`}>{run.name}</Link>
-          </h1>
-          <p className="composer-summary" style={{ textAlign: "left", margin: "6px 0 0" }}>
-            {run.goal}
-          </p>
-        </div>
-      </div>
+    <div className={embedded ? undefined : "page"}>
+      {!embedded && (
+        <>
+          <div className="composer-bar">
+            <Link href="/runs" className="glass-pill">
+              <ArrowLeft size={16} aria-hidden />
+              Runs
+            </Link>
+            <div className="composer-bar-end">
+              <AdvancedSwitch on={advanced} toggle={toggleAdvanced} />
+            </div>
+          </div>
+          <div className="page-top" style={{ marginTop: 24 }}>
+            <div>
+              <h1>
+                <Link href={`/workflows/${run.agentId}`}>{run.name}</Link>
+              </h1>
+            </div>
+          </div>
+        </>
+      )}
+      <p className="composer-summary" style={{ textAlign: "left", margin: "6px 0 0" }}>
+        {run.goal}
+      </p>
 
       <div className="run-bar">
         <div className="run-bar-track" style={{ cursor: "default" }}>

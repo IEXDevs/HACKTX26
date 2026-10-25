@@ -108,21 +108,24 @@ export function StartRun({
                 ))}
               </select>
             </label>
-            <label className="field">
+            <div className="field">
               What should it do?
-              <textarea
-                value={goal}
-                maxLength={4000}
-                placeholder="Describe the task in a sentence or two."
-                onChange={(e) => setGoal(e.target.value)}
-              />
-            </label>
-            <div className="composer-tools start-run-tools">
-              <ComposerAttach attachments={attachments} onChange={setAttachments} />
-              <ComposerChips
-                attachments={attachments}
-                onRemove={(item) => setAttachments(attachments.filter((row) => row !== item))}
-              />
+              <div className="composer-box start-run-box">
+                <textarea
+                  aria-label="What should it do?"
+                  value={goal}
+                  maxLength={4000}
+                  placeholder="Describe the task in a sentence or two."
+                  onChange={(e) => setGoal(e.target.value)}
+                />
+                <div className="composer-tools">
+                  <ComposerAttach attachments={attachments} onChange={setAttachments} />
+                  <ComposerChips
+                    attachments={attachments}
+                    onRemove={(item) => setAttachments(attachments.filter((row) => row !== item))}
+                  />
+                </div>
+              </div>
             </div>
             {error && <p className="error-text">{error}</p>}
             <div className="dialog-actions">

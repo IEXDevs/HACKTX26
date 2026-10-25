@@ -4,6 +4,8 @@ import { useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowUp, Check, LoaderCircle } from "@/components/icons";
+import { applyAttachments, type ComposerAttachment } from "@/lib/composer-attachments";
+import { ComposerAttach, ComposerChips } from "./composer-attach";
 import type { CaseHop, CaseMessage, CaseProposal, CaseRetest } from "@/lib/db/schema";
 import { RichText } from "./rich-text";
 import { useAutoRefresh } from "./use-auto-refresh";
@@ -225,7 +227,7 @@ export function CaseReview({ view }: { view: CaseView }) {
             onChange={setInput}
             busy={busy === "message"}
             disabled={!!busy || !input.trim()}
-            onSubmit={() => void act("message", { action: "message", text: input.trim() })}
+            onSubmit={(text) => void act("message", { action: "message", text })}
           />
         </div>
       )}
@@ -242,10 +244,11 @@ function Reply({
 }: {
   value: string;
   onChange: (value: string) => void;
-  onSubmit: () => void;
+  onSubmit: (text: string) => void;
   disabled: boolean;
   busy: boolean;
 }) {
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const box = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
     const el = box.current;
@@ -259,7 +262,7 @@ function Reply({
       style={{ flex: 1 }}
       onSubmit={(e) => {
         e.preventDefault();
-        if (!disabled) onSubmit();
+        if (!disabled) onSubmit(applyAttachments(value.trim(), attachments));
       }}
     >
       <label className="composer-field">
@@ -274,15 +277,22 @@ function Reply({
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey && !disabled) {
               e.preventDefault();
-              onSubmit();
+              onSubmit(applyAttachments(value.trim(), attachments));
             }
           }}
         />
       </label>
-      <button type="submit" className="composer-send" disabled={disabled}>
-        {busy ? <LoaderCircle size={16} className="animate-spin" /> : <ArrowUp size={16} />}
-        Send
-      </button>
+      <div className="composer-tools">
+        <ComposerAttach attachments={attachments} onChange={setAttachments} />
+        <ComposerChips
+          attachments={attachments}
+          onRemove={(item) => setAttachments(attachments.filter((row) => row !== item))}
+        />
+        <button type="submit" className="composer-send" disabled={disabled}>
+          {busy ? <LoaderCircle size={16} className="animate-spin" /> : <ArrowUp size={16} />}
+          Send
+        </button>
+      </div>
     </form>
   );
 }

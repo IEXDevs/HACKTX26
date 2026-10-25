@@ -25,6 +25,8 @@ import {
   Tag,
 } from "@/components/ui/primitives";
 import { cn } from "@/lib/cn";
+import { applyAttachments, type ComposerAttachment } from "@/lib/composer-attachments";
+import { ComposerAttach, ComposerChips } from "@/components/relay/composer-attach";
 import { clockTime, relativeTime, tokens, usd } from "@/lib/format";
 
 export interface ConsoleNode {
@@ -194,6 +196,7 @@ export function AgentConsole({
     "State what you can do inside your current grants. If you need a note, write it in the sandbox.",
   );
   const [dispatching, setDispatching] = useState(false);
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [activityTab, setActivityTab] = useState<"tools" | "files">("tools");
   const loadSeq = useRef(0);
 
@@ -318,7 +321,7 @@ export function AgentConsole({
       const response = await fetch("/api/runs", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ agentId, goal, mode: "live" }),
+        body: JSON.stringify({ agentId, goal: applyAttachments(goal.trim(), attachments), mode: "live" }),
       });
       const payload = (await response.json()) as { runId?: string; error?: string };
       if (!response.ok || !payload.runId) {
@@ -658,6 +661,13 @@ export function AgentConsole({
               rows={3}
               className="focus-ring w-full resize-y rounded-sm border border-line-strong bg-surface-2 px-2 py-1.5 text-[11px] leading-relaxed text-ink placeholder:text-ink-4"
             />
+            <div className="composer-tools console-prompt-tools">
+              <ComposerAttach attachments={attachments} onChange={setAttachments} />
+              <ComposerChips
+                attachments={attachments}
+                onRemove={(item) => setAttachments(attachments.filter((row) => row !== item))}
+              />
+            </div>
             <Button
               variant="primary"
               size="sm"

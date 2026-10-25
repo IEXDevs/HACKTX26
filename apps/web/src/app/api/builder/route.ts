@@ -2,10 +2,14 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { requireWorkspace } from "@/lib/queries";
 import { askBuilder } from "@/lib/runtime/builder";
+import { WorkflowModeSchema } from "@/lib/workflow-mode";
 
 export const dynamic = "force-dynamic";
 
 const Body = z.object({
+  // A graph being edited may be incomplete. Validate the finished model draft instead.
+  draft: z.string().max(60_000).optional(),
+  workflowMode: WorkflowModeSchema.exclude(["manual"]).optional(),
   messages: z
     .array(
       z.object({
@@ -25,7 +29,11 @@ export async function POST(request: NextRequest) {
   }
   try {
     const workspace = await requireWorkspace();
-    return Response.json(await askBuilder(parsed.data.messages, { workspaceId: workspace.id }));
+    return Response.json(await askBuilder(parsed.data.messages, {
+      workspaceId: workspace.id,
+      workflowMode: parsed.data.workflowMode,
+      draft: parsed.data.draft,
+    }));
   } catch (error) {
     return Response.json({ error: (error as Error).message }, { status: 502 });
   }

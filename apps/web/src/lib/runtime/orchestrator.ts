@@ -1215,6 +1215,9 @@ class RunEngine {
 
     // Grunts returned above, so every agent here may delegate.
     if (!child) {
+      if (agent.sourceAgentId && !agent.canSpawnSubagents) {
+        return { ok: false, preview: "", error: `${agent.name} can only delegate to agents connected below it in this workflow.` };
+      }
       const existing = this.agentRows.find(nameMatch);
       if (existing) {
         child = existing;
@@ -1790,6 +1793,8 @@ class RunEngine {
   }
 
   async #maybeSpawnAdversarialSwarm(root: AgentRow): Promise<void> {
+    // A manually selected or automatically arranged static tree stays as reviewed.
+    if (root.sourceAgentId && !root.canSpawnSubagents) return;
     const hasRedTeam = this.agentRows.some(
       (row) =>
         row.parentAgentId === root.id &&

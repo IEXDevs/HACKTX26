@@ -31,7 +31,7 @@ import { env, newId, serpApiEnabled } from "./env";
 import { observabilityEnabled } from "./env";
 import { supabaseAdmin } from "./supabase";
 import {
-  isContextStub,
+  hasContextContent,
   upsertConnectedToolsSection,
   WorkspaceContextFile,
 } from "./runtime/workspace-context";
@@ -159,7 +159,7 @@ async function mirrorGrants(workspaceId: string, agentId: string, toolkits: stri
   if (error) console.warn("[supabase] connector_grants:", error.message);
 }
 
-async function mirrorContext(workspaceId: string, content: string, updatedBy: string | null): Promise<void> {
+export async function mirrorContext(workspaceId: string, content: string, updatedBy: string | null): Promise<void> {
   const client = supabaseAdmin();
   if (!client || !observabilityEnabled()) return;
   const { error } = await client.from("workspace_contexts").upsert(
@@ -459,14 +459,14 @@ export async function hydrateContextFromStores(workspaceId: string): Promise<str
   const file = new WorkspaceContextFile(env.sandboxRoot, workspaceId);
   file.ensure();
   const content = file.read();
-  if (!isContextStub(content)) return content;
+  if (hasContextContent(content)) return content;
 
   const [local] = await getDb()
     .select()
     .from(workspaceContexts)
     .where(eq(workspaceContexts.workspaceId, workspaceId))
     .limit(1);
-  if (local?.content && !isContextStub(local.content)) {
+  if (local?.content && hasContextContent(local.content)) {
     file.write(local.content);
     return local.content;
   }
@@ -478,7 +478,7 @@ export async function hydrateContextFromStores(workspaceId: string): Promise<str
       .select("content")
       .eq("workspace_id", workspaceId)
       .maybeSingle();
-    if (data?.content && typeof data.content === "string" && !isContextStub(data.content)) {
+    if (data?.content && typeof data.content === "string" && hasContextContent(data.content)) {
       file.write(data.content);
       return data.content;
     }

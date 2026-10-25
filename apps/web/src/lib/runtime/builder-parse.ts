@@ -1,5 +1,8 @@
 /** Builder draft schema and reply parsing. Pure; no app imports, so it is easy to test. */
 import { z } from "zod";
+import { workerDepths } from "../agent-tree";
+
+export const MAX_WORKFLOW_WORKERS = 24;
 
 const Complexity = z.enum(["trivial", "standard", "complex", "critical"]);
 
@@ -18,10 +21,17 @@ export const DraftSchema = z.object({
         instructions: z.string().trim().min(10).max(1500),
         complexity: Complexity.catch("standard"),
         tools: z.array(z.string()).max(6).catch([]),
+        parentIndex: z.number().int().min(-1).max(MAX_WORKFLOW_WORKERS - 1).optional(),
       }),
     )
-    .max(5)
+    .max(MAX_WORKFLOW_WORKERS)
     .catch([]),
+}).superRefine((draft, context) => {
+  try {
+    workerDepths(draft.workers);
+  } catch (error) {
+    context.addIssue({ code: "custom", path: ["workers"], message: (error as Error).message });
+  }
 });
 export type BuilderDraft = z.infer<typeof DraftSchema>;
 

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Boxes, Crown, Maximize, ShieldHalf, Terminal, X } from "@/components/icons";
+import { Boxes, Crown, Maximize, Plus, ShieldHalf, Terminal, X } from "@/components/icons";
 import { Button, Divider, KeyValue, StatusBadge, Tag } from "@/components/ui/primitives";
 import { duration, initials, relativeTime, tokens, usd } from "@/lib/format";
 import type { GraphAgent, GraphFlow, GraphSnapshot, GraphTask } from "@/lib/graph-data";
@@ -156,17 +156,32 @@ function saveLayout(workflowId: string | undefined, layout: SavedLayout) {
 // Stable default: a fresh `[]` per render would retrigger the prop-sync effect below forever.
 const NO_FLOWS: GraphFlow[] = [];
 
+interface GraphEditor {
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  onAdd?: (parentId: string | null) => void;
+  canAddChild?: (id: string) => boolean;
+  disabled?: boolean;
+}
+
 export function GraphSpace({
   agents: initialAgents,
   tasks: initialTasks,
   workflowId,
   flows: initialFlows = NO_FLOWS,
+  editor,
+  onLayoutChange,
+  emptyMessage = "No agents in this workflow yet.",
 }: {
   agents: GraphAgent[];
   tasks: GraphTask[];
   workflowId?: string;
   flows?: GraphFlow[];
+  editor?: GraphEditor;
+  onLayoutChange?: (positions: Record<string, V2>) => void;
+  emptyMessage?: string;
 }) {
+  const editing = Boolean(editor);
   const [agents, setAgents] = useState(initialAgents);
   const [tasks, setTasks] = useState(initialTasks);
   const [flows, setFlows] = useState(initialFlows);
@@ -220,20 +235,21 @@ export function GraphSpace({
   const overridesRef = useRef<Map<string, V2>>(new Map());
   const [layoutVersion, setLayoutVersion] = useState(0);
   useEffect(() => {
+    if (editing) return;
     const saved = loadLayout(workflowId);
     if (!saved) return;
     if (typeof saved.spacing === "number") setSpacing(saved.spacing);
     overridesRef.current = new Map(Object.entries(saved.positions ?? {}));
     setLayoutVersion((v) => v + 1);
-  }, [workflowId]);
+  }, [workflowId, editing]);
   const persist = useCallback(
     (next: Partial<SavedLayout> = {}) => {
-      saveLayout(workflowId, {
+      if (!editing) saveLayout(workflowId, {
         spacing: next.spacing ?? spacing,
         positions: Object.fromEntries(overridesRef.current),
       });
     },
-    [workflowId, spacing],
+    [workflowId, spacing, editing],
   );
 
   const targets = useMemo(() => {
@@ -242,6 +258,11 @@ export function GraphSpace({
     for (const [id, pos] of overridesRef.current) if (auto.has(id)) auto.set(id, { ...pos });
     return auto;
   }, [laid, spacing, layoutVersion]);
+  const layoutCallbackRef = useRef(onLayoutChange);
+  layoutCallbackRef.current = onLayoutChange;
+  useEffect(() => {
+    layoutCallbackRef.current?.(Object.fromEntries(targets));
+  }, [targets]);
 
   const [selectedId, setSelectedId] = useState<string | null>(laid.find((a) => a.role === "orchestrator")?.id ?? laid[0]?.id ?? null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -269,11 +290,15 @@ export function GraphSpace({
   const targetsRef = useRef(targets);
   const themeRef = useRef(theme);
   const selectedRef = useRef(selectedId);
+  const editorRef = useRef(editor);
+  const editButtonsRef = useRef(new Map<string, HTMLButtonElement>());
+  const addButtonsRef = useRef(new Map<string, HTMLButtonElement>());
   agentsRef.current = laid;
   edgesRef.current = edges;
   targetsRef.current = targets;
   themeRef.current = theme;
-  selectedRef.current = selectedId;
+  selectedRef.current = editor ? editor.selectedId : selectedId;
+  editorRef.current = editor;
   const hoverRef = useRef<string | null>(null);
   const hitsRef = useRef<{ id: string; x: number; y: number; r: number }[]>([]);
   /** Where each node is drawn right now. Eases toward its target; the dragged node is exact. */
@@ -301,7 +326,7 @@ export function GraphSpace({
       minX = Math.min(minX, p.x - half);
       maxX = Math.max(maxX, p.x + half);
       minY = Math.min(minY, p.y - a.r - 40);
-      maxY = Math.max(maxY, p.y + a.r + 60);
+      maxY = Math.max(maxY, p.y + a.r + (editorRef.current?.onAdd ? 105 : 60));
     }
     if (!(minX <= maxX && minY <= maxY)) return;
     const fit = Math.min(vw / Math.max(1, maxX - minX), vh / Math.max(1, maxY - minY));
@@ -313,6 +338,9 @@ export function GraphSpace({
   useEffect(() => {
     fitCameraRef.current(false);
   }, [targets]);
+  useEffect(() => {
+    if (editing) fitCameraRef.current(true);
+  }, [editing, laid.length]);
 
   /* --------- render loop --------- */
   useLayoutEffect(() => {
@@ -475,6 +503,27 @@ export function GraphSpace({
       const zoom = cam.zoom;
       const S = (p: V2) => ({ x: w / 2 + (p.x - cam.x) * zoom, y: h / 2 + (p.y - cam.y) * zoom });
       const byId = new Map(nodes.map((a) => [a.id, a]));
+      // Native buttons follow the canvas camera and the animated node positions.
+      for (const a of nodes) {
+        const wp = pos.get(a.id);
+        if (!wp) continue;
+        const p = S(wp);
+        const rad = a.r * zoom;
+        const editButton = editButtonsRef.current.get(a.id);
+        if (editButton) {
+          editButton.style.left = `${p.x}px`;
+          editButton.style.top = `${p.y}px`;
+          editButton.style.width = `${rad * 2 + 12}px`;
+          editButton.style.height = `${rad * 2 + 12}px`;
+          editButton.style.visibility = "visible";
+        }
+        const addButton = addButtonsRef.current.get(a.id);
+        if (addButton) {
+          addButton.style.left = `${p.x}px`;
+          addButton.style.top = `${p.y + rad + Math.min(16, Math.max(11, 14 * zoom)) * 1.3 + 34}px`;
+          addButton.style.visibility = "visible";
+        }
+      }
 
       /* --- edges: thick S-curves, colored from one model to the other --- */
       ctx.lineCap = "round";
@@ -526,6 +575,24 @@ export function GraphSpace({
         const rad = a.r * zoom * (dragged ? 1.06 : hov ? 1.03 : 1);
         hitsRef.current.push({ id: a.id, x: p.x, y: p.y, r: rad });
         const color = a.waiting ? greyed(a.color, 0.75) : a.color;
+
+        if (a.placeholder) {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
+          ctx.fillStyle = T.tip;
+          ctx.fill();
+          ctx.strokeStyle = T.ink4;
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([5, 6]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.font = `500 ${labelPx}px ${family}`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "top";
+          ctx.fillStyle = T.ink4;
+          ctx.fillText("Choose agent", p.x, p.y + rad + 12);
+          continue;
+        }
 
         // Working: a soft halo that breathes behind the wobbling body.
         if (a.busy) {
@@ -731,8 +798,12 @@ export function GraphSpace({
           const rect = canvas.getBoundingClientRect();
           const hit = pick(e.clientX - rect.left, e.clientY - rect.top);
           if (hit) {
-            setSelectedId(hit.id);
-            setModalOpen(true);
+            if (editorRef.current) {
+              if (!editorRef.current.disabled) editorRef.current.onSelect(hit.id);
+            } else {
+              setSelectedId(hit.id);
+              setModalOpen(true);
+            }
           } else {
             setModalOpen(false);
             setSelectedId(null);
@@ -832,19 +903,30 @@ export function GraphSpace({
       </div>
 
       {/* ---------- canvas ---------- */}
-      <div ref={wrapRef} className="graph-wrap absolute inset-0 select-none">
+      <div ref={wrapRef} className="graph-wrap absolute inset-0 select-none" role={editor ? "region" : undefined} aria-label={editor ? "Workflow build graph" : undefined}>
         {laid.length === 0 ? (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <p className="text-[13px] text-ink-4">No agents in this workflow yet.</p>
+          <div className="graph-build-empty absolute inset-0 flex flex-col items-center justify-center gap-3">
+            {editor?.onAdd && <button type="button" className="graph-add-first" aria-label="Create first agent" disabled={editor.disabled} onClick={() => editor.onAdd?.(null)}><Plus size={24} aria-hidden /></button>}
+            <p className="text-[13px] text-ink-4">{emptyMessage}</p>
           </div>
         ) : null}
         <canvas ref={canvasRef} className="graph-canvas touch-none" />
+        {editor && <div className="graph-editor-controls">
+          {laid.map((agent) => <div key={agent.id}>
+            <button type="button" className={agent.placeholder ? "graph-placeholder-pick" : "graph-edit-node"} aria-label={agent.placeholder ? (agent.parentAgentId ? "Choose child agent" : "Choose first agent") : `Select ${agent.name}`} aria-pressed={editor.selectedId === agent.id} disabled={editor.disabled}
+              ref={(element) => { if (element) editButtonsRef.current.set(agent.id, element); else editButtonsRef.current.delete(agent.id); }}
+              onClick={() => editor.onSelect(agent.id)}>{agent.placeholder && <Plus size={22} aria-hidden />}</button>
+            {editor.onAdd && !agent.placeholder && <button type="button" className="graph-add-child" aria-label={`Add child to ${agent.name}`} title={editor.canAddChild?.(agent.id) === false ? "Tree size or depth limit reached" : `Add child to ${agent.name}`} disabled={editor.disabled || editor.canAddChild?.(agent.id) === false}
+              ref={(element) => { if (element) addButtonsRef.current.set(agent.id, element); else addButtonsRef.current.delete(agent.id); }}
+              onClick={() => editor.onAdd?.(agent.id)}><Plus size={15} aria-hidden /></button>}
+          </div>)}
+        </div>}
         <span className="pointer-events-none absolute bottom-3 left-4 text-[11px] text-ink-4">
           Drag to pan · scroll to zoom · drag an agent to move it
         </span>
 
         {/* ---------- details drawer ---------- */}
-        {modalOpen && selected ? (
+        {!editor && modalOpen && selected ? (
           <aside className="animate-fade-up absolute inset-y-0 right-0 z-10 flex w-full max-w-sm flex-col border-l border-line bg-surface/95 backdrop-blur-sm">
             <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-3">
               <div className="flex min-w-0 items-center gap-2.5">

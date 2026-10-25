@@ -10,7 +10,7 @@ export default async function AgentsPage() {
     listRuns(workspace.id, { limit: 1000 }),
   ]);
   const tiles: AgentTile[] = agents
-    .filter((agent) => agent.parentAgentId === null)
+    .filter((agent) => agent.parentAgentId === null && !agent.sourceAgentId)
     .map((agent) => {
       const own = runs.filter((run) => run.agentId === agent.id);
       return {

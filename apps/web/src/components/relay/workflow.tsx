@@ -28,7 +28,7 @@ export function Workflow({
   run: ReactNode;
 }) {
   const router = useRouter();
-  const [task, setTask] = useState(""),
+  const [task, setTask] = useState(workflow.task),
     [busy, setBusy] = useState(false),
     [stopping, setStopping] = useState(false),
     [error, setError] = useState("");

@@ -7,6 +7,7 @@ import { MODEL_BY_ID, TOOL_MANIFEST } from "@agent-os/core";
 import { recordModelTurn } from "../observability";
 import { createLiveGateway, liveGatewayAvailable } from "./gateway";
 import { parseBuilderReply } from "./builder-parse";
+import { workflowBuilderGuidance, type WorkflowMode } from "../workflow-mode";
 
 export { DraftSchema, parseBuilderReply, type BuilderDraft } from "./builder-parse";
 
@@ -38,13 +39,21 @@ export const BUILDER_MODEL = process.env.BUILDER_MODEL ?? "muse-spark-1.3";
 
 export async function askBuilder(
   history: BuilderTurn[],
-  opts?: { workspaceId?: string },
+  opts?: { workspaceId?: string; workflowMode?: Exclude<WorkflowMode, "manual">; draft?: string },
 ) {
   if (!liveGatewayAvailable()) {
     throw new Error("No live model is configured. Set MODEL_GATEWAY and a provider key.");
   }
   const gateway = createLiveGateway();
-  const messages = [{ role: "system" as const, content: BUILDER_SYSTEM }, ...history];
+  const system = opts?.workflowMode
+    ? `${BUILDER_SYSTEM}\n\n${workflowBuilderGuidance(opts.workflowMode)}`
+    : BUILDER_SYSTEM;
+  const messages = [
+    { role: "system" as const, content: system },
+    ...history.slice(0, -1),
+    ...(opts?.draft ? [{ role: "user" as const, content: `Current draft visible in the graph: ${opts.draft}` }] : []),
+    ...history.slice(-1),
+  ];
   let text = "";
   let inputTokens = 0;
   let outputTokens = 0;

@@ -20,7 +20,7 @@ function toConfig(row: typeof agents.$inferSelect): AgentConfig {
     workspaceId: row.workspaceId,
     name: row.name,
     slug: row.slug,
-    role: row.role,
+    role: row.sourceAgentId && row.parentAgentId === null ? "orchestrator" : row.role,
     parentAgentId: row.parentAgentId,
     summary: row.summary,
     instructions: row.instructions,

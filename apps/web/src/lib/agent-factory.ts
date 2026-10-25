@@ -17,8 +17,13 @@ import {
   type TaskComplexity,
 } from "@agent-os/core";
 import { getDb } from "./db/client";
-import { agents, auditLog, budgetPolicies, promptBlocks, type Workspace } from "./db/schema";
-import { newId } from "./env";
+import { agents, auditLog, budgetPolicies, promptBlocks, workspaceContexts, type Workspace } from "./db/schema";
+import { env, newId } from "./env";
+import { workerDepths } from "./agent-tree";
+import type { BuilderConversation } from "./builder-conversation";
+import { hydrateContextFromStores, mirrorContext } from "./connectors";
+import { upsertBuilderContext } from "./runtime/builder-context";
+import { WorkspaceContextFile } from "./runtime/workspace-context";
 
 export interface GraphSpec {
   orchestrator: {
@@ -35,6 +40,7 @@ export interface GraphSpec {
     instructions: string;
     complexity: TaskComplexity;
     tools: string[];
+    parentIndex?: number;
   }>;
 }
 
@@ -110,8 +116,16 @@ export async function createAgentGraph(options: {
   actor: string;
   auditAction: string;
   auditDetail?: Record<string, unknown>;
+  builderConversation?: BuilderConversation;
+  contextUpdatedBy?: string | null;
 }): Promise<CreateResult> {
   const { workspace, spec } = options;
+  let depths: number[];
+  try {
+    depths = workerDepths(spec.workers);
+  } catch (error) {
+    return { ok: false, error: (error as Error).message };
+  }
   const db = getDb();
   const dataClass = options.dataClass ?? workspace.defaultDataClass;
   const now = new Date();
@@ -164,19 +178,21 @@ export async function createAgentGraph(options: {
   };
 
   const workerRows: Array<typeof agents.$inferInsert> = [];
-  for (const worker of spec.workers) {
+  const workerIds = spec.workers.map(() => newId("agt"));
+  const ranks = ["orchestrator", "intermediate", "intermediate_2", "grunt"] as const;
+  for (const [index, worker] of spec.workers.entries()) {
     const known = worker.tools.filter((tool) => TOOL_BY_NAME.has(tool));
     const tools = known.length > 0 ? known : ["kb.search", "fs.read"];
     workerRows.push({
-      id: newId("agt"),
+      id: workerIds[index]!,
       workspaceId: workspace.id,
       name: worker.name,
       slug: await buildSlug(slugify(worker.name)),
       role: worker.role,
-      rank: "intermediate",
+      rank: ranks[depths[index]!]!,
       canSpawnSubagents: false,
       proposeTemplates: false,
-      parentAgentId: orchestratorId,
+      parentAgentId: (worker.parentIndex ?? -1) < 0 ? orchestratorId : workerIds[worker.parentIndex!]!,
       summary: worker.instructions,
       instructions: worker.instructions,
       inheritedPromptBlockIds: inherited,
@@ -222,30 +238,44 @@ export async function createAgentGraph(options: {
     return { ok: false, error: "The agent team is not valid.", issues };
   }
 
-  await db.insert(agents).values([orchestrator, ...workerRows]);
-  await db.insert(budgetPolicies).values({
-    id: newId("bp"),
-    workspaceId: workspace.id,
-    agentId: orchestratorId,
-    period: "run",
-    limitUsd: workspace.defaultRunBudgetUsd,
-    warnAt: 0.8,
-    hardStop: true,
-    createdAt: now,
-  });
+  let context: { file: WorkspaceContextFile; content: string } | undefined;
+  if (options.builderConversation?.length) {
+    const file = new WorkspaceContextFile(env.sandboxRoot, workspace.id);
+    const current = await hydrateContextFromStores(workspace.id);
+    const content = upsertBuilderContext(current, { id: orchestratorId, ...spec.orchestrator }, options.builderConversation);
+    if (Buffer.byteLength(content, "utf8") > 256 * 1024) {
+      return { ok: false, error: "The builder conversation would exceed the CONTEXT.md limit of 256 KB." };
+    }
+    context = { file, content };
+  }
   const agentIds = [orchestratorId, ...workerRows.map((row) => row.id as string)];
   const warnings = issues
     .filter((issue) => issue.severity === "warning")
     .map((issue) => issue.message);
-  await db.insert(auditLog).values({
-    id: newId("aud"),
-    workspaceId: workspace.id,
-    actor: options.actor,
-    action: options.auditAction,
-    targetType: "agent",
-    targetId: orchestratorId,
-    detail: { ...options.auditDetail, createdAgents: agentIds, status: "draft", dataClass, warnings },
-    at: now,
+  db.transaction((transaction) => {
+    transaction.insert(agents).values([orchestrator, ...workerRows]).run();
+    transaction.insert(budgetPolicies).values({
+      id: newId("bp"), workspaceId: workspace.id, agentId: orchestratorId,
+      period: "run", limitUsd: workspace.defaultRunBudgetUsd, warnAt: 0.8, hardStop: true, createdAt: now,
+    }).run();
+    transaction.insert(auditLog).values({
+      id: newId("aud"), workspaceId: workspace.id, actor: options.actor, action: options.auditAction,
+      targetType: "agent", targetId: orchestratorId,
+      detail: { ...options.auditDetail, createdAgents: agentIds, status: "draft", dataClass, warnings, builderContextSaved: Boolean(context) }, at: now,
+    }).run();
+    if (context) {
+      transaction.insert(workspaceContexts).values({
+        workspaceId: workspace.id, content: context.content, updatedBy: options.contextUpdatedBy ?? null, updatedAt: now,
+      }).onConflictDoUpdate({ target: workspaceContexts.workspaceId,
+        set: { content: context.content, updatedBy: options.contextUpdatedBy ?? null, updatedAt: now },
+      }).run();
+      context.file.write(context.content);
+    }
   });
+  if (context) {
+    await mirrorContext(workspace.id, context.content, options.contextUpdatedBy ?? null).catch((error) => {
+      console.warn("[builder] CONTEXT.md cloud sync:", (error as Error).message);
+    });
+  }
   return { ok: true, orchestratorId, agentIds, warnings };
 }

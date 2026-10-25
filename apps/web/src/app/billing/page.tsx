@@ -68,7 +68,7 @@ export default async function BillingPage() {
       </section>
       <BillingSpend days={days} agents={costs} />
       <section className="bill-section">
-        <div className="bill-section-title"><h2>Spending limits</h2><span>Spent and remaining in each period</span></div>
+        <div className="bill-section-title"><h2>Spending limits</h2></div>
         <div className="bill-table-wrap"><table className="bill-table"><thead><tr><th scope="col">Scope</th><th scope="col">Period</th><th scope="col">Spent</th><th scope="col">Limit</th><th scope="col">Remaining</th><th scope="col">Budget used</th></tr></thead><tbody>
           {policies.map((policy) => {
             const scoped = history.filter((run) => !policy.agentId || run.agentId === policy.agentId);
@@ -85,7 +85,7 @@ export default async function BillingPage() {
         </tbody></table>{policies.length === 0 && <p className="bill-empty">No spending limits set.</p>}</div>
       </section>
       <section className="bill-section">
-        <div className="bill-section-title"><h2>Model prices</h2><span>Meta Model API rates as published</span></div>
+        <div className="bill-section-title"><h2>Model prices</h2></div>
         <ul className="list">
           {models.map((model) => (
             <li key={model.id}>
@@ -100,7 +100,6 @@ export default async function BillingPage() {
           ))}
         </ul>
       </section>
-      <p className="bill-caption bill-disclaimer">Estimated costs from live model usage, in USD. No payments are collected.</p>
     </div>
   );
 }

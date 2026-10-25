@@ -6,7 +6,6 @@ import {
   Activity,
   Bot,
   CreditCard,
-  FlaskConical,
   GitBranch,
   House,
   Logo,
@@ -62,7 +61,6 @@ export function Sidebar({
   const platform: NavItem[] = [
     { href: "/security", label: "Security", icon: ShieldHalf },
     { href: "/observability", label: "Observability", icon: ScrollText },
-    { href: "/evals", label: "Evaluations", icon: FlaskConical },
     { href: "/connectors", label: "Connectors", icon: Link2 },
     { href: "/policy", label: "Privacy", icon: Lock },
     { href: "/settings", label: "Settings", icon: Settings },

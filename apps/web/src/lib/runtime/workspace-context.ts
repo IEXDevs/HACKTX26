@@ -145,26 +145,35 @@ export class WorkspaceContextFile {
   }
 
   /** Prompt block injected into every agent that runs in this workspace. */
-  promptBlock(): string {
+  promptBlock(options?: { canWrite?: boolean }): string {
+    const canWrite = options?.canWrite === true;
     const content = this.read();
     const stub = isContextStub(content);
     const body = stub
-      ? [
-          "The workspace CONTEXT.md is still a stub.",
-          "On this first run: inspect the repo (fs.list, README, package.json, kb.search)",
-          "and write a first draft with context.write covering tech stack, layout, and conventions.",
-          "If you cannot see the repo yet, start the file anyway and fill it in as you go.",
-        ].join(" ")
+      ? canWrite
+        ? [
+            "The workspace CONTEXT.md is still a stub.",
+            "On this first run: inspect the repo (fs.list, README, package.json, kb.search)",
+            "and write a first draft with context.write covering tech stack, layout, and conventions.",
+            "If you cannot see the repo yet, start the file anyway and fill it in as you go.",
+          ].join(" ")
+        : [
+            "The workspace CONTEXT.md is still a stub.",
+            "Read it with context.read. You cannot update it on this run; the orchestrator fills it in.",
+          ].join(" ")
       : [
           "Workspace CONTEXT.md (read this on your own; keep it current):",
           "",
           content.trim(),
         ].join("\n");
+    const honour = canWrite
+      ? "The operator may tell you to include or remove facts from this file; honour that with context.write / context.read."
+      : "The operator may tell you to include or remove facts from this file; honour reads with context.read. You cannot call context.write.";
     return [
       "",
       "",
       body,
-      "The operator may tell you to include or remove facts from this file; honour that with context.write / context.read.",
+      honour,
       "Do not put secrets, credentials, or raw PII in CONTEXT.md.",
     ].join("\n");
   }

@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Boxes, Crown, Maximize, ShieldHalf, Terminal, X } from "@/components/icons";
-import { Button, Divider, KeyValue, StatusBadge, Tag } from "@/components/ui/primitives";
-import { duration, initials, relativeTime, tokens, usd } from "@/lib/format";
+import { Boxes, Crown, Maximize, ScrollText, ShieldHalf, Terminal, X } from "@/components/icons";
+import { LogStream } from "@/components/relay/log-stream";
+import { Button, StatusBadge } from "@/components/ui/primitives";
+import { initials, relativeTime } from "@/lib/format";
 import type { GraphAgent, GraphFlow, GraphSnapshot, GraphTask } from "@/lib/graph-data";
+import type { HistoryItem } from "@/lib/views";
 import { DotGrid, type DotGridHandle } from "./dot-grid";
 import {
   blobScale,
@@ -16,6 +18,8 @@ import {
   nodeRadius,
   sampleCurve,
   sCurve,
+  spawnOrigin,
+  spawnScale,
   tidyLayout,
   type Cubic,
   type V2,
@@ -161,37 +165,61 @@ export function GraphSpace({
   tasks: initialTasks,
   workflowId,
   flows: initialFlows = NO_FLOWS,
+  activity: initialActivity = [],
+  liveRunId: initialLiveRunId = null,
+  now: initialNow = "",
+  live: initialLive = false,
 }: {
   agents: GraphAgent[];
   tasks: GraphTask[];
   workflowId?: string;
   flows?: GraphFlow[];
+  activity?: HistoryItem[];
+  liveRunId?: string | null;
+  now?: string;
+  live?: boolean;
 }) {
   const [agents, setAgents] = useState(initialAgents);
   const [tasks, setTasks] = useState(initialTasks);
   const [flows, setFlows] = useState(initialFlows);
+  const [activity, setActivity] = useState(initialActivity);
+  const [liveRunId, setLiveRunId] = useState(initialLiveRunId);
+  const [headline, setHeadline] = useState(initialNow);
+  const [live, setLive] = useState(initialLive);
   useEffect(() => {
     setAgents(initialAgents);
     setTasks(initialTasks);
     setFlows(initialFlows);
-  }, [initialAgents, initialTasks, initialFlows]);
+    setActivity(initialActivity);
+    setLiveRunId(initialLiveRunId);
+    setHeadline(initialNow);
+    setLive(initialLive);
+  }, [initialAgents, initialTasks, initialFlows, initialActivity, initialLiveRunId, initialNow, initialLive]);
   useEffect(() => {
     if (!workflowId) return;
     let cancelled = false;
+    const apply = (snapshot: GraphSnapshot) => {
+      setAgents(snapshot.agents);
+      setTasks(snapshot.tasks);
+      setFlows(snapshot.flows);
+      setActivity(snapshot.activity ?? []);
+      setLiveRunId(snapshot.liveRunId ?? null);
+      setHeadline(snapshot.now ?? "");
+      setLive(Boolean(snapshot.live));
+    };
     const tick = async () => {
       try {
-        const response = await fetch(`/api/workflows/${workflowId}/graph`);
+        const response = await fetch(`/api/workflows/${workflowId}/graph`, { cache: "no-store" });
         if (!response.ok) return;
         const snapshot = (await response.json()) as GraphSnapshot;
         if (cancelled) return;
-        setAgents(snapshot.agents);
-        setTasks(snapshot.tasks);
-        setFlows(snapshot.flows);
+        apply(snapshot);
       } catch {
         /* keep the last good frame */
       }
     };
-    const timer = setInterval(() => void tick(), 2500);
+    void tick();
+    const timer = setInterval(() => void tick(), 1000);
     return () => {
       cancelled = true;
       clearInterval(timer);
@@ -262,7 +290,10 @@ export function GraphSpace({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const dotsRef = useRef<DotGridHandle>(null);
-  const camRef = useRef({ x: 0, y: 0, zoom: 0.9, targetZoom: 0.9 });
+  const camRef = useRef({ x: 0, y: 0, zoom: 0.9, targetX: 0, targetY: 0, targetZoom: 0.9 });
+  const bornRef = useRef<Map<string, number>>(new Map());
+  const primedRef = useRef(false);
+  const countRef = useRef(0);
   // The draw loop runs outside React, so it reads everything it needs from refs.
   const agentsRef = useRef<Laid[]>(laid);
   const edgesRef = useRef<Edge[]>(edges);
@@ -288,6 +319,7 @@ export function GraphSpace({
     const vw = wrap.clientWidth;
     const vh = wrap.clientHeight;
     if (vw < 80 || vh < 80) return;
+    const first = !fittedRef.current;
     if (fittedRef.current && !force) return;
     fittedRef.current = true;
     let minX = Infinity;
@@ -306,13 +338,28 @@ export function GraphSpace({
     if (!(minX <= maxX && minY <= maxY)) return;
     const fit = Math.min(vw / Math.max(1, maxX - minX), vh / Math.max(1, maxY - minY));
     const z = Math.min(1.2, Math.max(0.35, fit * 0.92));
-    camRef.current = { x: (minX + maxX) / 2, y: (minY + maxY) / 2, zoom: z, targetZoom: z };
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const cam = camRef.current;
+    cam.targetX = cx;
+    cam.targetY = cy;
+    cam.targetZoom = z;
+    if (first) {
+      cam.x = cx;
+      cam.y = cy;
+      cam.zoom = z;
+    }
   }, []);
   const fitCameraRef = useRef(fitCamera);
   fitCameraRef.current = fitCamera;
   useEffect(() => {
     fitCameraRef.current(false);
   }, [targets]);
+  useEffect(() => {
+    const grew = laid.length > countRef.current && countRef.current > 0;
+    countRef.current = laid.length;
+    if (grew && live) fitCameraRef.current(true);
+  }, [laid.length, live]);
 
   /* --------- render loop --------- */
   useLayoutEffect(() => {
@@ -451,24 +498,42 @@ export function GraphSpace({
       const T = themeRef.current;
       const dragId = dragRef.current.down ? dragRef.current.nid : null;
 
+      const panning = dragRef.current.down && !dragRef.current.nid;
+      if (!panning) {
+        cam.x += (cam.targetX - cam.x) * 0.14;
+        cam.y += (cam.targetY - cam.y) * 0.14;
+      }
       cam.zoom += (cam.targetZoom - cam.zoom) * 0.14;
 
-      // Every free node eases to its own target. Nothing pushes or pulls anything else.
+      // Every free node eases to its own target. A child that just appeared
+      // starts on its parent and grows out to its seat.
       const pos = posRef.current;
+      const born = bornRef.current;
       const ease = 1 - Math.exp(-dt * 9);
       for (const a of nodes) {
         const target = targetsRef.current.get(a.id);
         if (!target) continue;
         const p = pos.get(a.id);
         if (!p) {
-          pos.set(a.id, { ...target });
+          if (!primedRef.current) {
+            pos.set(a.id, { x: target.x, y: target.y });
+          } else {
+            const parentPos = a.parentAgentId ? pos.get(a.parentAgentId) : undefined;
+            pos.set(a.id, spawnOrigin(parentPos, target));
+            born.set(a.id, now);
+          }
           continue;
         }
         if (a.id === dragId) continue;
         p.x += (target.x - p.x) * ease;
         p.y += (target.y - p.y) * ease;
       }
-      for (const id of [...pos.keys()]) if (!nodes.some((a) => a.id === id)) pos.delete(id);
+      for (const id of [...pos.keys()]) {
+        if (nodes.some((a) => a.id === id)) continue;
+        pos.delete(id);
+        born.delete(id);
+      }
+      if (nodes.length > 0) primedRef.current = true;
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
@@ -523,9 +588,20 @@ export function GraphSpace({
         const sel = a.id === selId;
         const hov = a.id === hoverId;
         const dragged = a.id === dragId;
-        const rad = a.r * zoom * (dragged ? 1.06 : hov ? 1.03 : 1);
+        const pop = spawnScale(born.has(a.id) ? now - (born.get(a.id) ?? now) : 700);
+        const rad = a.r * zoom * pop * (dragged ? 1.06 : hov ? 1.03 : 1);
         hitsRef.current.push({ id: a.id, x: p.x, y: p.y, r: rad });
         const color = a.waiting ? greyed(a.color, 0.75) : a.color;
+
+        if (pop < 1) {
+          ctx.globalAlpha = (1 - pop) * 0.8;
+          ctx.strokeStyle = color;
+          ctx.lineWidth = Math.max(1.5, 2.4 * zoom);
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, rad * (1.2 + (1 - pop) * 0.85), 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
 
         // Working: a soft halo that breathes behind the wobbling body.
         if (a.busy) {
@@ -702,6 +778,8 @@ export function GraphSpace({
           const zoom = camRef.current.zoom;
           camRef.current.x = d.panX - dx / zoom;
           camRef.current.y = d.panY - dy / zoom;
+          camRef.current.targetX = camRef.current.x;
+          camRef.current.targetY = camRef.current.y;
         }
       };
 
@@ -754,6 +832,8 @@ export function GraphSpace({
         const worldY = cam.y + (my - rect.height / 2) / prev;
         cam.x = worldX - (mx - rect.width / 2) / next;
         cam.y = worldY - (my - rect.height / 2) / next;
+        cam.targetX = cam.x;
+        cam.targetY = cam.y;
         cam.targetZoom = next;
       };
       const onLeave = () => {
@@ -839,197 +919,102 @@ export function GraphSpace({
           </div>
         ) : null}
         <canvas ref={canvasRef} className="graph-canvas touch-none" />
-        <span className="pointer-events-none absolute bottom-3 left-4 text-[11px] text-ink-4">
-          Drag to pan · scroll to zoom · drag an agent to move it
-        </span>
+        <div className={`graph-hud${live ? " live" : ""}`}>
+          <div className="graph-hud-head">
+            <span className="graph-hud-pulse" aria-hidden={live ? undefined : true} />
+            <b>{live ? headline || "Running" : "Team map"}</b>
+            <small>
+              {`${agents.filter((agent) => isBusy(agent)).length} working · ${agents.length} agents`}
+            </small>
+            {liveRunId ? (
+              <Link href={`/runs/${liveRunId}`} className="graph-hud-link">
+                Full run
+              </Link>
+            ) : null}
+          </div>
+          <LogStream
+            rows={activity}
+            limit={8}
+            empty="Nothing yet."
+            agentHref={(id) => `/agents/${id}/trail`}
+          />
+        </div>
 
-        {/* ---------- details drawer ---------- */}
         {modalOpen && selected ? (
-          <aside className="animate-fade-up absolute inset-y-0 right-0 z-10 flex w-full max-w-sm flex-col border-l border-line bg-surface/95 backdrop-blur-sm">
-            <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-3">
-              <div className="flex min-w-0 items-center gap-2.5">
-                <span
-                  className="flex size-9 shrink-0 items-center justify-center rounded-full font-mono text-[11px] text-white"
-                  style={{ background: selected.waiting ? greyed(selected.color, 0.75) : selected.color }}
-                >
-                  {initials(selected.name)}
-                </span>
-                <div className="min-w-0">
-                  <div className="truncate text-[13px] font-medium text-ink">{selected.name}</div>
-                  <div className="mono mt-0.5 truncate text-[10px] text-ink-4">
-                    {selected.role} · {selected.model}
-                  </div>
-                </div>
+          <aside className="graph-drawer">
+            <div className="graph-drawer-head">
+              <span
+                className="graph-drawer-mark"
+                style={{ background: selected.waiting ? greyed(selected.color, 0.75) : selected.color }}
+              >
+                {initials(selected.name)}
+              </span>
+              <div className="min-w-0">
+                <Link href={selected.trailHref ?? `/agents/${selected.id}/trail`} className="graph-drawer-name">
+                  {selected.name}
+                </Link>
+                <small>
+                  {selected.rank} · {selected.role} · {selected.model}
+                  {parent ? ` · reports to ${parent.name}` : ""}
+                </small>
               </div>
               <StatusBadge status={selected.lastRun?.status ?? selected.status} />
               <button
                 type="button"
                 onClick={() => setModalOpen(false)}
-                className="focus-ring rounded-xs p-1 text-ink-4 hover:bg-surface-2 hover:text-ink"
-                aria-label="Close details"
+                className="icon-btn"
+                aria-label="Close logs"
               >
                 <X size={14} />
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto">
-              <div className="border-b border-line p-4">
-                <p className="text-[11.5px] leading-relaxed text-ink-2">{selected.summary}</p>
-                <div className="mt-2.5 flex flex-wrap gap-1.5">
-                  <Tag tone={selected.role === "security" ? "audit" : "accent"}>{selected.complexity}</Tag>
-                  <Tag>{selected.dataClass}</Tag>
-                  <Tag>v{selected.version}</Tag>
-                  {parent ? <Tag tone="muted">↳ {parent.name}</Tag> : null}
-                  {selected.openFindings > 0 ? <Tag tone="danger">{selected.openFindings} findings</Tag> : null}
-                </div>
+            {selectedTasks[0] ? (
+              <p className="graph-drawer-task">
+                {selectedTasks[0].status}: {selectedTasks[0].title}
+                <span>{relativeTime(selectedTasks[0].at)}</span>
+              </p>
+            ) : null}
+
+            {childrenOf.length > 0 ? (
+              <div className="graph-drawer-kids">
+                {childrenOf.map((child) => (
+                  <button key={child.id} type="button" onClick={() => setSelectedId(child.id)}>
+                    {child.name}
+                  </button>
+                ))}
               </div>
+            ) : null}
 
-              {/* current job */}
-              <div className="border-b border-line p-4">
-                <div className="micro mb-2">Current task</div>
-                {selectedTasks.length === 0 ? (
-                  <p className="text-[11px] text-ink-4">No task yet.</p>
-                ) : (
-                  <ul className="space-y-2">
-                    {selectedTasks.slice(0, 3).map((task, i) => (
-                      <li key={`${task.runId}-${i}`} className="rounded-sm border border-line bg-surface-2/60 px-2.5 py-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="mono truncate text-[10px] text-warn">{task.status}</span>
-                          <Link href={`/runs/${task.runId}`} className="mono flex-none text-[9.5px] text-accent hover:underline">
-                            trace →
-                          </Link>
-                        </div>
-                        <p className="mt-1 text-[11px] leading-snug text-ink-2">{task.title}</p>
-                        <p className="mono mt-1 text-[9px] text-ink-4">{relativeTime(task.at)}</p>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 divide-x divide-line border-b border-line">
-                <div className="p-3">
-                  <KeyValue label="Model">{selected.model}</KeyValue>
-                  <KeyValue label="Tokens">
-                    {tokens((selected.inputTokens ?? 0) + (selected.outputTokens ?? 0))}
-                    <span className="text-ink-4">
-                      {" "}
-                      ({tokens(selected.inputTokens)} in / {tokens(selected.outputTokens)} out)
-                    </span>
-                  </KeyValue>
-                  <KeyValue label="Time run">{duration(selected.durationMs)}</KeyValue>
-                </div>
-                <div className="p-3">
-                  <KeyValue label="Spend">{usd(selected.spentUsd, { precise: true })}</KeyValue>
-                  <KeyValue label="Diff">
-                    {(selected.diff?.writes ?? 0)} writes · {(selected.diff?.reads ?? 0)} reads
-                    {(selected.diff?.deletes ?? 0) ? ` · ${selected.diff.deletes} deletes` : ""}
-                  </KeyValue>
-                  <KeyValue label="Last run">
-                    {selected.lastRun ? (
-                      <Link href={`/runs/${selected.lastRun.id}`} className="focus-ring text-accent hover:underline">
-                        {selected.lastRun.status} · {relativeTime(selected.lastRun.at)}
-                      </Link>
-                    ) : (
-                      <span className="text-ink-4">never</span>
-                    )}
-                  </KeyValue>
-                </div>
-              </div>
-              {(selected.filesTouched?.length ?? 0) > 0 ? (
-                <div className="border-b border-line px-4 py-3">
-                  <div className="micro mb-1.5">Files touched</div>
-                  <p className="mono text-[10px] leading-relaxed text-ink-3">
-                    {selected.filesTouched.slice(0, 8).join(" · ")}
-                  </p>
-                </div>
-              ) : null}
-
-              {selected.budgetUsd ? (
-                <div className="border-b border-line px-4 py-3">
-                  <div className="flex items-center justify-between">
-                    <span className="micro">Budget burn</span>
-                    <span className="mono text-[10px] text-ink-4">
-                      {Math.round((selected.spentUsd / selected.budgetUsd) * 100)}%
-                    </span>
-                  </div>
-                  <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-surface-3">
-                    <div
-                      className="h-full rounded-full"
-                      style={{
-                        width: `${Math.min(100, (selected.spentUsd / selected.budgetUsd) * 100)}%`,
-                        background:
-                          selected.spentUsd / selected.budgetUsd > 0.9
-                            ? "var(--color-danger, #b2361f)"
-                            : selected.spentUsd / selected.budgetUsd > 0.7
-                              ? "var(--color-warn, #b07400)"
-                              : selected.color,
-                      }}
-                    />
-                  </div>
-                </div>
-              ) : null}
-
-              {/* capability */}
-              <div className="border-b border-line p-4">
-                <div className="micro mb-2">Capability</div>
-                <div className="mono mb-1 text-[10px] text-ink-4">
-                  {selected.tools.length} tools · {selected.grants.length} grants
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {selected.tools.slice(0, 8).map((tool) => (
-                    <span key={tool} className="mono rounded-xs border border-line bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-3">
-                      {tool}
-                    </span>
-                  ))}
-                </div>
-                {childrenOf.length > 0 ? (
-                  <>
-                    <Divider className="my-3" />
-                    <div className="micro mb-2">Reports</div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {childrenOf.map((child) => (
-                        <button
-                          key={child.id}
-                          type="button"
-                          onClick={() => setSelectedId(child.id)}
-                          className="focus-ring mono rounded-xs border border-line px-1.5 py-0.5 text-[10px] text-ink-3 hover:border-line-strong hover:text-ink"
-                        >
-                          {child.name}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                ) : null}
-              </div>
-
+            <div className="graph-drawer-log">
+              <LogStream
+                rows={activity.filter((row) => row.agentId === selected.id)}
+                empty="No events from this agent yet."
+                agentHref={(id) => `/agents/${id}/trail`}
+              />
             </div>
 
-            {/* view system (the live VSCode-like console) */}
-            <div className="grid grid-cols-2 divide-x divide-line border-t border-line">
-              <Link href={selected.trailHref ?? `/agents/${selected.id}/trail`} className="block hover:bg-surface-2">
-                <div className="p-3">
-                  <div className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
-                    <Terminal size={12} className="text-accent" /> Trail
-                  </div>
-                  <p className="mono mt-1 text-[9.5px] text-ink-4">toolcalls · files · thought</p>
-                </div>
+            <div className="graph-drawer-foot">
+              <Link href={selected.trailHref ?? `/agents/${selected.id}/trail`} className="btn primary small">
+                <ScrollText size={13} aria-hidden />
+                Open logs
               </Link>
-              <Link href={selected.consoleHref ?? `/agents/${selected.id}/console`} className="block hover:bg-surface-2">
-                <div className="p-3">
-                  <div className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
-                    {selected.role === "orchestrator" ? (
-                      <Crown size={12} className="text-accent" />
-                    ) : selected.role === "security" ? (
-                      <ShieldHalf size={12} className="text-audit" />
-                    ) : (
-                      <Boxes size={12} className="text-ink-3" />
-                    )}
-                    Filesystem
-                  </div>
-                  <p className="mono mt-1 text-[9.5px] text-ink-4">sandbox · live files</p>
-                </div>
+              <Link href={selected.consoleHref ?? `/agents/${selected.id}/console`} className="btn small">
+                {selected.role === "orchestrator" ? (
+                  <Crown size={13} aria-hidden />
+                ) : selected.role === "security" ? (
+                  <ShieldHalf size={13} aria-hidden />
+                ) : (
+                  <Boxes size={13} aria-hidden />
+                )}
+                Files
               </Link>
+              {selected.lastRun ? (
+                <Link href={`/runs/${selected.lastRun.id}`} className="btn small">
+                  <Terminal size={13} aria-hidden />
+                  Run
+                </Link>
+              ) : null}
             </div>
           </aside>
         ) : null}

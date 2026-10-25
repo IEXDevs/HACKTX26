@@ -4,7 +4,7 @@ import { writeAudit } from "@/lib/audit";
 import { getDb } from "@/lib/db/client";
 import { promptBlocks } from "@/lib/db/schema";
 import { newId } from "@/lib/env";
-import { getWorkspaceContext, requireWorkspace } from "@/lib/queries";
+import { getWorkspaceUser, requireWorkspace } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     createdAt: new Date(),
   });
 
-  const { user } = await getWorkspaceContext();
+  const { user } = await getWorkspaceUser();
   await writeAudit({
     workspaceId: workspace.id,
     actor: user?.email ?? "operator@local",

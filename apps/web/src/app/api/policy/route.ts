@@ -9,7 +9,7 @@ import {
 import { writeAudit } from "@/lib/audit";
 import { getDb } from "@/lib/db/client";
 import { workspaces } from "@/lib/db/schema";
-import { getWorkspaceContext } from "@/lib/queries";
+import { getWorkspaceUser } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -30,12 +30,12 @@ const EffectBody = {
 };
 
 export async function GET() {
-  const { workspace } = await getWorkspaceContext();
+  const { workspace } = await getWorkspaceUser();
   return Response.json({ effects: resolveActionEffects(workspace.actionEffects) });
 }
 
 export async function PATCH(request: NextRequest) {
-  const { workspace, user } = await getWorkspaceContext();
+  const { workspace, user } = await getWorkspaceUser();
   const body = await request.json().catch(() => null);
   const patch = EffectBody.parse(body);
   if (!patch) {

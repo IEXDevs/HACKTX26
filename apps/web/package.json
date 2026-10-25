@@ -14,6 +14,7 @@
     "db:push": "drizzle-kit push",
     "db:seed": "tsx src/lib/db/seed.ts",
     "db:reset": "tsx src/lib/db/reset.ts",
+    "db:purge-sample": "tsx src/lib/db/purge-sample.ts",
     "smoke": "tsx src/lib/runtime/__smoke.ts"
   },
   "dependencies": {

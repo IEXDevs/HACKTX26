@@ -48,7 +48,7 @@ const ORCHESTRATOR_TOOLS = [
   "context.write",
 ];
 
-function slugify(value: string): string {
+export function slugify(value: string): string {
   return value
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
@@ -56,7 +56,15 @@ function slugify(value: string): string {
     .slice(0, 48);
 }
 
-function grantsFor(tools: readonly string[]): PermissionGrant[] {
+/**
+ * Only low and medium risk capabilities become standing grants. A high-risk
+ * tool can still be listed on the agent: it is gated per run instead.
+ * `source` names where the tool list came from, for the grant's note.
+ */
+export function grantsFor(
+  tools: readonly string[],
+  source = "the builder's capability list",
+): PermissionGrant[] {
   const grants: PermissionGrant[] = [];
   for (const tool of tools) {
     const entry = TOOL_BY_NAME.get(tool);
@@ -66,14 +74,14 @@ function grantsFor(tools: readonly string[]): PermissionGrant[] {
         resource: entry.name,
         scopes: entry.scopes,
         grantedBy: "builder",
-        note: `Derived from the builder's capability list (${entry.risk} risk).`,
+        note: `Derived from ${source} (${entry.risk} risk).`,
       });
     }
   }
   return grants;
 }
 
-function policyFor(complexity: TaskComplexity, role: AgentRole): ModelPolicy {
+export function policyFor(complexity: TaskComplexity, role: AgentRole): ModelPolicy {
   const severity = complexity === "critical" ? 0.15 : complexity === "complex" ? 0.4 : 0.7;
   return {
     mode: "auto",

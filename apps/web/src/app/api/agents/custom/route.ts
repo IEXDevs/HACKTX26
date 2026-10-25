@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { createAgentGraph } from "@/lib/agent-factory";
-import { getWorkspaceContext } from "@/lib/queries";
+import { getWorkspaceUser } from "@/lib/queries";
 import { DraftSchema } from "@/lib/runtime/builder";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) {
     return Response.json({ error: "Expected { draft }.", issues: parsed.error.issues }, { status: 400 });
   }
-  const { workspace, user } = await getWorkspaceContext();
+  const { workspace, user } = await getWorkspaceUser();
   const { draft } = parsed.data;
   const result = await createAgentGraph({
     workspace,

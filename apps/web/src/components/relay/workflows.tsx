@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Archive, Plus, Search } from "@/components/icons";
 import type { WorkflowTile } from "@/lib/views";
+import { useAutoRefresh } from "./use-auto-refresh";
 
 /** Workflows index: one tile per top-level agent, grouped by its latest run. */
 export function Workflows({ workflows }: { workflows: WorkflowTile[] }) {
@@ -15,11 +16,7 @@ export function Workflows({ workflows }: { workflows: WorkflowTile[] }) {
     [error, setError] = useState("");
   const live = workflows.some((w) => !w.archived && w.group !== "recent");
   // Keep running workflows current without a manual reload.
-  useEffect(() => {
-    if (!live) return;
-    const timer = setInterval(() => router.refresh(), 4000);
-    return () => clearInterval(timer);
-  }, [live, router]);
+  useAutoRefresh(live, 4000);
 
   async function toggleArchive(w: WorkflowTile) {
     setBusy(w.id);

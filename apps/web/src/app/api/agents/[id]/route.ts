@@ -5,7 +5,7 @@ import { buildGraph, validateGraph, type AgentConfig } from "@agent-os/core";
 import { getDb } from "@/lib/db/client";
 import { agents, auditLog } from "@/lib/db/schema";
 import { newId } from "@/lib/env";
-import { getWorkspaceContext, requireWorkspace } from "@/lib/queries";
+import { getWorkspaceUser, requireWorkspace } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -76,7 +76,7 @@ export async function PATCH(
     .where(eq(agents.id, id))
     .returning();
 
-  const { user } = await getWorkspaceContext();
+  const { user } = await getWorkspaceUser();
   await db.insert(auditLog).values({
     id: newId("aud"),
     workspaceId: workspace.id,

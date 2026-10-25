@@ -90,12 +90,28 @@ create index if not exists activity_events_workspace_created_idx
   on public.activity_events (workspace_id, created_at desc);
 
 -- Profiles follow auth.users. Telemetry tables have RLS on and no client
--- policies, so only the service role (Next.js server) can read or write them.
+-- policies. Projects created with "Automatically expose new tables" off do
+-- not grant Data API roles, so the service role must be granted explicitly
+-- or Next.js gets 42501 permission denied and login/usage logging is empty.
 alter table public.profiles enable row level security;
 alter table public.auth_events enable row level security;
 alter table public.usage_events enable row level security;
 alter table public.prompt_logs enable row level security;
 alter table public.activity_events enable row level security;
+
+grant usage on schema public to service_role;
+grant select, insert, update, delete on table
+  public.profiles,
+  public.auth_events,
+  public.usage_events,
+  public.prompt_logs,
+  public.activity_events
+  to service_role;
+grant usage, select on all sequences in schema public to service_role;
+alter default privileges in schema public
+  grant select, insert, update, delete on tables to service_role;
+alter default privileges in schema public
+  grant usage, select on sequences to service_role;
 
 drop policy if exists profiles_select_own on public.profiles;
 create policy profiles_select_own

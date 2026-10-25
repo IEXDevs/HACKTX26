@@ -196,93 +196,9 @@ export function Panel({
   );
 }
 
-export function PanelHeader({
-  title,
-  hint,
-  actions,
-  className,
-}: {
-  title: ReactNode;
-  hint?: ReactNode;
-  actions?: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className={cn("panel-hd", className)}>
-      <div className="min-w-0">
-        <div className="panel-title truncate">{title}</div>
-        {hint ? <div className="mt-0.5 text-[11px] text-ink-3">{hint}</div> : null}
-      </div>
-      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
-    </div>
-  );
-}
-
-export function EmptyState({
-  icon,
-  title,
-  description,
-  action,
-  className,
-}: {
-  icon?: ReactNode;
-  title: string;
-  description?: string;
-  action?: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div
-      className={cn(
-        "flex flex-col items-center justify-center gap-2 px-6 py-14 text-center",
-        className,
-      )}
-    >
-      {icon ? <div className="mb-1 text-ink-4">{icon}</div> : null}
-      <div className="text-[13px] font-medium text-ink">{title}</div>
-      {description ? (
-        <p className="max-w-sm text-[12px] leading-relaxed text-ink-3">{description}</p>
-      ) : null}
-      {action ? <div className="mt-3">{action}</div> : null}
-    </div>
-  );
-}
-
 /* -------------------------------------------------------------------------- */
 /* Metrics                                                                    */
 /* -------------------------------------------------------------------------- */
-
-export function Metric({
-  label,
-  value,
-  sub,
-  tone = "default",
-  className,
-}: {
-  label: string;
-  value: ReactNode;
-  sub?: ReactNode;
-  tone?: "default" | "accent" | "danger" | "warn";
-  className?: string;
-}) {
-  return (
-    <div className={cn("min-w-0", className)}>
-      <MicroLabel>{label}</MicroLabel>
-      <div
-        className={cn(
-          "mono mt-1.5 text-[20px] leading-none tracking-tight",
-          tone === "accent" && "text-accent",
-          tone === "danger" && "text-danger",
-          tone === "warn" && "text-warn",
-          tone === "default" && "text-ink",
-        )}
-      >
-        {value}
-      </div>
-      {sub ? <div className="mt-1.5 text-[11px] text-ink-3">{sub}</div> : null}
-    </div>
-  );
-}
 
 export function Meter({
   value,
@@ -340,16 +256,6 @@ export function Tag({
   );
 }
 
-export function RoleTag({ role }: { role: string }) {
-  const tone: Tone =
-    role === "orchestrator" ? "accent" : role === "security" ? "audit" : "info";
-  return <Tag tone={tone}>{role}</Tag>;
-}
-
-export function RiskTag({ risk }: { risk: string }) {
-  return <Tag tone={toneFor(risk)}>{risk}</Tag>;
-}
-
 /* -------------------------------------------------------------------------- */
 /* Buttons                                                                    */
 /* -------------------------------------------------------------------------- */
@@ -402,110 +308,8 @@ export function Button({
 }
 
 /* -------------------------------------------------------------------------- */
-/* Tables                                                                     */
-/* -------------------------------------------------------------------------- */
-
-export function DataTable({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className={cn("w-full overflow-x-auto", className)}>
-      <table className="w-full border-collapse text-left text-[12px]">{children}</table>
-    </div>
-  );
-}
-
-export function Th({
-  children,
-  className,
-  align = "left",
-}: {
-  children?: ReactNode;
-  className?: string;
-  align?: "left" | "right";
-}) {
-  return (
-    <th
-      className={cn(
-        "micro sticky top-0 z-10 border-b border-line bg-surface px-3 py-2 font-normal",
-        align === "right" && "text-right",
-        className,
-      )}
-      scope="col"
-    >
-      {children}
-    </th>
-  );
-}
-
-export function Td({
-  children,
-  className,
-  align = "left",
-}: {
-  children?: ReactNode;
-  className?: string;
-  align?: "left" | "right";
-}) {
-  return (
-    <td
-      className={cn(
-        "border-b border-line/70 px-3 py-2.5 align-middle text-ink-2",
-        align === "right" && "text-right",
-        className,
-      )}
-    >
-      {children}
-    </td>
-  );
-}
-
-export function Tr({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return <tr className={cn("row-hover", className)}>{children}</tr>;
-}
-
-/* -------------------------------------------------------------------------- */
 /* Small pieces                                                               */
 /* -------------------------------------------------------------------------- */
-
-export function Avatar({
-  name,
-  hue,
-  size = 24,
-}: {
-  name: string;
-  hue?: number;
-  size?: number;
-}) {
-  const h = hue ?? 90;
-  return (
-    <span
-      className="inline-flex shrink-0 items-center justify-center rounded-full border border-line-strong font-mono text-[10px] font-medium text-ink"
-      style={{
-        width: size,
-        height: size,
-        background: `linear-gradient(140deg, hsl(${h} 45% 22%), hsl(${h + 40} 40% 12%))`,
-      }}
-      title={name}
-    >
-      {name
-        .split(/\s+/)
-        .slice(0, 2)
-        .map((p) => p[0]?.toUpperCase())
-        .join("")}
-    </span>
-  );
-}
 
 export function Divider({ className }: { className?: string }) {
   return <div className={cn("h-px w-full bg-line", className)} />;

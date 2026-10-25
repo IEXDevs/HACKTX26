@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { writeAudit } from "@/lib/audit";
-import { getWorkspaceContext, requireWorkspace } from "@/lib/queries";
+import { getWorkspaceUser, requireWorkspace } from "@/lib/queries";
 import { composeAgent } from "@/lib/runtime/compose-agent";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
   const workspace = await requireWorkspace();
   const result = await composeAgent(parsed.data.useCase, { workspaceId: workspace.id });
 
-  const { user } = await getWorkspaceContext();
+  const { user } = await getWorkspaceUser();
   await writeAudit({
     workspaceId: workspace.id,
     actor: user?.email ?? "operator@local",

@@ -419,9 +419,6 @@ async function mcpCall(ctx: ToolContext, args: Record<string, unknown>): Promise
 /* Dispatch                                                                   */
 /* -------------------------------------------------------------------------- */
 
-/** Tools the engine handles itself rather than the executor. */
-export const ENGINE_TOOLS = new Set(["agent.delegate", "security.report"]);
-
 export async function executeTool(
   ctx: ToolContext,
   tool: string,

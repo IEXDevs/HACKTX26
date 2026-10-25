@@ -219,9 +219,14 @@ export function applyEvent(
     files: [...state.files],
     handoffs: [...state.handoffs],
     budgetEvents: [...state.budgetEvents],
-    lastSeq: event.seq,
   };
+  applyEventInPlace(next, event);
+  return next;
+}
 
+/** Folds one event into `next`, mutating it. */
+function applyEventInPlace(next: RunProjection, event: RunEvent): void {
+  next.lastSeq = event.seq;
   const p = event.payload;
 
   switch (p.type) {
@@ -489,13 +494,14 @@ export function applyEvent(
     case "eval.scored":
       break;
   }
-
-  return next;
 }
 
 export function projectRun(events: readonly RunEvent[], runId?: string): RunProjection {
   const id = runId ?? events[0]?.runId ?? "unknown";
-  return events.reduce(applyEvent, emptyProjection(id));
+  // One fresh projection mutated in place: copying it per event made replay quadratic.
+  const state = emptyProjection(id);
+  for (const event of events) applyEventInPlace(state, event);
+  return state;
 }
 
 export interface RunMetrics {

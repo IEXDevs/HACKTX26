@@ -59,6 +59,30 @@ function markNextMigrationApplied(sqlite: Database.Database, folder: string) {
   }
 }
 
+function applyMigrations(db: AppDatabase, sqlite: Database.Database) {
+  const folder = migrationsFolder();
+  if (!fs.existsSync(folder)) {
+    if (!env.isProduction) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[db] no migrations folder at ${folder}; run \`pnpm db:generate\` to create one.`,
+      );
+    }
+    return;
+  }
+  for (let attempt = 0; ; attempt++) {
+    try {
+      migrate(db, { migrationsFolder: folder });
+      return;
+    } catch (error) {
+      // Column already present (db:push or a previous partial migrate) but
+      // `__drizzle_migrations` never recorded it. Stamp that file and retry.
+      if (!isDuplicateColumn(error) || attempt > 8) throw error;
+      markNextMigrationApplied(sqlite, folder);
+    }
+  }
+}
+
 function create(): DbCache {
   const file = resolveSqliteFile(env.databaseUrl);
   if (file !== ":memory:") {
@@ -72,56 +96,40 @@ function create(): DbCache {
   sqlite.pragma("busy_timeout = 5000");
 
   const db = drizzle(sqlite, { schema }) as AppDatabase;
-
-  const folder = migrationsFolder();
-  if (fs.existsSync(folder)) {
-    for (let attempt = 0; ; attempt++) {
-      try {
-        migrate(db, { migrationsFolder: folder });
-        break;
-      } catch (error) {
-        // Column already present (db:push or a previous partial migrate) but
-        // `__drizzle_migrations` never recorded it. Stamp that file and retry.
-        if (!isDuplicateColumn(error) || attempt > 8) throw error;
-        markNextMigrationApplied(sqlite, folder);
-      }
-    }
-  } else if (!env.isProduction) {
-    // No generated migrations yet (fresh clone before `pnpm db:generate`).
-    // Fall back to a schema push at boot so `pnpm dev` never dead-ends.
-    // eslint-disable-next-line no-console
-    console.warn(
-      `[db] no migrations folder at ${folder}; run \`pnpm db:generate\` to create one.`,
-    );
-  }
-
+  applyMigrations(db, sqlite);
   return { db, sqlite };
 }
 
+/** Journal mtime the open connection was last migrated against. */
+let migratedJournalMtime = -1;
+
+function journalMtime(): number {
+  try {
+    return fs.statSync(path.join(migrationsFolder(), "meta/_journal.json")).mtimeMs;
+  } catch {
+    return -1;
+  }
+}
+
+function cached(): DbCache {
+  if (!globalForDb.__agentOsDb) {
+    globalForDb.__agentOsDb = create();
+    migratedJournalMtime = journalMtime();
+  } else if (!env.isProduction) {
+    // `next dev` keeps this connection across HMR. Re-run pending files when the
+    // journal changes, so a pull that adds a migration (e.g. agents.team) does
+    // not 500 until restart, without re-reading every migration on each query.
+    const mtime = journalMtime();
+    if (mtime !== migratedJournalMtime) {
+      applyMigrations(globalForDb.__agentOsDb.db, globalForDb.__agentOsDb.sqlite);
+      migratedJournalMtime = mtime;
+    }
+  }
+  return globalForDb.__agentOsDb;
+}
+
 export function getDb(): AppDatabase {
-  if (!globalForDb.__agentOsDb) {
-    globalForDb.__agentOsDb = create();
-  }
-  return globalForDb.__agentOsDb.db;
-}
-
-export function getSqlite(): Database.Database {
-  if (!globalForDb.__agentOsDb) {
-    globalForDb.__agentOsDb = create();
-  }
-  return globalForDb.__agentOsDb.sqlite;
-}
-
-/** Test helper: build an isolated in-memory database with the real schema. */
-export function createTestDb(): AppDatabase {
-  const sqlite = new Database(":memory:");
-  sqlite.pragma("foreign_keys = ON");
-  const db = drizzle(sqlite, { schema }) as AppDatabase;
-  const folder = migrationsFolder();
-  if (fs.existsSync(folder)) {
-    migrate(db, { migrationsFolder: folder });
-  }
-  return db;
+  return cached().db;
 }
 
 export { schema };

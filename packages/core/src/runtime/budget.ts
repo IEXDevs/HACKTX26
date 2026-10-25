@@ -35,6 +35,8 @@ export class BudgetLedger {
   readonly #spent = new Map<string, number>();
   readonly #records: SpendRecord[] = [];
   readonly #warned = new Set<string>();
+  /** Running total of `#records`, summed in the same order the getter used to. */
+  #total = 0;
 
   constructor(
     scopes: readonly LedgerScope[] = [],
@@ -49,7 +51,7 @@ export class BudgetLedger {
   }
 
   get spentUsd(): number {
-    return this.#records.reduce((sum, r) => sum + r.costUsd, 0);
+    return this.#total;
   }
 
   spentFor(key: string): number {
@@ -132,6 +134,7 @@ export class BudgetLedger {
       this.#spent.set(key, this.spentFor(key) + costUsd);
     }
     this.#records.push(record);
+    this.#total += costUsd;
     return record;
   }
 

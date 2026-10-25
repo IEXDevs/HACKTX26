@@ -101,7 +101,7 @@ export async function GET(
 
       // Subscribe first, replay second: an event written between the two steps
       // lands in `backlog` instead of being lost.
-      const history = await getRunEvents(id);
+      const history = await getRunEvents(id, since);
       for (const event of history) deliver(event);
 
       buffered = true;

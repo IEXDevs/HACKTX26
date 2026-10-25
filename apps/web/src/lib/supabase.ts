@@ -2,23 +2,29 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
+import { AUTH_COOKIE_OPTIONS, writeAuthCookies } from "./auth-cookies";
 import { env, observabilityEnabled, supabaseAuthEnabled } from "./env";
 
 export type AppSupabaseClient = SupabaseClient;
+
+function isHttps(request?: NextRequest): boolean {
+  const proto = request?.headers.get("x-forwarded-proto") ?? request?.nextUrl.protocol;
+  return proto === "https" || proto === "https:";
+}
 
 export async function createSupabaseServerClient(): Promise<AppSupabaseClient | null> {
   if (!supabaseAuthEnabled()) return null;
   const cookieStore = await cookies();
   return createServerClient(env.supabase.url, env.supabase.anonKey, {
+    cookieOptions: AUTH_COOKIE_OPTIONS,
     cookies: {
+      encode: "tokens-only",
       getAll() {
         return cookieStore.getAll();
       },
       setAll(cookiesToSet: Array<{ name: string; value: string; options: CookieOptions }>) {
         try {
-          for (const cookie of cookiesToSet) {
-            cookieStore.set(cookie.name, cookie.value, cookie.options);
-          }
+          writeAuthCookies(cookieStore, cookiesToSet);
         } catch {
           // Server Components cannot always set cookies; middleware refreshes the session.
         }
@@ -29,13 +35,13 @@ export async function createSupabaseServerClient(): Promise<AppSupabaseClient | 
 
 /** Origin used in Google redirectTo. Query strings are not allowed on this URL. */
 export function authOrigin(request: NextRequest): string {
-  const host = (
+  const host =
     request.headers.get("x-forwarded-host") ??
     request.headers.get("host") ??
-    "localhost:3000"
-  ).replace("127.0.0.1", "localhost");
+    "localhost:3000";
   const proto =
-    request.headers.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https");
+    request.headers.get("x-forwarded-proto") ??
+    (host.includes("localhost") || host.startsWith("127.") ? "http" : "https");
   return `${proto}://${host}`;
 }
 
@@ -50,24 +56,30 @@ export function createSupabaseRequestClient(request: NextRequest): {
 } | null {
   if (!supabaseAuthEnabled()) return null;
   const pending: Array<{ name: string; value: string; options: CookieOptions }> = [];
+  const pendingHeaders: Record<string, string> = {};
+  const https = isHttps(request);
   const supabase = createServerClient(env.supabase.url, env.supabase.anonKey, {
+    cookieOptions: AUTH_COOKIE_OPTIONS,
     cookies: {
+      encode: "tokens-only",
       getAll() {
         return request.cookies.getAll();
       },
-      setAll(cookiesToSet) {
+      setAll(cookiesToSet, headers) {
         for (const cookie of cookiesToSet) {
           request.cookies.set(cookie.name, cookie.value);
           pending.push(cookie);
         }
+        Object.assign(pendingHeaders, headers);
       },
     },
   });
   return {
     supabase,
     applyCookies(response) {
-      for (const cookie of pending) {
-        response.cookies.set(cookie.name, cookie.value, cookie.options);
+      writeAuthCookies(response.cookies, pending, https);
+      for (const [key, value] of Object.entries(pendingHeaders)) {
+        response.headers.set(key, value);
       }
       return response;
     },

@@ -17,7 +17,7 @@ import {
 } from "@/components/icons";
 import { Button, Divider, KeyValue, Panel, StatusBadge, Tag } from "@/components/ui/primitives";
 import { DispatchPanel, type DispatchAgentOption } from "@/components/dispatch/dispatch-panel";
-import { duration, relativeTime, tokens, usd } from "@/lib/format";
+import { duration, initials, relativeTime, tokens, usd } from "@/lib/format";
 import type { GraphAgent, GraphFlow, GraphSnapshot, GraphTask } from "@/lib/graph-data";
 
 export type { GraphAgent, GraphFlow, GraphTask };
@@ -102,13 +102,6 @@ function baseRadius(agent: GraphAgent): number {
   return r;
 }
 
-function initials(name: string) {
-  return name
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
-}
 function hash(s: string): number {
   let h = 2166136261;
   for (let i = 0; i < s.length; i += 1) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
@@ -189,12 +182,15 @@ function layout(agents: GraphAgent[]): Laid[] {
 /* component                                                           */
 /* ------------------------------------------------------------------ */
 
+// Stable default: a fresh `[]` per render would retrigger the prop-sync effect below forever.
+const NO_FLOWS: GraphFlow[] = [];
+
 export function GraphSpace({
   agents: initialAgents,
   tasks: initialTasks,
   dispatchAgents,
   workflowId,
-  flows: initialFlows = [],
+  flows: initialFlows = NO_FLOWS,
 }: {
   agents: GraphAgent[];
   tasks: GraphTask[];
@@ -235,7 +231,6 @@ export function GraphSpace({
   }, [workflowId]);
   const laid = useMemo(() => layout(agents), [agents]);
   const [selectedId, setSelectedId] = useState<string | null>(laid.find((a) => a.role === "orchestrator")?.id ?? laid[0]?.id ?? null);
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [dispatchOpen, setDispatchOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [bubble, setBubble] = useState<{ agentId: string; goal: string; sending: boolean; error: string | null }>({ agentId: "", goal: "", sending: false, error: null });
@@ -249,10 +244,11 @@ export function GraphSpace({
   const wrapRef = useRef<HTMLDivElement>(null);
   const camRef = useRef({ x: 0, y: 26, zoom: 0.95, targetZoom: 0.95 });
   const agentsRef = useRef<Laid[]>(laid);
+  // The draw loop runs outside React, so it reads selection and hover from refs.
   const selectedRef = useRef(selectedId);
+  selectedRef.current = selectedId;
   const hoverRef = useRef<string | null>(null);
   const hitsRef = useRef<{ id: string; x: number; y: number; s: number; r: number }[]>([]);
-  const mouseRef = useRef({ x: -9999, y: -9999, inside: false });
   const dragRef = useRef({
     down: false,
     nid: null as string | null,
@@ -855,11 +851,11 @@ export function GraphSpace({
 
     const onMove = (e: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
-      mouseRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top, inside: true };
       const d = dragRef.current;
       if (!d.down) {
-        const hit = pick(e.clientX - rect.left, e.clientY - rect.top);
-        setHoveredId(hit?.id ?? null);
+        // Moves are heard window-wide; only the canvas itself (not a panel over it) hovers a node.
+        const hit = e.target === canvas ? pick(e.clientX - rect.left, e.clientY - rect.top) : null;
+        hoverRef.current = hit?.id ?? null;
         canvas.style.cursor = hit ? "pointer" : "grab";
         return;
       }
@@ -925,8 +921,7 @@ export function GraphSpace({
       cam.targetZoom = next;
     };
     const onLeave = () => {
-      mouseRef.current.inside = false;
-      setHoveredId(null);
+      hoverRef.current = null;
     };
 
     canvas.addEventListener("pointerdown", onDown);

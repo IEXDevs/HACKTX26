@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { LoaderCircle } from "@/components/icons";
 import { CATEGORY_LABELS, probeCountForLimit } from "@/lib/loop/redteam-limits";
+import { useAutoRefresh } from "./use-auto-refresh";
 
 export interface SecurityAgent {
   id: string;
@@ -62,11 +63,7 @@ export function SecurityView({
   const limitUsd = Number(limit);
   const probes = useMemo(() => probeCountForLimit(limitUsd), [limitUsd]);
 
-  useEffect(() => {
-    if (!live.length) return;
-    const timer = setInterval(() => router.refresh(), 3000);
-    return () => clearInterval(timer);
-  }, [live.length, router]);
+  useAutoRefresh(live.length > 0, 3000);
 
   async function go() {
     setBusy(true);

@@ -123,16 +123,6 @@ export const CreditCard = icon(
     <path d="M3 10h18M7 14.5h3" />
   </>,
 );
-export const Wallet = icon(
-  "Wallet",
-  <>
-    <SoftRect x="3" y="6" width="18" height="13" rx="3" />
-    <path d="M17 6V5a1.5 1.5 0 0 0-1.9-1.4L5 6.5" />
-    <rect x="3" y="6" width="18" height="13" rx="3" />
-    <path d="M21 10.5h-4a2 2 0 0 0 0 4h4" />
-    <Dot cx={17} cy={12.5} r={0.9} />
-  </>,
-);
 const shield = "M12 3.5 19 6v5.5c0 4.3-3 7.6-7 9-4-1.4-7-4.7-7-9V6z";
 export const ShieldHalf = icon(
   "ShieldHalf",
@@ -147,32 +137,6 @@ export const ShieldCheck = icon(
     <Soft d={shield} />
     <path d={shield} />
     <path d="m9 12 2.2 2.2L15.2 10" />
-  </>,
-);
-export const ShieldAlert = icon(
-  "ShieldAlert",
-  <>
-    <Soft d={shield} />
-    <path d={shield} />
-    <path d="M12 8.5v4" />
-    <Dot cx={12} cy={15.6} />
-  </>,
-);
-export const ShieldX = icon(
-  "ShieldX",
-  <>
-    <Soft d={shield} />
-    <path d={shield} />
-    <path d="m10 10 4 4m0-4-4 4" />
-  </>,
-);
-export const ShieldQuestion = icon(
-  "ShieldQuestion",
-  <>
-    <Soft d={shield} />
-    <path d={shield} />
-    <path d="M10.2 10a1.9 1.9 0 1 1 2.6 1.8c-.5.3-.8.7-.8 1.3" />
-    <Dot cx={12} cy={15.6} />
   </>,
 );
 export const FlaskConical = icon(
@@ -220,7 +184,6 @@ export const GitBranch = icon(
     <path d="M6 8.4v7.2M18 10.4c0 3-2.5 4.4-6 4.6-2 .1-3.6.8-4.5 1.6" />
   </>,
 );
-export const Layers = Logo;
 
 /* ---------- Actions ---------- */
 
@@ -291,14 +254,6 @@ export const Maximize = icon(
   "Maximize",
   <path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3" />,
 );
-export const Wand2 = icon(
-  "Wand2",
-  <>
-    <path d="m4 20 11-11M13 7l4 4" />
-    <Soft d="M17 3.5l.9 2 2 .9-2 .9-.9 2-.9-2-2-.9 2-.9z" opacity={0.5} />
-    <path d="M17 3.5l.9 2 2 .9-2 .9-.9 2-.9-2-2-.9 2-.9z" />
-  </>,
-);
 export const Wrench = icon(
   "Wrench",
   <>
@@ -309,58 +264,6 @@ export const Wrench = icon(
 
 /* ---------- Status ---------- */
 
-export const CheckCircle2 = icon(
-  "CheckCircle2",
-  <>
-    <SoftCircle cx="12" cy="12" r="8.5" />
-    <circle cx="12" cy="12" r="8.5" />
-    <path d="m8.5 12.2 2.4 2.4 4.6-4.8" />
-  </>,
-);
-export const XCircle = icon(
-  "XCircle",
-  <>
-    <SoftCircle cx="12" cy="12" r="8.5" />
-    <circle cx="12" cy="12" r="8.5" />
-    <path d="m9.5 9.5 5 5m0-5-5 5" />
-  </>,
-);
-export const AlertTriangle = icon(
-  "AlertTriangle",
-  <>
-    <Soft d="M10.3 4.6a2 2 0 0 1 3.4 0l7 12A2 2 0 0 1 19 19.5H5a2 2 0 0 1-1.7-2.9z" />
-    <path d="M10.3 4.6a2 2 0 0 1 3.4 0l7 12A2 2 0 0 1 19 19.5H5a2 2 0 0 1-1.7-2.9z" />
-    <path d="M12 9.5v4" />
-    <Dot cx={12} cy={16.4} />
-  </>,
-);
-export const Timer = icon(
-  "Timer",
-  <>
-    <SoftCircle cx="12" cy="13.5" r="7" />
-    <circle cx="12" cy="13.5" r="7" />
-    <path d="M10 3h4M12 13.5V10M18 7.5l1-1" />
-  </>,
-);
-export const Gauge = icon(
-  "Gauge",
-  <>
-    <Soft d="M4 16a8 8 0 1 1 16 0z" />
-    <path d="M4 16a8 8 0 1 1 16 0" />
-    <path d="m12 16 3.5-5" />
-    <Dot cx={12} cy={16} r={1.4} />
-  </>,
-);
-export const Radar = icon(
-  "Radar",
-  <>
-    <SoftCircle cx="12" cy="12" r="8.5" />
-    <circle cx="12" cy="12" r="8.5" />
-    <circle cx="12" cy="12" r="4.5" opacity={0.5} />
-    <path d="M12 12 18 6" />
-    <Dot cx={15} cy={9.5} r={1.2} />
-  </>,
-);
 export const Crosshair = icon(
   "Crosshair",
   <>
@@ -395,15 +298,6 @@ export const FilePlus2 = icon(
     <Soft d={page} />
     <path d={page} />
     <path d="M13.5 3.5V8H18M12 11.5v5M9.5 14h5" />
-  </>,
-);
-export const FileWarning = icon(
-  "FileWarning",
-  <>
-    <Soft d={page} />
-    <path d={page} />
-    <path d="M13.5 3.5V8H18M12 11.5v3" />
-    <Dot cx={12} cy={17} />
   </>,
 );
 export const ScrollText = icon(
@@ -469,14 +363,6 @@ export const Boxes = icon(
     <rect x="8" y="3.5" width="8" height="8" rx="2" />
   </>,
 );
-export const Cpu = icon(
-  "Cpu",
-  <>
-    <SoftRect x="6.5" y="6.5" width="11" height="11" rx="2.5" />
-    <rect x="6.5" y="6.5" width="11" height="11" rx="2.5" />
-    <path d="M10 3.5v3M14 3.5v3M10 17.5v3M14 17.5v3M3.5 10h3M3.5 14h3M17.5 10h3M17.5 14h3" />
-  </>,
-);
 export const Globe = icon(
   "Globe",
   <>
@@ -509,13 +395,6 @@ export const Plug = icon(
     <path d="M9 4v5M15 4v5M7 9h10v3a5 5 0 0 1-10 0zM12 17v3.5" />
   </>,
 );
-export const MessageSquare = icon(
-  "MessageSquare",
-  <>
-    <Soft d="M5 5h14a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 19 17H9l-4.5 3.5V6.5A1.5 1.5 0 0 1 5 5z" />
-    <path d="M5 5h14a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 19 17H9l-4.5 3.5V6.5A1.5 1.5 0 0 1 5 5z" />
-  </>,
-);
 export const Users = icon(
   "Users",
   <>
@@ -536,40 +415,12 @@ export const Route = icon(
     <path d="M8.5 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.5" />
   </>,
 );
-export const CircleDollarSign = icon(
-  "CircleDollarSign",
-  <>
-    <SoftCircle cx="12" cy="12" r="8.5" />
-    <circle cx="12" cy="12" r="8.5" />
-    <path d="M14.6 9.3c-.4-.9-1.4-1.5-2.6-1.5-1.5 0-2.6.8-2.6 2s1.1 1.7 2.6 2 2.6.8 2.6 2-1.1 2-2.6 2c-1.2 0-2.2-.6-2.6-1.5M12 6.3v1.5M12 16.2v1.5" />
-  </>,
-);
-export const HandCoins = icon(
-  "HandCoins",
-  <>
-    <SoftCircle cx="9" cy="10" r="5" />
-    <circle cx="9" cy="10" r="5" />
-    <circle cx="16" cy="14" r="5" />
-  </>,
-);
 export const Crown = icon(
   "Crown",
   <>
     <Soft d="M4.5 16 3.5 8l5 3.5L12 6l3.5 5.5 5-3.5-1 8z" />
     <path d="M4.5 16 3.5 8l5 3.5L12 6l3.5 5.5 5-3.5-1 8zM5 19.5h14" />
   </>,
-);
-export const Gavel = icon(
-  "Gavel",
-  <>
-    <SoftRect x="8.4" y="3.8" width="7" height="9" rx="1.5" transform="rotate(45 11.9 8.3)" />
-    <rect x="8.4" y="3.8" width="7" height="9" rx="1.5" transform="rotate(45 11.9 8.3)" />
-    <path d="m11 13-6.5 6.5M13 20.5h7.5" />
-  </>,
-);
-export const Swords = icon(
-  "Swords",
-  <path d="M4 4h4l9 9M20 4h-4l-9 9M14 17l3 3 3-3-3-3M10 17l-3 3-3-3 3-3" />,
 );
 export const Sun = icon(
   "Sun",

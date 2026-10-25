@@ -1,16 +1,8 @@
 import { and, eq } from "drizzle-orm";
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import {
-  buildGraph,
-  TOOL_BY_NAME,
-  validateGraph,
-  type AgentConfig,
-  type AgentRole,
-  type ModelPolicy,
-  type PermissionGrant,
-  type TaskComplexity,
-} from "@agent-os/core";
+import { buildGraph, validateGraph, type AgentConfig } from "@agent-os/core";
+import { grantsFor, policyFor, slugify } from "@/lib/agent-factory";
 import { getDb } from "@/lib/db/client";
 import {
   agents,
@@ -20,7 +12,7 @@ import {
   templates,
 } from "@/lib/db/schema";
 import { newId } from "@/lib/env";
-import { getWorkspaceContext, requireWorkspace } from "@/lib/queries";
+import { getWorkspaceUser, requireWorkspace } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -31,48 +23,7 @@ const Body = z.object({
   dataClass: z.enum(["public", "internal", "confidential", "restricted"]).optional(),
 });
 
-function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "")
-    .slice(0, 48);
-}
-
-/**
- * Only low and medium risk capabilities become standing grants. A high-risk
- * tool can still be listed on the agent — it will simply be gated per run,
- * which is the behaviour the permission engine already enforces.
- */
-function grantsFor(tools: readonly string[]): PermissionGrant[] {
-  const grants: PermissionGrant[] = [];
-  for (const tool of tools) {
-    const entry = TOOL_BY_NAME.get(tool);
-    if (!entry) continue;
-    if (entry.risk === "low" || entry.risk === "medium") {
-      grants.push({
-        resource: entry.name,
-        scopes: entry.scopes,
-        grantedBy: "builder",
-        note: `Derived from the template capability list (${entry.risk} risk).`,
-      });
-    }
-  }
-  return grants;
-}
-
-function policyFor(complexity: TaskComplexity, role: AgentRole): ModelPolicy {
-  const severity =
-    complexity === "critical" ? 0.15 : complexity === "complex" ? 0.4 : 0.7;
-  return {
-    mode: "auto",
-    pinnedModelId: null,
-    costSensitivity: role === "security" ? 0.15 : severity,
-    latencySensitivity: complexity === "trivial" ? 0.7 : 0.2,
-    floorComplexity: complexity,
-    deniedModelIds: [],
-  };
-}
+const TEMPLATE_SOURCE = "the template capability list";
 
 export async function POST(request: NextRequest) {
   const parsed = Body.safeParse(await request.json().catch(() => null));
@@ -131,7 +82,7 @@ export async function POST(request: NextRequest) {
     instructions: template.graph.orchestrator.instructions,
     inheritedPromptBlockIds: orgBlocks.map((block) => block.id),
     modelPolicy: policyFor(template.graph.orchestrator.complexity, "orchestrator"),
-    grants: grantsFor(["kb.search", "fs.read", "fs.write", "memory.search", "memory.write", "context.read", "context.write"]),
+    grants: grantsFor(["kb.search", "fs.read", "fs.write", "memory.search", "memory.write", "context.read", "context.write"], TEMPLATE_SOURCE),
     allowedTools: ["kb.search", "fs.read", "fs.write", "memory.search", "memory.write", "context.read", "context.write"],
     complexity: template.graph.orchestrator.complexity,
     maxSteps: 12,
@@ -162,7 +113,7 @@ export async function POST(request: NextRequest) {
       instructions: worker.instructions,
       inheritedPromptBlockIds: orgBlocks.map((block) => block.id),
       modelPolicy: policyFor(worker.complexity, worker.role),
-      grants: grantsFor(tools),
+      grants: grantsFor(tools, TEMPLATE_SOURCE),
       allowedTools: tools,
       complexity: worker.complexity,
       maxSteps: worker.role === "security" ? 16 : 10,
@@ -219,7 +170,7 @@ export async function POST(request: NextRequest) {
     createdAt: now,
   });
 
-  const { user } = await getWorkspaceContext();
+  const { user } = await getWorkspaceUser();
   await db.insert(auditLog).values({
     id: newId("aud"),
     workspaceId: workspace.id,

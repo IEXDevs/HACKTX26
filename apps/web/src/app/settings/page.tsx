@@ -1,17 +1,30 @@
-import { resolveActionEffects } from "@agent-os/core";
-import { ActionPolicy } from "@/components/relay/action-policy";
-import { getWorkspaceContext } from "@/lib/queries";
+import Link from "next/link";
+import { AppearanceControl } from "@/components/shell/theme-switch";
 
-export const dynamic = "force-dynamic";
-
-export default async function SettingsPage() {
-  const { workspace } = await getWorkspaceContext();
+export default function SettingsPage() {
   return (
     <div className="page">
       <div className="page-top">
         <h1>Settings</h1>
       </div>
-      <ActionPolicy initial={resolveActionEffects(workspace.actionEffects)} />
+
+      <section className="section" style={{ marginTop: 0 }}>
+        <h2>Appearance</h2>
+        <p className="wf-meta" style={{ marginBottom: 14 }}>
+          Light or dark on this device. Saved in the browser, not the workspace.
+        </p>
+        <AppearanceControl />
+      </section>
+
+      <section className="section">
+        <h2>Privacy</h2>
+        <p className="wf-meta" style={{ marginBottom: 12 }}>
+          What this workspace stores, where traces go, and what leaves the server.
+        </p>
+        <Link href="/policy" className="btn">
+          Open privacy policy
+        </Link>
+      </section>
     </div>
   );
 }

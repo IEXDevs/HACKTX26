@@ -7,6 +7,13 @@ export function usd(value: number, opts?: { precise?: boolean }): string {
   return `$${value.toFixed(2)}`;
 }
 
+const currencyFormat = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+
+/** Dollars to the cent with grouping, e.g. "$1,234.50". */
+export function money(value: number): string {
+  return currencyFormat.format(value);
+}
+
 export function tokens(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
@@ -26,6 +33,18 @@ export function duration(ms: number | null | undefined): string {
   return `${mins}m ${secs}s`;
 }
 
+const RELATIVE_UNITS: Array<[number, Intl.RelativeTimeFormatUnit]> = [
+  [1000 * 60 * 60 * 24 * 365, "year"],
+  [1000 * 60 * 60 * 24 * 30, "month"],
+  [1000 * 60 * 60 * 24, "day"],
+  [1000 * 60 * 60, "hour"],
+  [1000 * 60, "minute"],
+  [1000, "second"],
+];
+
+// Built once: constructing an Intl formatter per call is costly in long lists.
+const relativeFormat = new Intl.RelativeTimeFormat("en", { numeric: "auto", style: "narrow" });
+
 export function relativeTime(date: Date | number | string | null | undefined): string {
   if (!date) return "—";
   const ms = typeof date === "number" ? date : new Date(date).getTime();
@@ -33,20 +52,10 @@ export function relativeTime(date: Date | number | string | null | undefined): s
   const abs = Math.abs(diff);
   const future = diff < 0;
 
-  const units: Array<[number, Intl.RelativeTimeFormatUnit]> = [
-    [1000 * 60 * 60 * 24 * 365, "year"],
-    [1000 * 60 * 60 * 24 * 30, "month"],
-    [1000 * 60 * 60 * 24, "day"],
-    [1000 * 60 * 60, "hour"],
-    [1000 * 60, "minute"],
-    [1000, "second"],
-  ];
-
-  const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto", style: "narrow" });
-  for (const [size, unit] of units) {
+  for (const [size, unit] of RELATIVE_UNITS) {
     if (abs >= size || unit === "second") {
       const value = Math.round(diff / size);
-      return rtf.format(future ? -Math.abs(value) : -value, unit);
+      return relativeFormat.format(future ? -Math.abs(value) : -value, unit);
     }
   }
   return "now";
@@ -63,18 +72,6 @@ export function clockTime(date: Date | number | string | null | undefined): stri
   });
 }
 
-export function dateTime(date: Date | number | string | null | undefined): string {
-  if (!date) return "—";
-  const d = date instanceof Date ? date : new Date(date);
-  return d.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-}
-
 export function initials(name: string): string {
   return name
     .split(/\s+/)
@@ -82,18 +79,4 @@ export function initials(name: string): string {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("");
-}
-
-/** Stable accent per string, for presence dots and agent tints. */
-export function hueFor(seed: string): number {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) % 360;
-  return hash;
-}
-
-export function titleize(slug: string): string {
-  return slug
-    .split("-")
-    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-    .join(" ");
 }

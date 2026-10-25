@@ -4,7 +4,7 @@ import { z } from "zod";
 import { getDb } from "@/lib/db/client";
 import { agents, auditLog, evalSuites } from "@/lib/db/schema";
 import { newId } from "@/lib/env";
-import { getWorkspaceContext, requireWorkspace } from "@/lib/queries";
+import { getWorkspaceUser, requireWorkspace } from "@/lib/queries";
 import { runEvalSuite, runEvalSuites } from "@/lib/runtime/evals";
 
 export const dynamic = "force-dynamic";
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     }
 
     const batch = suiteIds.length === 1 ? { results: [await runEvalSuite(workspace.id, suiteIds[0]!)] } : await runEvalSuites(workspace.id, suiteIds);
-    const { user } = await getWorkspaceContext();
+    const { user } = await getWorkspaceUser();
     const casesPassed = batch.results.reduce((sum, result) => sum + result.row.casesPassed, 0);
     const casesTotal = batch.results.reduce((sum, result) => sum + result.row.casesTotal, 0);
     await getDb().insert(auditLog).values({

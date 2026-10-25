@@ -14,7 +14,7 @@ import {
   proposeFix,
 } from "@/lib/loop/cases";
 import { retestApplied } from "@/lib/loop/blue-team";
-import { getWorkspaceContext } from "@/lib/queries";
+import { getWorkspaceUser } from "@/lib/queries";
 import { askCaseReview } from "@/lib/runtime/case-review";
 
 export const dynamic = "force-dynamic";
@@ -34,7 +34,7 @@ async function owned(id: string, workspaceId: string) {
 
 export async function GET(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
-  const { workspace } = await getWorkspaceContext();
+  const { workspace } = await getWorkspaceUser();
   const row = await owned(id, workspace.id);
   if (!row) return Response.json({ error: "Case not found." }, { status: 404 });
   return Response.json({ case: await checkRetest(row.id) });
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
   const { id } = await context.params;
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Unknown case action." }, { status: 400 });
-  const { workspace, user } = await getWorkspaceContext();
+  const { workspace, user } = await getWorkspaceUser();
   const actor = user?.email ?? "operator@local";
   const row = await owned(id, workspace.id);
   if (!row) return Response.json({ error: "Case not found." }, { status: 404 });

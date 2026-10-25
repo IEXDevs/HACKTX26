@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { person } from "@/lib/loop/cases";
-import { getWorkspaceContext } from "@/lib/queries";
+import { getWorkspaceUser } from "@/lib/queries";
 import { healFinding, healWorkspace } from "@/lib/runtime/autoheal";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { workspace, user } = await getWorkspaceContext();
+  const { workspace, user } = await getWorkspaceUser();
   const actor = person(user?.email ?? "operator@local");
 
   try {

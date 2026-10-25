@@ -16,6 +16,7 @@
     "db:push": "pnpm --filter @agent-os/web db:push",
     "db:seed": "pnpm --filter @agent-os/web db:seed",
     "db:reset": "pnpm --filter @agent-os/web db:reset",
+    "db:purge-sample": "pnpm --filter @agent-os/web db:purge-sample",
     "lint": "pnpm -r lint"
   }
 }

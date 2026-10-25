@@ -704,7 +704,7 @@ export async function seedDatabase(): Promise<void> {
       instructions:
         "Run the batch job in resumable shards. Report progress honestly. If the budget ceiling will be hit before completion, stop and report rather than degrade the job.",
       inheritedPromptBlockIds: ["pb_data_handling"],
-      modelPolicy: { mode: "pinned" as const, pinnedModelId: "meta/muse-spark-1.1", costSensitivity: 0.9, latencySensitivity: 0.1, floorComplexity: "standard" as const, deniedModelIds: [] },
+      modelPolicy: { mode: "pinned" as const, pinnedModelId: "muse-spark-1.1", costSensitivity: 0.9, latencySensitivity: 0.1, floorComplexity: "standard" as const, deniedModelIds: [] },
       grants: [{ resource: "shell.exec", scopes: ["execute" as const] }],
       allowedTools: ["shell.exec", "fs.read", "fs.write", "memory.write"],
       complexity: "standard" as const,

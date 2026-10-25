@@ -35,6 +35,12 @@ export interface ModelRequest {
   tools: ToolSpec[];
   temperature?: number;
   maxOutputTokens?: number;
+  /**
+   * Reasoning effort for reasoning models (e.g. Meta's Muse line, which
+   * returns empty completions on chat completions without it). Providers that
+   * don't understand it should ignore the field.
+   */
+  reasoningEffort?: "low" | "medium" | "high";
 }
 
 export type ModelChunk =

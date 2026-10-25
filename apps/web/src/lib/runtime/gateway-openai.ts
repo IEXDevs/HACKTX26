@@ -29,6 +29,11 @@ export class OpenAiGateway implements ModelGateway {
       stream_options: { include_usage: true },
       temperature: request.temperature ?? 0.2,
       max_completion_tokens: request.maxOutputTokens ?? 2_000,
+      // Only sent when the caller asks: unknown params are HTTP 400 on some
+      // OpenAI-compatible providers.
+      ...(request.reasoningEffort
+        ? { reasoning_effort: request.reasoningEffort }
+        : {}),
       messages: request.messages.map((message) => {
         if (message.role === "tool") {
           return {
@@ -88,6 +93,61 @@ export class OpenAiGateway implements ModelGateway {
     const decoder = new TextDecoder();
     let buffer = "";
 
+    // Parses one SSE data line. Generator stays lazy so text still streams.
+    function* handleLine(line: string): Iterable<ModelChunk> {
+      if (!line.startsWith("data:")) return;
+      const data = line.slice(5).trim();
+      if (data === "[DONE]") return;
+
+      let parsed: {
+        choices?: Array<{
+          delta?: {
+            content?: string | null;
+            tool_calls?: Array<{
+              index: number;
+              id?: string;
+              function?: { name?: string; arguments?: string };
+            }>;
+          };
+          finish_reason?: string | null;
+        }>;
+        usage?: { prompt_tokens?: number; completion_tokens?: number };
+      };
+      try {
+        parsed = JSON.parse(data);
+      } catch {
+        return;
+      }
+
+      const choice = parsed.choices?.[0];
+      const text = choice?.delta?.content;
+      if (text) yield { type: "text", text };
+
+      for (const fragment of choice?.delta?.tool_calls ?? []) {
+        const existing = fragments.get(fragment.index) ?? {
+          index: fragment.index,
+          args: "",
+        };
+        fragments.set(fragment.index, {
+          index: fragment.index,
+          id: fragment.id ?? existing.id,
+          name: fragment.function?.name ?? existing.name,
+          args: existing.args + (fragment.function?.arguments ?? ""),
+        });
+      }
+
+      if (choice?.finish_reason === "tool_calls") stopReason = "tool_calls";
+      if (choice?.finish_reason === "length") stopReason = "length";
+
+      if (parsed.usage) {
+        yield {
+          type: "usage",
+          inputTokens: parsed.usage.prompt_tokens ?? 0,
+          outputTokens: parsed.usage.completion_tokens ?? 0,
+        };
+      }
+    }
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -98,60 +158,16 @@ export class OpenAiGateway implements ModelGateway {
         const line = buffer.slice(0, newline).trim();
         buffer = buffer.slice(newline + 1);
         newline = buffer.indexOf("\n");
-
-        if (!line.startsWith("data:")) continue;
-        const data = line.slice(5).trim();
-        if (data === "[DONE]") continue;
-
-        let parsed: {
-          choices?: Array<{
-            delta?: {
-              content?: string | null;
-              tool_calls?: Array<{
-                index: number;
-                id?: string;
-                function?: { name?: string; arguments?: string };
-              }>;
-            };
-            finish_reason?: string | null;
-          }>;
-          usage?: { prompt_tokens?: number; completion_tokens?: number };
-        };
-        try {
-          parsed = JSON.parse(data);
-        } catch {
-          continue;
-        }
-
-        const choice = parsed.choices?.[0];
-        const text = choice?.delta?.content;
-        if (text) yield { type: "text", text };
-
-        for (const fragment of choice?.delta?.tool_calls ?? []) {
-          const existing = fragments.get(fragment.index) ?? {
-            index: fragment.index,
-            args: "",
-          };
-          fragments.set(fragment.index, {
-            index: fragment.index,
-            id: fragment.id ?? existing.id,
-            name: fragment.function?.name ?? existing.name,
-            args: existing.args + (fragment.function?.arguments ?? ""),
-          });
-        }
-
-        if (choice?.finish_reason === "tool_calls") stopReason = "tool_calls";
-        if (choice?.finish_reason === "length") stopReason = "length";
-
-        if (parsed.usage) {
-          yield {
-            type: "usage",
-            inputTokens: parsed.usage.prompt_tokens ?? 0,
-            outputTokens: parsed.usage.completion_tokens ?? 0,
-          };
-        }
+        yield* handleLine(line);
       }
     }
+
+    // A stream can end flush after its last data line (no trailing newline,
+    // sometimes no [DONE]). Process the tail so a final usage chunk is never
+    // silently dropped — without it, live runs record $0 and budgets go blind.
+    buffer += decoder.decode();
+    const tail = buffer.trim();
+    if (tail) yield* handleLine(tail);
 
     for (const fragment of fragments.values()) {
       if (!fragment.name) continue;

@@ -19,7 +19,7 @@ export default async function SettingsPage() {
         <AppearanceControl />
       </section>
 
-      <ActionPolicy initial={resolveActionEffects(workspace.actionEffects)} />
+      <ActionPolicy initial={resolveActionEffects(workspace.actionEffects)} initialApprovalMode={workspace.approvalMode} />
 
       <section className="section">
         <h2>Privacy</h2>

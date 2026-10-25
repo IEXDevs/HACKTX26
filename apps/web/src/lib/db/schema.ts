@@ -1,6 +1,7 @@
 import type {
   AgentRank,
   AgentRole,
+  ApprovalMode,
   BudgetPolicy,
   DataClass,
   ModelPolicy,
@@ -40,6 +41,7 @@ export const workspaces = sqliteTable("workspaces", {
     .notNull()
     .default(sql`'[]'`),
   defaultRunBudgetUsd: real("default_run_budget_usd").notNull().default(2.5),
+  approvalMode: text("approval_mode").$type<ApprovalMode>().notNull().default("request"),
   /**
    * Operator-set access levels for the six named actions (fs.read, fs.write,
    * http.fetch, shell.exec, secret.use, cli:prod-deploy). Empty means defaults.

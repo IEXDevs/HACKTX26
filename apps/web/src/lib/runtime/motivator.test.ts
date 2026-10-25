@@ -45,4 +45,30 @@ describe("independent motivator review", () => {
     ], []) });
     expect(result.decision.verdict).toBe("blocked");
   });
+
+  it("reviews the exact permission request with independent evidence and no tools", async () => {
+    const requests: ModelRequest[] = [];
+    const permission = { agentId: "lead", agentName: "Lead", callId: "action", tool: "shell.exec", args: { command: "check scoped files" }, scopes: ["execute"], risk: "high", policyReason: "Requires approval." };
+    const result = await reviewWithMotivator({ ...input, proposal: "permission", permission }, {
+      model: "test", gateway: gateway([{ type: "text", text: '{"verdict":"approve","reason":"This exact scoped check is justified by the goal.","nextSteps":[]}' }], requests),
+    });
+    expect(result.decision.verdict).toBe("approve");
+    expect(JSON.parse(requests[0]!.messages[1]!.content).permission).toEqual(permission);
+    expect(requests[0]!.tools).toEqual([]);
+  });
+
+  it.each(["Not JSON", '{"verdict":"complete","reason":"Looks fine","nextSteps":[]}'])("asks the user when a permission assessment is invalid", async (text) => {
+    const result = await reviewWithMotivator({ ...input, proposal: "permission" }, { model: "test", gateway: gateway([{ type: "text", text }], []) });
+    expect(result.decision.verdict).toBe("ask_user");
+  });
+
+  it("cannot use an approval verdict to skip a blocker or completion review", async () => {
+    const result = await reviewWithMotivator(input, { model: "test", gateway: gateway([{ type: "text", text: '{"verdict":"approve","reason":"Approved","nextSteps":[]}' }], []) });
+    expect(result.decision.verdict).toBe("blocked");
+  });
+
+  it("does not invent independent approval in scripted mode", async () => {
+    const result = await reviewWithMotivator({ ...input, proposal: "permission" }, { model: "test", gateway: null });
+    expect(result.decision.verdict).toBe("ask_user");
+  });
 });

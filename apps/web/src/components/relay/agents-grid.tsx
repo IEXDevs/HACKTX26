@@ -4,7 +4,6 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Bot, Plus, Search, ShieldCheck } from "@/components/icons";
-import { AdvancedSwitch, useAdvanced } from "./advanced";
 import { StartRun } from "./start-run";
 
 export interface AgentTile {
@@ -29,8 +28,7 @@ const statusWord: Record<string, string> = {
 
 export function AgentsGrid({ agents }: { agents: AgentTile[] }) {
   const router = useRouter();
-  const [advanced, toggleAdvanced] = useAdvanced(),
-    [search, setSearch] = useState("");
+  const [search, setSearch] = useState("");
   const visible = agents.filter((a) =>
     [a.name, a.summary].join(" ").toLowerCase().includes(search.toLowerCase()),
   );
@@ -39,7 +37,6 @@ export function AgentsGrid({ agents }: { agents: AgentTile[] }) {
       <div className="page-top">
         <h1>Agents</h1>
         <div className="page-actions">
-          <AdvancedSwitch on={advanced} toggle={toggleAdvanced} />
           <button className="btn primary" onClick={() => router.push("/agents/new")}>
             <Plus size={15} aria-hidden />
             New agent
@@ -59,7 +56,7 @@ export function AgentsGrid({ agents }: { agents: AgentTile[] }) {
         </label>
       </div>
       {visible.length ? (
-        <div className="tile-grid">
+        <div className="tile-grid spaced">
           {visible.map((a) => (
             <article className="tile" key={a.id}>
               <Link href={`/agents/${a.id}`} className="tile-main">
@@ -78,12 +75,8 @@ export function AgentsGrid({ agents }: { agents: AgentTile[] }) {
               </Link>
               <footer className="tile-foot">
                 <span>
-                  {advanced
-                    ? `${a.model} · ${a.spend}`
-                    : a.team
-                      ? `Team of ${a.team + 1} agents`
-                      : "Works alone"}
-                  {advanced ? null : a.runs ? ` · ${a.runs} runs` : ""}
+                  {a.team ? `Team of ${a.team + 1} agents` : "Works alone"}
+                  {a.runs ? ` · ${a.runs} runs` : ""}
                 </span>
                 {a.status === "active" && (
                   <StartRun

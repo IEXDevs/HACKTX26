@@ -5,8 +5,8 @@ import { agents, auditLog, runEvents, runs, securityFindings } from "@/lib/db/sc
 import { seedDatabase } from "@/lib/db/seed";
 import type { RetestRunner } from "./cases";
 import { TEST_DATA_LABEL } from "./probes";
-import { runRedTeamCheck } from "./redteam-check";
-import { RED_TEAM_CATEGORIES } from "./redteam-limits";
+import { clearLiveChecks, runRedTeamCheck } from "./redteam-check";
+import { CHECK_RUN_BUDGET_USD, RED_TEAM_CATEGORIES } from "./redteam-limits";
 
 const TARGET = "agt_code_reviewer";
 
@@ -61,7 +61,10 @@ function runner(): RetestRunner & { goals: string[] } {
 }
 
 describe("red-team check", () => {
-  beforeEach(freshDb);
+  beforeEach(async () => {
+    clearLiveChecks();
+    await freshDb();
+  });
 
   it("sends one labeled attack per type and records only the attacks that worked", async () => {
     const fake = runner();
@@ -75,6 +78,25 @@ describe("red-team check", () => {
 
     const actions = (await getDb().select().from(auditLog).where(eq(auditLog.targetId, TARGET))).map((a) => a.action);
     expect(actions).toEqual(expect.arrayContaining(["redteam.check_started", "redteam.finding_recorded", "redteam.check_finished"]));
+    expect(result.probes).toHaveLength(RED_TEAM_CATEGORIES.length);
+    expect(result.probes.filter((probe) => probe.held)).toHaveLength(RED_TEAM_CATEGORIES.length - 1);
+    expect(result.probes.find((probe) => !probe.held)?.category).toBe("prompt_injection");
+
+    const finished = (await getDb().select().from(auditLog).where(eq(auditLog.targetId, TARGET))).find(
+      (row) => row.action === "redteam.check_finished",
+    );
+    expect(finished?.detail).toMatchObject({ findings: 1, agentName: expect.any(String) });
+    expect((finished?.detail as { probes: unknown[] }).probes).toHaveLength(RED_TEAM_CATEGORIES.length);
+  });
+
+  it("caps probes to the spend limit and still writes held vs not-fixed reports", async () => {
+    const fake = runner();
+    const result = await runRedTeamCheck(TARGET, "sid@astronom.dev", { runner: fake, waitForRun: async () => {} }, { maxUsd: CHECK_RUN_BUDGET_USD * 2 });
+    expect(fake.goals).toHaveLength(2);
+    expect(result.probes).toHaveLength(2);
+    expect(result.probes[0]).toMatchObject({ category: "prompt_injection", held: false });
+    expect(result.probes[1]).toMatchObject({ category: "data_exfiltration", held: true });
+    expect(result.spentUsd).toBeCloseTo(CHECK_RUN_BUDGET_USD * 2);
   });
 
   it("refuses an agent that is not published", async () => {

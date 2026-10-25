@@ -229,3 +229,19 @@ export async function runEvalSuite(
 
   return { row, cases, matchedRuns: matchedRunIds.size };
 }
+
+export async function runEvalSuites(
+  workspaceId: string,
+  suiteIds: string[],
+): Promise<{ results: EvalRunResult[]; casesPassed: number; casesTotal: number; failed: number }> {
+  const results: EvalRunResult[] = [];
+  for (const suiteId of suiteIds) {
+    results.push(await runEvalSuite(workspaceId, suiteId));
+  }
+  return {
+    results,
+    casesPassed: results.reduce((sum, result) => sum + result.row.casesPassed, 0),
+    casesTotal: results.reduce((sum, result) => sum + result.row.casesTotal, 0),
+    failed: results.filter((result) => result.row.status === "failed").length,
+  };
+}

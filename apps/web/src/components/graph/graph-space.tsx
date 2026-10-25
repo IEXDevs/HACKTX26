@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Boxes,
   Crown,
@@ -17,27 +17,10 @@ import {
 } from "@/components/icons";
 import { Button, Divider, KeyValue, Panel, StatusBadge, Tag } from "@/components/ui/primitives";
 import { DispatchPanel, type DispatchAgentOption } from "@/components/dispatch/dispatch-panel";
-import { relativeTime } from "@/lib/format";
+import { duration, relativeTime, tokens, usd } from "@/lib/format";
+import type { GraphAgent, GraphFlow, GraphSnapshot, GraphTask } from "@/lib/graph-data";
 
-export interface GraphAgent {
-  id: string;
-  name: string;
-  role: string;
-  status: string;
-  summary: string;
-  parentAgentId: string | null;
-  model: string;
-  complexity: string;
-  dataClass: string;
-  tools: string[];
-  grants: { resource: string; scopes: string[]; paths?: string[] }[];
-  maxSteps: number;
-  version: number;
-  lastRun: { id: string; status: string; at: string } | null;
-  openFindings: number;
-  budgetUsd: number | null;
-  spentUsd: number;
-}
+export type { GraphAgent, GraphFlow, GraphTask };
 
 /* ------------------------------------------------------------------ */
 /* tokens (mirror the light theme in globals.css so the canvas matches) */
@@ -86,31 +69,28 @@ function syncTheme() {
   if (T.canvas !== want.canvas) Object.assign(T, want);
 }
 
-/** Status to halo colour. The halo is the status signal. */
+function runStatus(agent: GraphAgent): string {
+  return agent.lastRun?.status ?? agent.status;
+}
+/** Green working, yellow issue, red stopped, grey done. No legend — the colour is the status. */
 function haloColor(status: string): string {
-  const map: Record<string, string> = {
-    running: T.accent,
-    queued: T.info,
-    awaiting_approval: T.warn,
-    succeeded: T.ok,
-    active: T.ok,
-    failed: T.danger,
-    halted: T.danger,
-    cancelled: T.warn,
-    blocked: T.warn,
-  };
-  return map[status] ?? T.ink4;
+  if (status === "running" || status === "queued" || status === "thinking" || status === "working") {
+    return T.ok;
+  }
+  if (status === "awaiting_approval" || status === "blocked") return T.warn;
+  if (status === "failed" || status === "halted" || status === "cancelled") return T.danger;
+  return T.ink4;
 }
 function haloFor(agent: GraphAgent): string {
-  return haloColor(agent.lastRun?.status ?? agent.status);
+  return haloColor(runStatus(agent));
 }
-/** Mid-job → halo breathes, orbs orbit, edges stream. */
 function isBusy(agent: GraphAgent): boolean {
-  const s = agent.lastRun?.status ?? agent.status;
-  return s === "running" || s === "queued";
+  const s = runStatus(agent);
+  return s === "running" || s === "queued" || s === "thinking" || s === "working";
 }
 function isBlocked(agent: GraphAgent): boolean {
-  return (agent.lastRun?.status ?? agent.status) === "awaiting_approval";
+  const s = runStatus(agent);
+  return s === "awaiting_approval" || s === "blocked";
 }
 
 /** Bubble size = the weight of the model it runs. Orchestrator is the biggest body. */
@@ -153,10 +133,16 @@ interface Laid extends GraphAgent {
 
 function layout(agents: GraphAgent[]): Laid[] {
   const byId = new Map(agents.map((a) => [a.id, a]));
+  const kids = (id: string) =>
+    agents.filter((a) => a.parentAgentId === id).sort((a, b) => a.name.localeCompare(b.name));
   const roots = agents.filter((a) => !a.parentAgentId || !byId.has(a.parentAgentId));
-  const out: Laid[] = [];
-  const n = Math.max(roots.length, 1);
-
+  const SLOT = 168;
+  const LEVEL = 168;
+  const leafCount = (id: string): number => {
+    const child = kids(id);
+    if (child.length === 0) return 1;
+    return child.reduce((sum, node) => sum + leafCount(node.id), 0);
+  };
   const mk = (a: GraphAgent, pos: V2): Laid => ({
     ...a,
     pos,
@@ -165,90 +151,88 @@ function layout(agents: GraphAgent[]): Laid[] {
     busy: isBusy(a),
     blocked: isBlocked(a),
   });
-
-  roots.forEach((root, ri) => {
-    const j = hash(root.id);
-    const rootPos: V2 = { x: (ri - (n - 1) / 2) * 470 + (j - 0.5) * 30, y: (j - 0.5) * 60 };
-
-    const children = agents
-      .filter((a) => a.parentAgentId === root.id)
-      .sort((a, b) => hash(a.id) - hash(b.id));
-
-    out.push(mk(root, rootPos));
-    // ring auto-sizes: circumference must fit every satellite's width + a gap
-    const GAP = 40;
-    const fitRadius = (members: GraphAgent[], floor: number) =>
-      Math.max(
-        floor,
-        members.reduce((s, m) => s + baseRadius(m) * 2 + GAP, 0) / (Math.PI * 2),
-      );
-    const ringR = fitRadius(children, 190);
-    children.forEach((child, ci) => {
-      const count = Math.max(children.length, 3);
-      const angle = (ci / count) * Math.PI * 2 + j * 2.4 + (children.length % 2 ? Math.PI / 2 : 0);
-      const radius = ringR + (hash(child.id) - 0.5) * 24;
-      const pos = {
-        x: rootPos.x + Math.cos(angle) * radius,
-        y: rootPos.y + Math.sin(angle) * radius * 0.82, // slight vertical squash = organic cluster
-      };
-      out.push(mk(child, pos));
-
-      const grand = agents.filter((a) => a.parentAgentId === child.id);
-      const grandR = fitRadius(grand, 140);
-      grand.forEach((g, gi) => {
-        const gc = Math.max(grand.length, 3);
-        const gAngle = angle + ((gi - (grand.length - 1) / 2) * Math.PI) / (gc + 1);
-        const gPos = {
-          x: pos.x + Math.cos(gAngle) * grandR,
-          y: pos.y + Math.sin(gAngle) * grandR * 0.82 - 22,
-        };
-        out.push(mk(g, gPos));
-      });
-    });
-  });
-
-  // safety net: anything orphaned by the mapping above orbits the first root
+  const out: Laid[] = [];
+  const place = (agent: GraphAgent, left: number, depth: number) => {
+    const child = kids(agent.id);
+    const width = Math.max(1, leafCount(agent.id)) * SLOT;
+    const x = left + width / 2;
+    const y = depth * LEVEL;
+    out.push(mk(agent, { x, y }));
+    let cursor = left;
+    for (const node of child) {
+      const span = leafCount(node.id) * SLOT;
+      place(node, cursor, depth + 1);
+      cursor += span;
+    }
+  };
+  let left = 0;
+  for (const root of roots) {
+    const width = Math.max(1, leafCount(root.id)) * SLOT;
+    place(root, left, 0);
+    left += width + SLOT;
+  }
   for (const a of agents) {
     if (out.some((o) => o.id === a.id)) continue;
-    const parent = out.find((o) => o.id === a.parentAgentId);
-    const ang = hash(a.id) * Math.PI * 2;
-    const origin = parent ?? out[0];
-    out.push(
-      mk(a, {
-        x: (origin?.pos.x ?? 0) + Math.cos(ang) * 190,
-        y: (origin?.pos.y ?? 0) + Math.sin(ang) * 190 * 0.82,
-      }),
-    );
+    out.push(mk(a, { x: left, y: LEVEL }));
+    left += SLOT;
   }
-  return out;
+  const mid =
+    out.reduce((sum, a) => sum + a.pos.x, 0) / Math.max(1, out.length);
+  return out.map((a) => ({ ...a, pos: { x: a.pos.x - mid, y: a.pos.y } }));
 }
 
 /* ------------------------------------------------------------------ */
 /* detail drawer data                                                  */
 /* ------------------------------------------------------------------ */
 
-export interface GraphTask {
-  agentId: string;
-  runId: string;
-  title: string;
-  status: string;
-  at: string;
-}
-
 /* ------------------------------------------------------------------ */
 /* component                                                           */
 /* ------------------------------------------------------------------ */
 
 export function GraphSpace({
-  agents,
-  tasks,
+  agents: initialAgents,
+  tasks: initialTasks,
   dispatchAgents,
+  workflowId,
+  flows: initialFlows = [],
 }: {
   agents: GraphAgent[];
   tasks: GraphTask[];
   dispatchAgents: DispatchAgentOption[];
+  workflowId?: string;
+  flows?: GraphFlow[];
 }) {
   const router = useRouter();
+  const [agents, setAgents] = useState(initialAgents);
+  const [tasks, setTasks] = useState(initialTasks);
+  const [flows, setFlows] = useState(initialFlows);
+  useEffect(() => {
+    setAgents(initialAgents);
+    setTasks(initialTasks);
+    setFlows(initialFlows);
+  }, [initialAgents, initialTasks, initialFlows]);
+  useEffect(() => {
+    if (!workflowId) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const response = await fetch(`/api/workflows/${workflowId}/graph`);
+        if (!response.ok) return;
+        const snapshot = (await response.json()) as GraphSnapshot;
+        if (cancelled) return;
+        setAgents(snapshot.agents);
+        setTasks(snapshot.tasks);
+        setFlows(snapshot.flows);
+      } catch {
+        /* keep the last good frame */
+      }
+    };
+    const timer = setInterval(() => void tick(), 2500);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [workflowId]);
   const laid = useMemo(() => layout(agents), [agents]);
   const [selectedId, setSelectedId] = useState<string | null>(laid.find((a) => a.role === "orchestrator")?.id ?? laid[0]?.id ?? null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -259,9 +243,6 @@ export function GraphSpace({
   const selected = laid.find((a) => a.id === selectedId) ?? null;
   const parent = selected?.parentAgentId ? laid.find((a) => a.id === selected.parentAgentId) ?? null : null;
   const childrenOf = selected ? laid.filter((a) => a.parentAgentId === selected.id) : [];
-  const peers = selected?.parentAgentId
-    ? laid.filter((a) => a.parentAgentId === selected!.parentAgentId && a.id !== selected!.id)
-    : [];
   const selectedTasks = selected ? tasks.filter((t) => t.agentId === selected.id) : [];
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -295,8 +276,43 @@ export function GraphSpace({
   const restRef = useRef<Map<string, number>>(new Map());
   /** static parent → child topology */
   const pairsRef = useRef<{ parentId: string; childId: string }[]>([]);
-  /** auto-fit runs exactly once */
+  const flowsRef = useRef<GraphFlow[]>(flows);
+  /** auto-fit runs exactly once, then only when Center is pressed */
   const fittedRef = useRef(false);
+  const fitCamera = useCallback((force = false) => {
+    const wrap = wrapRef.current;
+    const agents = agentsRef.current;
+    if (!wrap || agents.length === 0) return;
+    const vw = wrap.clientWidth;
+    const vh = wrap.clientHeight;
+    if (vw < 80 || vh < 80) return;
+    if (fittedRef.current && !force) return;
+    fittedRef.current = true;
+    const homes = homeRef.current;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const a of agents) {
+      const hpos = homes.get(a.id) ?? a.pos;
+      const pad = a.r + 90;
+      minX = Math.min(minX, hpos.x - pad);
+      maxX = Math.max(maxX, hpos.x + pad);
+      minY = Math.min(minY, hpos.y - pad);
+      maxY = Math.max(maxY, hpos.y + pad);
+    }
+    if (!(minX <= maxX && minY <= maxY)) return;
+    const fit = Math.min(vw / Math.max(1, maxX - minX), vh / Math.max(1, maxY - minY));
+    const z = Math.min(1.15, Math.max(0.35, fit * 0.92));
+    camRef.current = {
+      x: (minX + maxX) / 2,
+      y: (minY + maxY) / 2,
+      zoom: z,
+      targetZoom: z,
+    };
+  }, []);
+  const fitCameraRef = useRef(fitCamera);
+  fitCameraRef.current = fitCamera;
 
   useEffect(() => {
     agentsRef.current = laid;
@@ -332,73 +348,60 @@ export function GraphSpace({
       }
     }
     pairsRef.current = pairs;
-    // first boot only: frame the whole constellation so every bubble is on
-    // screen — never touch the camera again after that
-    if (!fittedRef.current && homes.size > 0) {
-      fittedRef.current = true;
-      const wrap = wrapRef.current;
-      if (wrap) {
-        const vw = Math.max(1, wrap.clientWidth);
-        const vh = Math.max(1, wrap.clientHeight);
-        let minX = Infinity;
-        let maxX = -Infinity;
-        let minY = Infinity;
-        let maxY = -Infinity;
-        for (const a of laid) {
-          const hpos = homes.get(a.id) ?? a.pos;
-          const pad = a.r + 90; // bubble + caption breathing room
-          minX = Math.min(minX, hpos.x - pad);
-          maxX = Math.max(maxX, hpos.x + pad);
-          minY = Math.min(minY, hpos.y - pad);
-          maxY = Math.max(maxY, hpos.y + pad);
-        }
-        if (minX <= maxX && minY <= maxY) {
-          const fit = Math.min(vw / (maxX - minX), vh / (maxY - minY));
-          const z = Math.min(1.05, Math.max(0.3, fit));
-          camRef.current = {
-            x: (minX + maxX) / 2,
-            y: (minY + maxY) / 2,
-            zoom: z,
-            targetZoom: z,
-          };
-        }
-      }
-    }
-  }, [laid]);
+    flowsRef.current = flows;
+    fitCameraRef.current?.(false);
+  }, [laid, flows]);
 
   /* --------- render loop --------- */
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const wrap = wrapRef.current;
-    if (!canvas || !wrap) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
+  useLayoutEffect(() => {
+    let cancelled = false;
     let raf = 0;
     let w = 0;
     let h = 0;
     let dpr = Math.min(window.devicePixelRatio || 1, 2);
     let last = performance.now();
+    let ro: ResizeObserver | null = null;
+    let ctx: CanvasRenderingContext2D | null = null;
+    let canvas: HTMLCanvasElement | null = null;
+    let wrap: HTMLDivElement | null = null;
 
     const resize = () => {
+      if (!canvas || !wrap) return;
       dpr = Math.min(window.devicePixelRatio || 1, 2);
       const rect = wrap.getBoundingClientRect();
-      w = rect.width;
-      h = rect.height;
+      w = Math.max(1, rect.width);
+      h = Math.max(1, rect.height);
       canvas.width = Math.round(w * dpr);
       canvas.height = Math.round(h * dpr);
       canvas.style.width = `${w}px`;
       canvas.style.height = `${h}px`;
+      wrap.dataset.ready = `${Math.round(w)}x${Math.round(h)}`;
+      fitCameraRef.current?.(false);
     };
-    resize();
-    const ro = new ResizeObserver(resize);
-    ro.observe(wrap);
+
+    const boot = () => {
+      if (cancelled) return;
+      canvas = canvasRef.current;
+      wrap = wrapRef.current;
+      ctx = canvas?.getContext("2d") ?? null;
+      if (!canvas || !wrap || !ctx) {
+        raf = requestAnimationFrame(boot);
+        return;
+      }
+      resize();
+      ro = new ResizeObserver(resize);
+      ro.observe(wrap);
+      window.addEventListener("resize", resize);
+      last = performance.now();
+      raf = requestAnimationFrame(draw);
+    };
 
     const t0 = performance.now();
     const MONO = (px: number, weight = 400) =>
       `${weight} ${px}px ui-monospace, "SFMono-Regular", Menlo, monospace`;
 
     const draw = (now: number) => {
+      if (cancelled || !ctx) return;
       const dt = Math.min(0.032, (now - last) / 1000);
       last = now;
       const t = (now - t0) / 1000;
@@ -573,102 +576,41 @@ export function GraphSpace({
         return S(body ? { x: body.x, y: body.y } : a.pos);
       };
 
-      /* --- infinite dotted plane: anchored to world space so it pans/zooms with you --- */
-      {
-        const step = 64;
-        const halfW = w / 2 + step;
-        const halfH = h / 2 + step;
-        const left = cam.x - halfW / zoom;
-        const top = cam.y - halfH / zoom;
-        const gx0 = Math.floor(left / step) * step;
-        const gy0 = Math.floor(top / step) * step;
-        const cols = Math.ceil(w / (step * zoom)) + 2;
-        const rows = Math.ceil(h / (step * zoom)) + 2;
-        const base = 0.24 + (zoom - 0.55) * 0.28;
-        const alpha = Math.min(0.4, Math.max(0.06, base));
-        ctx.fillStyle = `rgba(${T.dotRgb},${alpha.toFixed(2)})`;
-        const dot = Math.max(1, Math.min(2.2, step * zoom * 0.028));
-        for (let i = 0; i < cols; i += 1) {
-          for (let k = 0; k < rows; k += 1) {
-            const wx = gx0 + i * step;
-            const wy = gy0 + k * step;
-            const sp = S({ x: wx, y: wy });
-            ctx.fillRect(sp.x - dot / 2, sp.y - dot / 2, dot, dot);
-          }
-        }
-        // anchor cross at world origin — the space's fixed point while exploring
-        const o = S({ x: 0, y: 0 });
-        ctx.strokeStyle = `rgba(${T.dotRgb},0.55)`;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(o.x - 7, o.y);
-        ctx.lineTo(o.x + 7, o.y);
-        ctx.moveTo(o.x, o.y - 7);
-        ctx.lineTo(o.x, o.y + 7);
-        ctx.stroke();
-      }
-
-      /* --- edges, under everything --- */
+      /* --- edges: only agents that actually talked, solid, no mesh --- */
       const byId = new Map(agents.map((a) => [a.id, a]));
-      const solidEdges: { a: Laid; p: Laid; e1: V2; e2: V2 }[] = [];
-      for (const a of agents) {
-        const p = byId.get(a.parentAgentId ?? "");
-        if (!p) continue;
-        const e1 = SP(p);
-        const e2 = SP(a);
-        solidEdges.push({ a, p, e1, e2 });
-      }
-      const groups = new Map<string, Laid[]>();
-      for (const a of agents) {
-        if (!a.parentAgentId) continue;
-        const list = groups.get(a.parentAgentId) ?? [];
-        list.push(a);
-        groups.set(a.parentAgentId, list);
+      const infoPairs: { a: Laid; b: Laid; live: boolean }[] = [];
+      const seenPair = new Set<string>();
+      const addPair = (a: Laid, b: Laid, live: boolean) => {
+        const key = a.id < b.id ? `${a.id}|${b.id}` : `${b.id}|${a.id}`;
+        if (seenPair.has(key)) return;
+        seenPair.add(key);
+        infoPairs.push({ a, b, live });
+      };
+      for (const flow of flowsRef.current) {
+        if (flow.kind !== "info") continue;
+        const a = byId.get(flow.fromId);
+        const b = byId.get(flow.toId);
+        if (!a || !b) continue;
+        addPair(a, b, a.busy || b.busy);
       }
       ctx.lineCap = "round";
-
-      // solid delegation edges — flow dashes when someone is on the clock
-      for (const { a, p, e1, e2 } of solidEdges) {
-        const related = p.id === selId || a.id === selId;
-        if (p.busy || a.busy) {
-          ctx.setLineDash([4, 11]);
-          ctx.lineDashOffset = -t * 46 * (related ? 1.5 : 1);
-          ctx.strokeStyle = related ? `${T.accent}dd` : `${T.accent}44`;
-          ctx.lineWidth = related ? 3.2 : 2.6;
-        } else {
-          ctx.setLineDash([]);
-          ctx.strokeStyle = related ? `rgba(${T.inkRgb},0.55)` : `rgba(${T.dotRgb},0.9)`;
-          ctx.lineWidth = related ? 2.4 : 2;
-        }
+      ctx.setLineDash([]);
+      ctx.lineDashOffset = 0;
+      for (const { a, b, live } of infoPairs) {
+        const e1 = SP(a);
+        const e2 = SP(b);
+        const related = a.id === selId || b.id === selId;
+        ctx.strokeStyle = live ? `${T.ok}cc` : related ? `rgba(${T.inkRgb},0.55)` : `rgba(${T.dotRgb},0.7)`;
+        ctx.lineWidth = live || related ? 4 : 3.2;
         ctx.beginPath();
         ctx.moveTo(e1.x, e1.y);
         ctx.lineTo(e2.x, e2.y);
         ctx.stroke();
       }
-      ctx.setLineDash([]);
-
-      // dashed peer mesh — the ring where siblings swap context
-      ctx.setLineDash([5, 9]);
-      for (const list of groups.values()) {
-        for (let i = 0; i < list.length; i += 1) {
-          const a = list[i];
-          const b = list[(i + 1) % list.length];
-          if (!a || !b || a === b) continue;
-          const e1 = SP(a);
-          const e2 = SP(b);
-          const related = a.id === selId || b.id === selId;
-          ctx.strokeStyle = related ? `${T.info}88` : `rgba(${T.dotRgb},0.68)`;
-          ctx.lineWidth = related ? 2.6 : 2;
-          ctx.beginPath();
-          ctx.moveTo(e1.x, e1.y);
-          ctx.lineTo(e2.x, e2.y);
-          ctx.stroke();
-        }
-      }
-      ctx.setLineDash([]);
 
       /* --- directional info packets: who is talking to whom --- */
       const particle = (from: V2, to: V2, frac: number, color: string, size: number) => {
+        if (!ctx) return;
         const fx = from.x + (to.x - from.x) * frac;
         const fy = from.y + (to.y - from.y) * frac;
         const trail = Math.max(0.02, frac - 0.06);
@@ -682,33 +624,18 @@ export function GraphSpace({
         ctx.arc(fx, fy, size, 0, Math.PI * 2);
         ctx.fill();
       };
-      // delegation flow, parent → child (work travels downward)
-      for (const { a, p, e1, e2 } of solidEdges) {
-        if (!(a.busy || p.busy)) continue;
-        const speed = 0.24 + hash(a.id) * 0.12;
-        for (let i = 0; i < 2; i += 1) {
-          const frac = (t * speed + i * 0.5 + hash(a.id)) % 1;
-          particle(e1, e2, frac, p.busy && !a.busy ? `rgba(${T.inkRgb},0.5)` : T.accent, 3);
-        }
-      }
-      // peer route — packets stream toward whoever holds the mic
-      for (const list of groups.values()) {
-        for (let i = 0; i < list.length; i += 1) {
-          const a = list[i];
-          const b = list[(i + 1) % list.length];
-          if (!a || !b || a === b) continue;
-          const chatter = a.busy || b.busy || a.id === selId || b.id === selId;
-          if (!chatter) continue;
-          const e1 = SP(a);
-          const e2 = SP(b);
-          if (a.busy && !b.busy) {
-            particle(e1, e2, (t * 0.3 + hash(a.id)) % 1, T.info, 2);
-          } else if (b.busy && !a.busy) {
-            particle(e2, e1, (t * 0.3 + hash(b.id)) % 1, T.info, 2);
-          } else {
-            particle(e1, e2, (t * 0.26 + hash(a.id)) % 1, T.info, 2);
-            particle(e2, e1, (t * 0.26 + hash(b.id) * 0.5 + 0.37) % 1, `${T.info}99`, 1.8);
-          }
+      for (const { a, b, live } of infoPairs) {
+        if (!live && a.id !== selId && b.id !== selId) continue;
+        const e1 = SP(a);
+        const e2 = SP(b);
+        const color = live ? T.ok : T.info;
+        if (a.busy && !b.busy) {
+          particle(e1, e2, (t * 0.32 + hash(a.id)) % 1, color, 2.6);
+        } else if (b.busy && !a.busy) {
+          particle(e2, e1, (t * 0.32 + hash(b.id)) % 1, color, 2.6);
+        } else {
+          particle(e1, e2, (t * 0.28 + hash(a.id)) % 1, color, 2.4);
+          particle(e2, e1, (t * 0.28 + hash(b.id) * 0.5 + 0.37) % 1, `${color}99`, 2);
         }
       }
 
@@ -753,37 +680,24 @@ export function GraphSpace({
         ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
         ctx.fill();
 
-        // ring — grabbed bubbles pop
         ctx.lineWidth = dragged || sel ? 2.6 : hov ? 2.1 : 1.5;
         ctx.strokeStyle = dragged || sel || hov ? T.ink : `${haloFor(a)}cc`;
         ctx.beginPath();
         ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
         ctx.stroke();
 
-        // blocked: pulsing warn tension ring — the map begs you to intervene
-        if (a.blocked) {
-          ctx.setLineDash([4, 4]);
+        if (a.busy) {
+          ctx.strokeStyle = haloFor(a);
+          ctx.lineWidth = 2.6;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, rad + 6 + 1.4 * Math.sin(t * 3.2), 0, Math.PI * 2);
+          ctx.stroke();
+        } else if (a.blocked) {
           ctx.strokeStyle = T.warn;
-          ctx.lineWidth = 1.5;
+          ctx.lineWidth = 2.2;
           ctx.beginPath();
           ctx.arc(p.x, p.y, rad + 6 + pulse * 3, 0, Math.PI * 2);
           ctx.stroke();
-          ctx.setLineDash([]);
-        }
-
-        // thinking orbs — cognitive proof while the agent burns tokens
-        if (a.busy) {
-          for (let i = 0; i < 3; i += 1) {
-            const oa = t * (1.7 + hash(a.id) * 0.5) + (i * Math.PI * 2) / 3 + hash(a.id);
-            const ox = p.x + Math.cos(oa) * (rad + 8);
-            const oy = p.y + Math.sin(oa) * (rad + 8) * 0.6;
-            ctx.fillStyle = i === 0 ? T.accent : T.info;
-            ctx.globalAlpha = 0.9;
-            ctx.beginPath();
-            ctx.arc(ox, oy, 2.2, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.globalAlpha = 1;
-          }
         }
 
         // initials
@@ -801,7 +715,7 @@ export function GraphSpace({
         ctx.fillText(a.name, p.x, p.y + rad + 8);
         ctx.font = MONO(9);
         const statusLabel = (a.lastRun?.status ?? a.status).replace("_", " ");
-        ctx.fillStyle = a.busy ? `${T.accent}dd` : T.ink4;
+        ctx.fillStyle = a.busy ? `${T.ok}dd` : T.ink4;
         ctx.fillText(statusLabel, p.x, p.y + rad + 21);
 
         // hover tooltip
@@ -830,17 +744,33 @@ export function GraphSpace({
 
       raf = requestAnimationFrame(draw);
     };
-    raf = requestAnimationFrame(draw);
+    boot();
     return () => {
+      cancelled = true;
       cancelAnimationFrame(raf);
-      ro.disconnect();
+      ro?.disconnect();
+      window.removeEventListener("resize", resize);
     };
   }, []);
 
   /* --------- interaction: pan, zoom, node drag, select --------- */
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    let cancelled = false;
+    let canvas: HTMLCanvasElement | null = null;
+    let attached = false;
+    let unbind: (() => void) | null = null;
+    const wait = () => {
+      if (cancelled) return;
+      canvas = canvasRef.current;
+      if (!canvas) {
+        requestAnimationFrame(wait);
+        return;
+      }
+      if (attached) return;
+      attached = true;
+      bind(canvas);
+    };
+    const bind = (canvas: HTMLCanvasElement) => {
 
     const pick = (x: number, y: number) => {
       let best: { id: string; d2: number } | null = null;
@@ -1006,7 +936,7 @@ export function GraphSpace({
     window.addEventListener("pointercancel", onCancel);
     canvas.addEventListener("pointerleave", onLeave);
     canvas.addEventListener("wheel", onWheel, { passive: false });
-    return () => {
+    unbind = () => {
       canvas.removeEventListener("pointerdown", onDown);
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
@@ -1014,10 +944,12 @@ export function GraphSpace({
       canvas.removeEventListener("pointerleave", onLeave);
       canvas.removeEventListener("wheel", onWheel);
     };
-  }, []);
-
-  const resetCam = useCallback(() => {
-    camRef.current = { x: 0, y: 26, zoom: 0.95, targetZoom: 0.95 };
+    };
+    wait();
+    return () => {
+      cancelled = true;
+      unbind?.();
+    };
   }, []);
 
   /* --------- keyboard --------- */
@@ -1056,32 +988,34 @@ export function GraphSpace({
   const activeCount = laid.filter((a) => (a.lastRun?.status ?? a.status) === "active").length;
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col bg-void">
+    <div className="graph-space relative h-full w-full bg-void">
       {/* ---------- floating controls, inside the canvas ---------- */}
       <div className="pointer-events-none absolute left-4 top-3 z-10 flex items-center gap-3">
         <span className="mono text-[10px] text-ink-4">
           {laid.length} agents · {busyCount} running · {activeCount} healthy
         </span>
       </div>
-      <div className="absolute right-4 top-3 z-10 flex items-center gap-2">
-        <Button variant="secondary" size="sm" onClick={resetCam} title="Reset view">
-          <Maximize size={12} /> Center
-        </Button>
-        <Button variant="primary" size="sm" onClick={() => setDispatchOpen(true)}>
-          <Plus size={13} /> Dispatch
-        </Button>
+      <div className="absolute right-4 top-3 z-10">
+        <div className="btn-group">
+          <Button variant="secondary" size="sm" onClick={() => fitCamera(true)} title="Reset view">
+            <Maximize size={12} /> Center
+          </Button>
+          <Button variant="primary" size="sm" onClick={() => setDispatchOpen(true)}>
+            <Plus size={13} /> Dispatch
+          </Button>
+        </div>
       </div>
 
       {/* ---------- canvas ---------- */}
-      <div ref={wrapRef} className="relative min-h-0 flex-1 select-none">
+      <div ref={wrapRef} className="graph-wrap absolute inset-0 select-none">
         {laid.length === 0 ? (
           <div className="absolute inset-0 flex items-center justify-center">
             <p className="mono text-[11px] text-ink-4">
-              no agents in this workspace yet — dispatch one to populate the map
+              no agents in this workflow yet — dispatch one to populate the map
             </p>
           </div>
         ) : null}
-        <canvas ref={canvasRef} className="absolute inset-0 cursor-grab touch-none" />
+        <canvas ref={canvasRef} className="graph-canvas cursor-grab touch-none" />
         <span className="mono pointer-events-none absolute bottom-3 left-4 text-[9px] text-ink-4">
           drag void to pan · scroll to zoom · drag a bubble — connected agents lag, then settle · click for details
         </span>
@@ -1154,9 +1088,24 @@ export function GraphSpace({
                 )}
               </div>
 
-              {/* stats */}
               <div className="grid grid-cols-2 divide-x divide-line border-b border-line">
                 <div className="p-3">
+                  <KeyValue label="Model">{selected.model}</KeyValue>
+                  <KeyValue label="Tokens">
+                    {tokens((selected.inputTokens ?? 0) + (selected.outputTokens ?? 0))}
+                    <span className="text-ink-4">
+                      {" "}
+                      ({tokens(selected.inputTokens)} in / {tokens(selected.outputTokens)} out)
+                    </span>
+                  </KeyValue>
+                  <KeyValue label="Time run">{duration(selected.durationMs)}</KeyValue>
+                </div>
+                <div className="p-3">
+                  <KeyValue label="Spend">{usd(selected.spentUsd, { precise: true })}</KeyValue>
+                  <KeyValue label="Diff">
+                    {(selected.diff?.writes ?? 0)} writes · {(selected.diff?.reads ?? 0)} reads
+                    {(selected.diff?.deletes ?? 0) ? ` · ${selected.diff.deletes} deletes` : ""}
+                  </KeyValue>
                   <KeyValue label="Last run">
                     {selected.lastRun ? (
                       <Link href={`/runs/${selected.lastRun.id}`} className="focus-ring text-accent hover:underline">
@@ -1166,15 +1115,16 @@ export function GraphSpace({
                       <span className="text-ink-4">never</span>
                     )}
                   </KeyValue>
-                  <KeyValue label="Max steps">{selected.maxSteps}</KeyValue>
-                </div>
-                <div className="p-3">
-                  <KeyValue label="Run ceiling">
-                    {selected.budgetUsd ? `$${selected.budgetUsd.toFixed(2)}` : "workspace default"}
-                  </KeyValue>
-                  <KeyValue label="Spent">{`$${selected.spentUsd.toFixed(4)}`}</KeyValue>
                 </div>
               </div>
+              {(selected.filesTouched?.length ?? 0) > 0 ? (
+                <div className="border-b border-line px-4 py-3">
+                  <div className="micro mb-1.5">Files touched</div>
+                  <p className="mono text-[10px] leading-relaxed text-ink-3">
+                    {selected.filesTouched.slice(0, 8).join(" · ")}
+                  </p>
+                </div>
+              ) : null}
 
               {selected.budgetUsd ? (
                 <div className="border-b border-line px-4 py-3">
@@ -1217,7 +1167,7 @@ export function GraphSpace({
                 {childrenOf.length > 0 ? (
                   <>
                     <Divider className="my-3" />
-                    <div className="micro mb-2">Direct reports · solid edges</div>
+                    <div className="micro mb-2">Reports</div>
                     <div className="flex flex-wrap gap-1.5">
                       {childrenOf.map((child) => (
                         <button
@@ -1227,24 +1177,6 @@ export function GraphSpace({
                           className="focus-ring mono rounded-xs border border-line px-1.5 py-0.5 text-[10px] text-ink-3 hover:border-line-strong hover:text-ink"
                         >
                           {child.name}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                ) : null}
-                {peers.length > 0 ? (
-                  <>
-                    <Divider className="my-3" />
-                    <div className="micro mb-2">Peer mesh · dashed</div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {peers.slice(0, 6).map((peer) => (
-                        <button
-                          key={peer.id}
-                          type="button"
-                          onClick={() => setSelectedId(peer.id)}
-                          className="focus-ring mono rounded-xs border border-dashed border-line px-1.5 py-0.5 text-[10px] text-ink-3 hover:border-line-strong hover:text-ink"
-                        >
-                          {peer.name}
                         </button>
                       ))}
                     </div>
@@ -1281,15 +1213,15 @@ export function GraphSpace({
 
             {/* view system (the live VSCode-like console) */}
             <div className="grid grid-cols-2 divide-x divide-line border-t border-line">
-              <Link href={`/agents/${selected.id}/console`} className="block hover:bg-surface-2">
+              <Link href={selected.trailHref ?? `/agents/${selected.id}/trail`} className="block hover:bg-surface-2">
                 <div className="p-3">
                   <div className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
-                    <Terminal size={12} className="text-accent" /> View System
+                    <Terminal size={12} className="text-accent" /> Trail
                   </div>
-                  <p className="mono mt-1 text-[9.5px] text-ink-4">live files · tools · chat</p>
+                  <p className="mono mt-1 text-[9.5px] text-ink-4">toolcalls · files · thought</p>
                 </div>
               </Link>
-              <Link href={`/agents/${selected.id}`} className="block border-l border-line hover:bg-surface-2">
+              <Link href={selected.consoleHref ?? `/agents/${selected.id}/console`} className="block hover:bg-surface-2">
                 <div className="p-3">
                   <div className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
                     {selected.role === "orchestrator" ? (
@@ -1299,9 +1231,9 @@ export function GraphSpace({
                     ) : (
                       <Boxes size={12} className="text-ink-3" />
                     )}
-                    Profile
+                    Filesystem
                   </div>
-                  <p className="mono mt-1 text-[9.5px] text-ink-4">grants · policy · history</p>
+                  <p className="mono mt-1 text-[9.5px] text-ink-4">sandbox · live files</p>
                 </div>
               </Link>
             </div>
@@ -1352,6 +1284,3 @@ export function GraphSpace({
   );
 }
 
-function HaloDot({ c }: { c: string }) {
-  return <span className="size-1.5 rounded-full" style={{ background: c, boxShadow: `0 0 6px ${c}` }} />;
-}

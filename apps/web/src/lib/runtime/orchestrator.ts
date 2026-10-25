@@ -13,8 +13,11 @@ import {
   TOOL_BY_NAME,
   estimateCostUsd,
   evaluatePermission,
+  resolveActionEffects,
   hardwareForComplexity,
+  isMetaModelId,
   nextAgentRank,
+  provisionMetaModel,
   resolvePrompt,
   routeModel,
   type AgentConfig,
@@ -26,12 +29,12 @@ import {
   type RunEventPayload,
   type RunStatus,
   type Scope,
+  type TaskComplexity,
 } from "@agent-os/core";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import {
   agents,
-  auditLog,
   budgetPolicies,
   promptBlocks,
   runs,
@@ -44,7 +47,9 @@ import {
   type RunRow,
   type Workspace,
 } from "@/lib/db/schema";
+import { writeAudit } from "@/lib/audit";
 import { env, newId } from "@/lib/env";
+import { recordModelTurn } from "@/lib/observability";
 import { redactSecrets } from "@/lib/secrets";
 import { createApprovalRequest, waitForApprovalDecision } from "./approvals";
 import { RunLogger } from "./emitter";
@@ -63,15 +68,19 @@ import {
   RED_TEAM_SPECIALISTS,
   scriptFor,
   SEVERITY_RUBRIC,
+  shouldSpawnAdversarialSwarm,
+  wantsDeploy,
+  type RedTeamSpecialist,
   type Scenario,
   type TeamSpecialist,
 } from "./scripts";
 import { insertHelperAgent, reactivateHelper } from "./helper-agents";
 import { AgentLifecycle, type AgentOutcome } from "./lifecycle";
-import { HEARTBEAT_MS, liveRuns } from "./reaper";
+import { cancelledRuns, HEARTBEAT_MS, liveRuns } from "./reaper";
 import { AgentSandbox } from "./sandbox";
 import { fileChildTemplateProposal } from "./template-proposals";
 import { ENGINE_TOOLS, executeTool, type ToolContext } from "./tools";
+import { parseContextDirectives, WorkspaceContextFile } from "./workspace-context";
 import type { ModelGateway, ModelMessage, ToolSpec } from "./types";
 
 const MAX_DELEGATION_DEPTH = 3;
@@ -205,6 +214,20 @@ export async function createRun(options: RunnerOptions): Promise<string> {
   return runId;
 }
 
+export async function cancelRun(runId: string): Promise<void> {
+  const db = getDb();
+  const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
+  if (!run) throw new Error("That run does not exist.");
+  if (run.status === "succeeded" || run.status === "failed" || run.status === "halted" || run.status === "cancelled") {
+    return;
+  }
+  cancelledRuns().add(runId);
+  await db
+    .update(runs)
+    .set({ status: "cancelled", failureReason: "Stopped by the operator." })
+    .where(eq(runs.id, runId));
+}
+
 /* -------------------------------------------------------------------------- */
 /* Engine                                                                     */
 /* -------------------------------------------------------------------------- */
@@ -241,6 +264,7 @@ export async function executeRun(runId: string): Promise<void> {
   } finally {
     clearInterval(timer);
     liveRuns().delete(runId);
+    cancelledRuns().delete(runId);
   }
 }
 
@@ -324,15 +348,25 @@ class RunEngine {
         root.id,
       );
 
+      await this.#applyContextDirectives(root.id);
+
       const result = await this.#runAgent(root, null, 0, null);
+      if (result.status === "succeeded") {
+        await this.#maybeSpawnAdversarialSwarm(root);
+      }
 
       const summary = redactSecrets(result.summary || "Run completed with no final message.");
-      const status: RunStatus =
-        this.#status === "halted" || result.status === "halted" ? "halted" : result.status;
+      const status: RunStatus = this.#isCancelled()
+        ? "cancelled"
+        : this.#status === "halted" || result.status === "halted"
+          ? "halted"
+          : result.status;
       const reason =
-        status === "halted"
-          ? `Halted by the run budget ceiling ($${this.run.budgetUsd.toFixed(2)}).`
-          : null;
+        status === "cancelled"
+          ? "Stopped by the operator."
+          : status === "halted"
+            ? `Halted by the run budget ceiling ($${this.run.budgetUsd.toFixed(2)}).`
+            : null;
 
       await this.#endAll(status === "succeeded" ? "done" : "failed");
       await this.logger.emit(
@@ -420,6 +454,9 @@ class RunEngine {
     if (depth > MAX_DELEGATION_DEPTH) {
       return { status: "failed", summary: "Delegation depth limit reached." };
     }
+    if (this.#isCancelled()) {
+      return { status: "failed", summary: "Stopped by the operator." };
+    }
     if (this.#isHalted()) {
       return { status: "halted", summary: "Budget ceiling reached." };
     }
@@ -487,12 +524,21 @@ class RunEngine {
     const gateway: ModelGateway =
       this.#liveGateway ??
       new ScriptedGateway(
-        bindCase(scriptFor(this.#scenario, agent.name, agent.role as AgentRole), caseIdFromGoal(this.run.goal)),
+        bindCase(
+          scriptFor(this.#scenario, agent.name, agent.role as AgentRole, this.run.goal),
+          caseIdFromGoal(this.run.goal),
+        ),
         { chunkDelayMs: 0 },
       );
 
+    const contextFile = new WorkspaceContextFile(env.sandboxRoot, this.run.workspaceId);
+    contextFile.ensure();
+
     const messages: ModelMessage[] = [
-      { role: "system", content: `${prompt.text}${specialistRoster(agent)}${delegationGuidance(agent)}` },
+      {
+        role: "system",
+        content: `${prompt.text}${specialistRoster(agent)}${delegationGuidance(agent)}${contextFile.promptBlock()}`,
+      },
       {
         role: "user",
         content:
@@ -512,6 +558,10 @@ class RunEngine {
     );
 
     for (let step = 0; step < agent.maxSteps; step++) {
+      if (this.#isCancelled()) {
+        this.#status = "cancelled";
+        return { status: "failed", summary: "Stopped by the operator." };
+      }
       if (this.#isHalted()) {
         return { status: "halted", summary: "Budget ceiling reached mid-task." };
       }
@@ -620,6 +670,7 @@ class RunEngine {
       );
 
       let text = "";
+      let thinking = "";
       let usage: { inputTokens: number; outputTokens: number } | null = null;
       const calls: Array<{ id: string; name: string; args: Record<string, unknown> }> = [];
 
@@ -635,6 +686,7 @@ class RunEngine {
           MODEL_BY_ID.get(stepModel)?.provider === "meta" ? "medium" : undefined,
       })) {
         if (chunk.type === "text") text += chunk.text;
+        if (chunk.type === "thinking") thinking += chunk.text;
         if (chunk.type === "usage") usage = chunk;
         if (chunk.type === "tool_call") calls.push(chunk.call);
       }
@@ -665,6 +717,23 @@ class RunEngine {
           },
           agent.id,
         );
+        if (this.#live) {
+          await recordModelTurn({
+            workspaceId: this.run.workspaceId,
+            source: "run",
+            runId: this.run.id,
+            agentId: agent.id,
+            agentName: agent.name,
+            model: stepModel,
+            step,
+            messages,
+            completion: text,
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            costUsd: Number(cost.toFixed(6)),
+            dataClass: this.run.dataClass,
+          });
+        }
         await this.#persistProgress();
       } else if (this.#live) {
         // The provider streamed no usage for a live call. Say so loudly:
@@ -675,6 +744,19 @@ class RunEngine {
             level: "warn",
             message: `live gateway returned no usage for model ${stepModel}; cost not recorded`,
             agentId: agent.id,
+          },
+          agent.id,
+        );
+      }
+
+      if (thinking.trim()) {
+        await this.logger.emit(
+          {
+            type: "log",
+            level: "info",
+            message: redactSecrets(thinking.trim()),
+            agentId: agent.id,
+            fields: { channel: "thinking" },
           },
           agent.id,
         );
@@ -729,6 +811,10 @@ class RunEngine {
     const names = new Set(agent.allowedTools.filter((name) => !CASE_TOOL_BY_NAME.has(name) || mayUseCaseTool(agent, name)));
     if (mayDelegate(agent)) names.add("agent.delegate");
     if (agent.role === "security" && agent.team !== "blue") names.add("security.report");
+    names.add("context.read");
+    if (agent.role === "orchestrator" || names.has("fs.write") || names.has("context.write")) {
+      names.add("context.write");
+    }
 
     return [...names]
       .map((name) => TOOL_BY_NAME.get(name) ?? CASE_TOOL_BY_NAME.get(name))
@@ -748,6 +834,10 @@ class RunEngine {
             agent: { type: "string" },
             title: { type: "string" },
             task: { type: "string" },
+            model: { type: "string" },
+            complexity: { type: "string" },
+            include: { type: "string" },
+            remove: { type: "string" },
             summary: { type: "string" },
             scope: { type: "string" },
             kind: { type: "string" },
@@ -863,14 +953,18 @@ class RunEngine {
         })()
       : undefined;
 
-    const decision = evaluatePermission({
-      resource: call.name,
-      scopes,
-      risk,
-      agentGrants: agent.grants,
-      path,
-      host,
-    });
+    const decision = evaluatePermission(
+      {
+        resource: call.name,
+        scopes,
+        risk,
+        agentGrants: agent.grants,
+        path,
+        host,
+      },
+      undefined,
+      resolveActionEffects(this.workspace.actionEffects),
+    );
 
     if (decision.effect === "deny") {
       return this.#toolFailure(
@@ -944,8 +1038,7 @@ class RunEngine {
           agent.id,
         );
 
-        await getDb().insert(auditLog).values({
-          id: newId("aud"),
+        await writeAudit({
           workspaceId: this.run.workspaceId,
           actor: resolution.decidedBy,
           action: `approval.${resolution.decision}`,
@@ -957,7 +1050,6 @@ class RunEngine {
             resource: call.name,
             note: resolution.note,
           },
-          at: new Date(),
         });
 
         await this.#setStatus("running");
@@ -1126,6 +1218,20 @@ class RunEngine {
       Object.assign(child, revived);
     }
 
+    const requestedModel = argsString(call.args, "model");
+    const complexity = complexityForTask(task, argsString(call.args, "complexity"));
+    const pinned =
+      requestedModel && isMetaModelId(requestedModel)
+        ? requestedModel
+        : provisionMetaModel(complexity, this.workspace.deniedModelIds);
+    child.modelPolicy = {
+      ...child.modelPolicy,
+      mode: "pinned",
+      pinnedModelId: pinned,
+      floorComplexity: complexity === "trivial" ? "standard" : complexity,
+    };
+    child.complexity = complexity;
+
     const childTaskId = newId("tsk");
     await this.logger.emit(
       {
@@ -1255,7 +1361,7 @@ class RunEngine {
         instructions: spec.instructions,
         defaultGoal: "",
         inheritedPromptBlockIds: parent.inheritedPromptBlockIds,
-        modelPolicy: specialistPolicy(),
+        modelPolicy: pinnedMetaPolicy("complex", this.workspace.deniedModelIds),
         grants,
         allowedTools: tools,
         complexity: "complex",
@@ -1341,10 +1447,13 @@ class RunEngine {
         ].join("\n"),
         defaultGoal: "",
         inheritedPromptBlockIds: parent.inheritedPromptBlockIds,
-        modelPolicy: specialistPolicy(),
+        modelPolicy: pinnedMetaPolicy(
+          complexityForTask(task),
+          this.workspace.deniedModelIds,
+        ),
         grants: grantsForSpecialist(tools),
         allowedTools: tools,
-        complexity: "standard",
+        complexity: complexityForTask(task),
         maxSteps: 6,
         dataClass: parent.dataClass,
         status: "active",
@@ -1561,6 +1670,14 @@ class RunEngine {
     return this.#status === "halted";
   }
 
+  #isCancelled(): boolean {
+    if (cancelledRuns().has(this.run.id)) {
+      this.#status = "cancelled";
+      return true;
+    }
+    return this.#status === "cancelled";
+  }
+
   async #setStatus(status: RunStatus, failureReason?: string): Promise<void> {
     this.#status = status;
     await getDb()
@@ -1582,6 +1699,153 @@ class RunEngine {
         status: this.#status,
       })
       .where(eq(runs.id, this.run.id));
+  }
+
+  async #applyContextDirectives(agentId: string): Promise<void> {
+    const file = new WorkspaceContextFile(env.sandboxRoot, this.run.workspaceId);
+    file.ensure();
+    for (const directive of parseContextDirectives(this.run.goal)) {
+      file.apply(directive);
+      await this.logger.emit(
+        {
+          type: "log",
+          level: "info",
+          message: `CONTEXT.md ${directive.op}: ${directive.text}`,
+          agentId,
+        },
+        agentId,
+      );
+    }
+  }
+
+  async #maybeSpawnAdversarialSwarm(root: AgentRow): Promise<void> {
+    const hasRedTeam = this.agentRows.some(
+      (row) =>
+        row.parentAgentId === root.id &&
+        row.role === "security" &&
+        row.status !== "archived",
+    );
+    if (
+      !shouldSpawnAdversarialSwarm({
+        goal: this.run.goal,
+        rootRole: root.role,
+        hasRedTeam,
+        securityRun: this.#scenario === "security",
+      })
+    ) {
+      return;
+    }
+
+    const lead = await this.#ensureRedTeamLead(root);
+    const childTaskId = newId("tsk");
+    const brief = wantsDeploy(this.run.goal)
+      ? "The parent just finished. Deploy the change in this workspace yourself, then stand up Injection Prober, Escalation Prober, and Egress Prober and return their findings."
+      : "The parent just finished. Stand up Injection Prober, Escalation Prober, and Egress Prober against the work that landed and return their findings.";
+
+    await this.logger.emit(
+      {
+        type: "task.created",
+        taskId: childTaskId,
+        agentId: lead.id,
+        parentTaskId: null,
+        title: "Adversarial swarm",
+        detail: brief,
+      },
+      lead.id,
+    );
+    await this.logger.emit({ type: "task.updated", taskId: childTaskId, status: "running" }, lead.id);
+    await this.logger.emit(
+      {
+        type: "handoff",
+        fromAgentId: root.id,
+        toAgentId: lead.id,
+        summary: `${root.name} → ${lead.name}: adversarial pass`,
+      },
+      lead.id,
+    );
+
+    const result = await this.#runAgent(lead, childTaskId, 1, brief, root.id);
+    await this.logger.emit(
+      {
+        type: "task.updated",
+        taskId: childTaskId,
+        status: result.status === "succeeded" ? "succeeded" : "failed",
+        note: redactSecrets(result.summary).slice(0, 400),
+      },
+      lead.id,
+    );
+  }
+
+  async #ensureRedTeamLead(parent: AgentRow): Promise<AgentRow> {
+    const existing = this.agentRows.find(
+      (row) =>
+        row.parentAgentId === parent.id &&
+        row.role === "security" &&
+        redTeamSpecialist(row.name) === undefined,
+    );
+    if (existing) {
+      if (existing.status === "archived") {
+        const revived = await reactivateHelper(existing);
+        Object.assign(existing, revived);
+      }
+      return existing;
+    }
+
+    const now = new Date();
+    const id = newId("agt");
+    const tools = [
+      "agent.delegate",
+      "fs.read",
+      "fs.write",
+      "fs.list",
+      "kb.search",
+      "http.fetch",
+      "context.read",
+      "security.report",
+    ];
+    const { row: created } = await insertHelperAgent({
+      id,
+      workspaceId: parent.workspaceId,
+      name: "Red Team",
+      slug: "red-team",
+      role: "security",
+      rank: childRank(parent) === "grunt" ? "intermediate" : childRank(parent),
+      team: "red",
+      canSpawnSubagents: true,
+      proposeTemplates: false,
+      parentAgentId: parent.id,
+      summary: "Adversarial swarm lead. Deploys when asked, then stands up probe specialists.",
+      instructions: [
+        "You lead the red team.",
+        "If the operator asked for a deploy, perform it in this workspace yourself first.",
+        "Then do not run the probe vectors yourself. Delegate each one: Injection Prober, Escalation Prober, Egress Prober.",
+        "Each specialist files its own finding. A denied credential request is the control working, not a finding.",
+      ].join(" "),
+      defaultGoal: "",
+      inheritedPromptBlockIds: parent.inheritedPromptBlockIds,
+      modelPolicy: pinnedMetaPolicy("complex", this.workspace.deniedModelIds),
+      grants: grantsForSpecialist(tools),
+      allowedTools: tools,
+      complexity: "complex",
+      maxSteps: 12,
+      dataClass: parent.dataClass,
+      status: "active",
+      version: 1,
+      templateId: parent.templateId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    if (!this.agentRows.some((row) => row.id === created.id)) this.agentRows.push(created);
+    await this.logger.emit(
+      {
+        type: "log",
+        level: "info",
+        message: `${parent.name} stood up ${created.name} (${created.id}) as an adversarial swarm lead.`,
+        agentId: parent.id,
+      },
+      parent.id,
+    );
+    return created;
   }
 
   async #finish(status: RunStatus, summary: string, reason: string | null): Promise<void> {
@@ -1708,13 +1972,27 @@ function specialistTools(tools: readonly string[]): string[] {
   });
 }
 
-function specialistPolicy(): ModelPolicy {
+function complexityForTask(task: string, requested?: string | null): TaskComplexity {
+  if (
+    requested === "trivial" ||
+    requested === "standard" ||
+    requested === "complex" ||
+    requested === "critical"
+  ) {
+    return requested;
+  }
+  if (/(critical|production|security|exploit|red.?team)/i.test(task)) return "complex";
+  if (/(lookup|list|summar|triage|draft|status update)/i.test(task)) return "trivial";
+  return "standard";
+}
+
+function pinnedMetaPolicy(complexity: TaskComplexity, deniedModelIds: readonly string[]): ModelPolicy {
   return {
-    mode: "auto",
-    pinnedModelId: null,
-    costSensitivity: 0.15,
-    latencySensitivity: 0.1,
-    floorComplexity: "complex",
+    mode: "pinned",
+    pinnedModelId: provisionMetaModel(complexity, deniedModelIds),
+    costSensitivity: complexity === "trivial" ? 0.75 : 0.2,
+    latencySensitivity: 0.15,
+    floorComplexity: complexity === "trivial" ? "standard" : complexity,
     deniedModelIds: [],
   };
 }

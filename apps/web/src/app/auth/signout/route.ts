@@ -17,5 +17,6 @@ export async function POST(request: NextRequest) {
       provider: "google",
     });
   }
-  return NextResponse.redirect(new URL("/login", request.url));
+  // 303 so the browser follows with GET, not a repeat of this POST.
+  return NextResponse.redirect(new URL("/login", request.url), 303);
 }

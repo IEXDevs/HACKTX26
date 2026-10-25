@@ -12,6 +12,7 @@ import {
   Users,
 } from "lucide-react";
 import {
+  AGENT_RANK_LABEL,
   MODEL_BY_ID,
   hardwareForComplexity,
   resolvePrompt,
@@ -19,6 +20,7 @@ import {
   type DataClass,
   type TaskComplexity,
 } from "@agent-os/core";
+import { TemplateProposals } from "@/components/agents/template-proposals";
 import { DispatchPanel } from "@/components/dispatch/dispatch-panel";
 import {
   DataTable,
@@ -44,14 +46,18 @@ export const dynamic = "force-dynamic";
 
 export default async function AgentProfilePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ tab?: string }>;
 }) {
   const { id } = await params;
+  const { tab } = await searchParams;
   const detail = await getAgentDetail(id);
   if (!detail) notFound();
 
-  const { agent, parent, children, blocks, runs, suites, findings, triggers, budget } = detail;
+  const { agent, parent, children, blocks, runs, suites, findings, triggers, budget, proposals } = detail;
+  const pendingProposals = proposals.filter((proposal) => proposal.status === "pending").length;
   const ctx = await getWorkspaceContext();
   const policies = await listBudgetPolicies(agent.workspaceId);
 
@@ -96,9 +102,9 @@ export default async function AgentProfilePage({
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow={`${agent.role} · ${agent.id} · v${agent.version}`}
+        eyebrow={`${AGENT_RANK_LABEL[agent.rank]} · ${agent.role} · ${agent.id} · v${agent.version}`}
         title={agent.name}
-        description={agent.summary}
+        description={`${agent.summary} Dynamic subagents ${agent.canSpawnSubagents ? "on" : "off"}. Template proposals ${agent.proposeTemplates ? "on" : "off"}.`}
         actions={
           <>
             <Link
@@ -125,6 +131,47 @@ export default async function AgentProfilePage({
           </>
         }
       />
+
+      <nav className="flex gap-4 border-b border-line">
+        <Link
+          href={`/agents/${agent.id}`}
+          className={cn(
+            "focus-ring -mb-px border-b pb-2 text-[12px]",
+            tab === "proposals" ? "border-transparent text-ink-3" : "border-accent text-ink",
+          )}
+        >
+          Profile
+        </Link>
+        <Link
+          href={`/agents/${agent.id}?tab=proposals`}
+          className={cn(
+            "focus-ring -mb-px inline-flex items-center gap-2 border-b pb-2 text-[12px]",
+            tab === "proposals" ? "border-accent text-ink" : "border-transparent text-ink-3",
+          )}
+        >
+          Template proposals
+          {pendingProposals > 0 ? <Tag tone="warn">{pendingProposals}</Tag> : null}
+        </Link>
+      </nav>
+
+      {tab === "proposals" ? (
+        <TemplateProposals
+          proposals={proposals.map((proposal) => ({
+            id: proposal.id,
+            name: proposal.name,
+            summary: proposal.summary,
+            instructions: proposal.instructions,
+            tools: proposal.tools,
+            role: proposal.role,
+            complexity: proposal.complexity,
+            reason: proposal.reason,
+            status: proposal.status,
+            templateId: proposal.templateId,
+            createdAt: proposal.createdAt.toISOString(),
+          }))}
+        />
+      ) : (
+      <div className="contents">
 
       <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-line bg-line lg:grid-cols-5">
         {[
@@ -595,6 +642,8 @@ export default async function AgentProfilePage({
           />
         </div>
       </Panel>
+      </div>
+      )}
     </div>
   );
 }

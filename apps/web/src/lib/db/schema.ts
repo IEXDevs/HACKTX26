@@ -1,4 +1,5 @@
 import type {
+  AgentRank,
   AgentRole,
   BudgetPolicy,
   DataClass,
@@ -97,6 +98,31 @@ export const templates = sqliteTable(
   (t) => [uniqueIndex("templates_key_idx").on(t.key)],
 );
 
+export const templateProposals = sqliteTable(
+  "template_proposals",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    parentAgentId: text("parent_agent_id").notNull(),
+    runId: text("run_id"),
+    name: text("name").notNull(),
+    summary: text("summary").notNull(),
+    instructions: text("instructions").notNull(),
+    tools: text("tools", { mode: "json" }).$type<string[]>().notNull().default(sql`'[]'`),
+    role: text("role").$type<AgentRole>().notNull(),
+    complexity: text("complexity").$type<TaskComplexity>().notNull().default("standard"),
+    reason: text("reason").notNull(),
+    status: text("status", { enum: ["pending", "saved", "dismissed"] })
+      .notNull()
+      .default("pending"),
+    templateId: text("template_id"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [index("template_proposals_parent_idx").on(t.parentAgentId)],
+);
+
 export const promptBlocks = sqliteTable("prompt_blocks", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
@@ -120,6 +146,9 @@ export const agents = sqliteTable(
     name: text("name").notNull(),
     slug: text("slug").notNull(),
     role: text("role").$type<AgentRole>().notNull(),
+    rank: text("rank").$type<AgentRank>().notNull().default("grunt"),
+    /** When set, this agent may create a child one rank below. Grunts cannot. */
+    canSpawnSubagents: integer("can_spawn_subagents", { mode: "boolean" }).notNull().default(false),
     parentAgentId: text("parent_agent_id"),
     summary: text("summary").notNull().default(""),
     instructions: text("instructions").notNull(),
@@ -151,6 +180,8 @@ export const agents = sqliteTable(
      * were seeded or instantiated from a template. Dispatch prefills from this.
      */
     defaultGoal: text("default_goal").notNull().default(""),
+    /** When set, reusable children are filed as templates the operator must approve. */
+    proposeTemplates: integer("propose_templates", { mode: "boolean" }).notNull().default(false),
   },
   (t) => [
     uniqueIndex("agents_workspace_slug_idx").on(t.workspaceId, t.slug),

@@ -137,12 +137,13 @@ export const TOOL_MANIFEST: readonly ToolManifestEntry[] = [
   {
     name: "agent.delegate",
     label: "Delegate",
-    description: "Spawn a subagent from the graph and assign it a bounded task.",
+    description:
+      "Hand a bounded subtask to a child grunt that reports back to you. Use it when the work is narrower than the decision you owe: a lookup, a file read, a draft, or a check. Do not use it for the final decision, a credential, or your whole goal. If no child with that name exists, one is created under you and reused later.",
     category: "meta",
     scopes: ["read"],
     risk: "low",
     sandboxedToAgentFs: false,
-    argsHint: "{ agent: string, title: string, task: string }",
+    argsHint: "{ agent: string, title: string, task: string, tools?: string[] }",
   },
   {
     name: "security.report",

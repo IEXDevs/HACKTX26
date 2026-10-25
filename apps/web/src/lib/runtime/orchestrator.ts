@@ -14,11 +14,15 @@ import {
   estimateCostUsd,
   evaluatePermission,
   hardwareForComplexity,
+  nextAgentRank,
   resolvePrompt,
   routeModel,
   type AgentConfig,
+  type AgentRank,
   type AgentRole,
   type DataClass,
+  type ModelPolicy,
+  type PermissionGrant,
   type RunEventPayload,
   type RunStatus,
   type Scope,
@@ -46,8 +50,18 @@ import { createApprovalRequest, waitForApprovalDecision } from "./approvals";
 import { RunLogger } from "./emitter";
 import { createLiveGateway, liveGatewayAvailable } from "./gateway";
 import { ScriptedGateway } from "./gateway-scripted";
-import { detectScenario, scriptFor, type Scenario } from "./scripts";
+import {
+  DELEGATION_GUIDANCE,
+  detectScenario,
+  gruntTools,
+  redTeamSpecialist,
+  RED_TEAM_SPECIALISTS,
+  scriptFor,
+  type RedTeamSpecialist,
+  type Scenario,
+} from "./scripts";
 import { AgentSandbox } from "./sandbox";
+import { fileChildTemplateProposal } from "./template-proposals";
 import { ENGINE_TOOLS, executeTool, type ToolContext } from "./tools";
 import type { ModelGateway, ModelMessage, ToolSpec } from "./types";
 
@@ -400,7 +414,7 @@ class RunEngine {
       });
 
     const messages: ModelMessage[] = [
-      { role: "system", content: prompt.text },
+      { role: "system", content: `${prompt.text}${specialistRoster(agent)}${delegationGuidance(agent)}` },
       {
         role: "user",
         content:
@@ -648,7 +662,7 @@ class RunEngine {
 
   #toolSpecs(agent: AgentRow): ToolSpec[] {
     const names = new Set(agent.allowedTools);
-    if (agent.role === "orchestrator") names.add("agent.delegate");
+    if (mayDelegate(agent)) names.add("agent.delegate");
     if (agent.role === "security") names.add("security.report");
 
     return [...names]
@@ -726,7 +740,7 @@ class RunEngine {
     }
 
     const roleAllowed =
-      (call.name === "agent.delegate" && agent.role === "orchestrator") ||
+      (call.name === "agent.delegate" && mayDelegate(agent)) ||
       (call.name === "security.report" && agent.role === "security") ||
       agent.allowedTools.includes(call.name);
 
@@ -953,17 +967,54 @@ class RunEngine {
     if (!requested) {
       return { ok: false, preview: "", error: "agent.delegate requires an agent name." };
     }
+    if (agent.rank === "grunt") {
+      return { ok: false, preview: "", error: "Grunts cannot create or delegate to subagents." };
+    }
 
     const normalised = requested.toLowerCase();
-    const child =
-      this.agentRows.find(
-        (row) =>
-          row.parentAgentId === agent.id &&
-          (row.name.toLowerCase() === normalised || row.id === requested || row.slug === normalised),
-      ) ??
-      this.agentRows.find(
-        (row) => row.name.toLowerCase() === normalised || row.id === requested,
-      );
+    const nameMatch = (row: AgentRow) =>
+      row.name.toLowerCase() === normalised || row.id === requested || row.slug === normalised;
+
+    let child = this.agentRows.find((row) => row.parentAgentId === agent.id && nameMatch(row));
+
+    if (!child && isProbeLead(agent)) {
+      if (!agent.canSpawnSubagents) {
+        return {
+          ok: false,
+          preview: "",
+          error: `${agent.name} does not have dynamic subagent creation turned on.`,
+        };
+      }
+      const spec = redTeamSpecialist(requested);
+      if (!spec) {
+        const names = RED_TEAM_SPECIALISTS.map((item) => item.name).join(", ");
+        return {
+          ok: false,
+          preview: "",
+          error: `${agent.name} can only stand up a probe specialist: ${names}.`,
+        };
+      }
+      child = await this.#spawnSpecialist(agent, spec);
+    }
+
+    if (!child && mayDelegate(agent)) {
+      const existing = this.agentRows.find(nameMatch);
+      if (existing) {
+        child = existing;
+      } else if (!agent.canSpawnSubagents) {
+        return {
+          ok: false,
+          preview: "",
+          error: `${agent.name} does not have dynamic subagent creation turned on.`,
+        };
+      } else {
+        child = await this.#spawnGrunt(agent, requested, task, call.args.tools);
+      }
+    }
+
+    if (!child) {
+      child = this.agentRows.find(nameMatch);
+    }
 
     if (!child) {
       return {
@@ -1029,9 +1080,186 @@ class RunEngine {
 
     return {
       ok: result.status === "succeeded",
-      preview: `${child.name} (${childTaskId}) ${result.status} in ${Date.now() - started}ms\n${redactSecrets(result.summary).slice(0, 900)}`,
+      preview: `Report from ${child.name} to ${agent.name} (${childTaskId}) ${result.status} in ${Date.now() - started}ms\n${redactSecrets(result.summary).slice(0, 900)}`,
       ...(result.status === "succeeded" ? {} : { error: `${child.name} did not complete.` }),
     };
+  }
+
+  /** Insert a probe specialist under the lead and keep it for later runs. */
+  async #spawnSpecialist(parent: AgentRow, spec: RedTeamSpecialist): Promise<AgentRow> {
+    const now = new Date();
+    const id = newId("agt");
+    const slugTaken = this.agentRows.some(
+      (row) => row.workspaceId === parent.workspaceId && row.slug === spec.slug,
+    );
+    const slug = slugTaken ? `${spec.slug}-${id.slice(4, 8)}` : spec.slug;
+    const grants = grantsForSpecialist(spec.tools);
+
+    const [created] = await getDb()
+      .insert(agents)
+      .values({
+        id,
+        workspaceId: parent.workspaceId,
+        name: spec.name,
+        slug,
+        role: "security",
+        rank: childRank(parent),
+        canSpawnSubagents: false,
+        proposeTemplates: false,
+        parentAgentId: parent.id,
+        summary: spec.summary,
+        instructions: spec.instructions,
+        defaultGoal: "",
+        inheritedPromptBlockIds: parent.inheritedPromptBlockIds,
+        modelPolicy: specialistPolicy(),
+        grants,
+        allowedTools: spec.tools,
+        complexity: "complex",
+        maxSteps: 8,
+        dataClass: parent.dataClass,
+        status: "active",
+        version: 1,
+        templateId: parent.templateId,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+
+    if (!created) throw new Error(`Failed to create specialist ${spec.name}.`);
+
+    this.agentRows.push(created);
+
+    await this.logger.emit(
+      {
+        type: "log",
+        level: "info",
+        message: `${parent.name} created red-team specialist ${spec.name} (${created.id}).`,
+        agentId: parent.id,
+      },
+      parent.id,
+    );
+    await this.#noteTemplateProposal(parent, {
+      name: created.name,
+      summary: created.summary,
+      instructions: created.instructions,
+      tools: created.allowedTools,
+      role: "security",
+      complexity: "complex",
+      reason: `${parent.name} stood up ${created.name} as a probe it will reuse on later runs.`,
+    });
+
+    return created;
+  }
+
+  /** A child worker with a narrower tool set. It reports back and cannot delegate. */
+  async #spawnGrunt(
+    parent: AgentRow,
+    name: string,
+    task: string,
+    requestedTools: unknown,
+  ): Promise<AgentRow> {
+    const now = new Date();
+    const id = newId("agt");
+    const cleanName = name.replace(/\s+/g, " ").trim().slice(0, 64);
+    const slugBase = cleanName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "")
+      .slice(0, 48) || "grunt";
+    const slugTaken = this.agentRows.some(
+      (row) => row.workspaceId === parent.workspaceId && row.slug === slugBase,
+    );
+    const slug = slugTaken ? `${slugBase}-${id.slice(4, 8)}` : slugBase;
+    const requested = Array.isArray(requestedTools)
+      ? requestedTools.filter((tool): tool is string => typeof tool === "string")
+      : undefined;
+    const tools = gruntTools(parent.allowedTools, requested);
+
+    const [created] = await getDb()
+      .insert(agents)
+      .values({
+        id,
+        workspaceId: parent.workspaceId,
+        name: cleanName,
+        slug,
+        role: "worker",
+        rank: childRank(parent),
+        canSpawnSubagents: false,
+        proposeTemplates: false,
+        parentAgentId: parent.id,
+        summary: `Grunt for ${parent.name}. Reports only to that parent.`,
+        instructions: [
+          `You are ${cleanName}, a grunt reporting to ${parent.name}.`,
+          "Do only the task your parent assigned. Return a short factual report: what you did, what you found, and the sources.",
+          "Do not widen the task, do not make the parent's decision, and do not delegate.",
+          `The task you were created for: ${task}`,
+        ].join("\n"),
+        defaultGoal: "",
+        inheritedPromptBlockIds: parent.inheritedPromptBlockIds,
+        modelPolicy: specialistPolicy(),
+        grants: grantsForSpecialist(tools),
+        allowedTools: tools,
+        complexity: "standard",
+        maxSteps: 6,
+        dataClass: parent.dataClass,
+        status: "active",
+        version: 1,
+        templateId: parent.templateId,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+
+    if (!created) throw new Error(`Failed to create grunt ${cleanName}.`);
+    this.agentRows.push(created);
+    await this.logger.emit(
+      {
+        type: "log",
+        level: "info",
+        message: `${parent.name} created grunt ${created.name} (${created.id}). It reports back to the parent.`,
+        agentId: parent.id,
+      },
+      parent.id,
+    );
+    await this.#noteTemplateProposal(parent, {
+      name: created.name,
+      summary: created.summary,
+      instructions: created.instructions,
+      tools: created.allowedTools,
+      role: "worker",
+      complexity: "standard",
+      reason: `${parent.name} created ${created.name} for a bounded task it expects to hand off again.`,
+    });
+    return created;
+  }
+
+  async #noteTemplateProposal(
+    parent: AgentRow,
+    proposal: {
+      name: string;
+      summary: string;
+      instructions: string;
+      tools: string[];
+      role: "worker" | "security";
+      complexity: "standard" | "complex";
+      reason: string;
+    },
+  ): Promise<void> {
+    const filed = await fileChildTemplateProposal({
+      parent,
+      runId: this.run.id,
+      ...proposal,
+    });
+    if (!filed) return;
+    await this.logger.emit(
+      {
+        type: "log",
+        level: "info",
+        message: `${parent.name} proposed a reusable template for ${proposal.name}. It is waiting for approval.`,
+        agentId: parent.id,
+      },
+      parent.id,
+    );
   }
 
   async #reportFinding(
@@ -1220,4 +1448,71 @@ class RunEngine {
         .where(eq(triggers.id, this.run.triggerId));
     }
   }
+}
+
+function mayDelegate(agent: AgentRow): boolean {
+  return agent.rank !== "grunt";
+}
+
+function childRank(parent: AgentRow): AgentRank {
+  return nextAgentRank(parent.rank) ?? "grunt";
+}
+
+function delegationGuidance(agent: AgentRow): string {
+  if (agent.rank === "grunt") {
+    return "\n\nYou are a grunt. Do the assigned task and report upward. You cannot create subagents or propose templates.";
+  }
+  const spawn = agent.canSpawnSubagents
+    ? " Dynamic subagent creation is on: a missing child is created one rank below you."
+    : " Dynamic subagent creation is off: you can only delegate to a child that already exists.";
+  const approval = agent.proposeTemplates
+    ? " Template proposal is on: a reusable child is filed for the operator to approve."
+    : "";
+  return `\n\n${DELEGATION_GUIDANCE}${spawn}${approval}`;
+}
+
+function isProbeLead(agent: AgentRow): boolean {
+  return (
+    agent.role === "security" &&
+    agent.rank !== "grunt" &&
+    redTeamSpecialist(agent.name) === undefined
+  );
+}
+
+function specialistRoster(agent: AgentRow): string {
+  if (!isProbeLead(agent)) return "";
+  const names = RED_TEAM_SPECIALISTS.map((spec) => spec.name).join(", ");
+  return [
+    "",
+    "",
+    "You lead the probe. Do not run the vectors yourself.",
+    `Delegate each one with agent.delegate. A specialist is created on first use and reused after that: ${names}.`,
+    "Each specialist files its own finding. A denied credential request is the control working, not a finding.",
+  ].join("\n");
+}
+
+function specialistPolicy(): ModelPolicy {
+  return {
+    mode: "auto",
+    pinnedModelId: null,
+    costSensitivity: 0.15,
+    latencySensitivity: 0.1,
+    floorComplexity: "complex",
+    deniedModelIds: [],
+  };
+}
+
+function grantsForSpecialist(tools: readonly string[]): PermissionGrant[] {
+  const grants: PermissionGrant[] = [];
+  for (const tool of tools) {
+    const entry = TOOL_BY_NAME.get(tool);
+    if (!entry || (entry.risk !== "low" && entry.risk !== "medium")) continue;
+    grants.push({
+      resource: entry.name,
+      scopes: entry.scopes,
+      grantedBy: "red-team-lead",
+      note: "Standing grant for a spawned probe specialist.",
+    });
+  }
+  return grants;
 }

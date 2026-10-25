@@ -26,6 +26,9 @@ const Body = z.object({
   useCase: z.string().max(4_000).optional(),
   source: z.enum(["live", "scripted"]).optional(),
   model: z.string().max(80).nullable().optional(),
+  proposeTemplates: z.boolean().optional(),
+  canSpawnSubagents: z.boolean().optional(),
+  rank: z.enum(["orchestrator", "intermediate", "intermediate_2", "grunt"]).optional(),
 });
 
 function slugify(value: string): string {
@@ -105,12 +108,17 @@ export async function POST(request: NextRequest) {
     .where(and(eq(promptBlocks.workspaceId, workspace.id), eq(promptBlocks.level, "org")));
 
   const complexity = data.complexity;
+  const rank = data.rank ?? "orchestrator";
+  const grunt = rank === "grunt";
   await db.insert(agents).values({
     id,
     workspaceId: workspace.id,
     name: data.name.trim(),
     slug,
     role: "orchestrator",
+    rank,
+    canSpawnSubagents: grunt ? false : (data.canSpawnSubagents ?? false),
+    proposeTemplates: grunt ? false : (data.proposeTemplates ?? false),
     parentAgentId: null,
     summary: data.summary.trim(),
     instructions: data.instructions.trim(),
@@ -155,6 +163,9 @@ export async function POST(request: NextRequest) {
       complexity,
       tools: allowedTools,
       useCase: data.useCase?.slice(0, 500) ?? null,
+      proposeTemplates: grunt ? false : (data.proposeTemplates ?? false),
+      canSpawnSubagents: grunt ? false : (data.canSpawnSubagents ?? false),
+      rank,
     },
     at: now,
   });

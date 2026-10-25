@@ -8,6 +8,36 @@
  */
 import { z } from "zod";
 import { AgentRoleSchema, DataClassSchema } from "./events";
+
+/** Creation-time place in the delegation tree. Grunts are the floor. */
+export const AgentRankSchema = z.enum([
+  "orchestrator",
+  "intermediate",
+  "intermediate_2",
+  "grunt",
+]);
+export type AgentRank = z.infer<typeof AgentRankSchema>;
+
+export const AGENT_RANK_LABEL: Record<AgentRank, string> = {
+  orchestrator: "Orchestrator",
+  intermediate: "Intermediate",
+  intermediate_2: "Intermediate II",
+  grunt: "Grunt",
+};
+
+/** The rank a parent may create. Grunts have no rank beneath them. */
+export function nextAgentRank(rank: AgentRank): AgentRank | null {
+  switch (rank) {
+    case "orchestrator":
+      return "intermediate";
+    case "intermediate":
+      return "intermediate_2";
+    case "intermediate_2":
+      return "grunt";
+    case "grunt":
+      return null;
+  }
+}
 import { PermissionGrantSchema } from "./permissions";
 import { TaskComplexitySchema } from "./models";
 

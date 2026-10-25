@@ -15,6 +15,20 @@
       "when": 1792882600000,
       "tag": "0001_agent_default_goal",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792882800000,
+      "tag": "0002_template_proposals",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1792882900000,
+      "tag": "0003_agent_ranks",
+      "breakpoints": true
     }
   ]
 }

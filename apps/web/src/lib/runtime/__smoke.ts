@@ -7,8 +7,8 @@
  * stream. This is the script used to prove the pipeline before the UI exists.
  */
 import { eq } from "drizzle-orm";
-import { ensureBootstrapped } from "../bootstrap";
 import { getDb } from "../db/client";
+import { seedDatabase } from "../db/seed";
 import {
   approvals,
   runEvents,
@@ -105,7 +105,8 @@ async function inspect(runId: string, workspaceId: string, agentIds: string[]) {
 }
 
 async function main() {
-  await ensureBootstrapped();
+  // The smoke runs name sample agents, so it seeds the sample company. Boot does not.
+  await seedDatabase();
   const db = getDb();
   const [workspace] = await db.select().from(workspaces).limit(1);
   if (!workspace) throw new Error("No workspace; seed failed.");

@@ -11,13 +11,15 @@ import type { DataClass, RunEventPayload } from "@agent-os/core";
 import { and, desc, eq, like, or } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import {
+  agents,
   connectors,
   credentials,
   memories,
 } from "@/lib/db/schema";
 import { env, newId } from "@/lib/env";
 import { redactSecrets } from "@/lib/secrets";
-import { fetchFixture, searchKnowledgeBase } from "./kb";
+import { countKbDocuments, searchKnowledgeBase } from "./kb";
+import { RED_TEAM_FIXTURE_HOSTS, redTeamFixture } from "./redteam-fixtures";
 import type { AgentSandbox } from "./sandbox";
 import {
   isContextPath,
@@ -42,13 +44,8 @@ export interface ToolResult {
   error?: string;
 }
 
-/** Hosts `http.fetch` may reach without an explicit per-call decision. */
-const ALLOWED_HOSTS = new Set([
-  "kb.internal",
-  "github.com",
-  "vendor.acme.example",
-  "docs.astronom.dev",
-]);
+/** Hosts `http.fetch` may reach without an explicit per-call decision. See EGRESS_ALLOWED_HOSTS. */
+const ALLOWED_HOSTS = new Set(env.egressAllowedHosts);
 
 const PREVIEW_LIMIT = 1_200;
 
@@ -215,15 +212,18 @@ async function httpFetch(ctx: ToolContext, args: Record<string, unknown>): Promi
   if (url.protocol !== "https:" && url.protocol !== "http:") {
     return fail("Only http(s) URLs are fetchable.");
   }
-  if (!ALLOWED_HOSTS.has(url.hostname)) {
+  // Test pages exist only for the red team. Everyone else sees the host as off the allowlist.
+  const redTeamPage = RED_TEAM_FIXTURE_HOSTS.has(url.hostname) && (await isRedTeamAgent(ctx.agentId));
+  if (!ALLOWED_HOSTS.has(url.hostname) && !redTeamPage) {
     return fail(
-      `Host "${url.hostname}" is not on the egress allowlist. Allowed: ${[...ALLOWED_HOSTS].join(", ")}.`,
+      `Host "${url.hostname}" is not on the egress allowlist. Allowed: ${[...ALLOWED_HOSTS].join(", ") || "none"}.`,
     );
   }
 
-  const fixture = fetchFixture(raw);
-  if (fixture !== undefined) {
-    return { ok: true, preview: `200 OK (workspace mirror) · ${url.hostname}\n${clip(fixture)}` };
+  if (redTeamPage) {
+    const page = redTeamFixture(raw);
+    if (page === undefined) return fail(`No red-team test page at ${raw}.`);
+    return { ok: true, preview: `200 OK (red-team test page) · ${url.hostname}\n${clip(page)}` };
   }
 
   const controller = new AbortController();
@@ -246,11 +246,28 @@ async function httpFetch(ctx: ToolContext, args: Record<string, unknown>): Promi
   }
 }
 
-async function kbSearch(_ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+async function isRedTeamAgent(agentId: string): Promise<boolean> {
+  const [row] = await getDb().select({ team: agents.team }).from(agents).where(eq(agents.id, agentId)).limit(1);
+  return row?.team === "red";
+}
+
+async function kbSearch(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const query = str(args, "query");
   if (!query) return fail("kb.search requires a query.");
-  const hits = searchKnowledgeBase(query, num(args, "topK") ?? 4);
-  if (hits.length === 0) return { ok: true, preview: "0 hits. The knowledge base has no matching chunk." };
+  const hits = await searchKnowledgeBase(ctx.workspaceId, query, {
+    topK: num(args, "topK") ?? 4,
+    dataClass: ctx.dataClass,
+  });
+  if (hits.length === 0) {
+    const total = await countKbDocuments(ctx.workspaceId);
+    return {
+      ok: true,
+      preview:
+        total === 0
+          ? "0 hits. No documents have been added to the knowledge base yet."
+          : "0 hits. The knowledge base has no matching chunk.",
+    };
+  }
   const lines = hits.map(
     (hit) =>
       `${hit.id} · ${hit.title} (${hit.score})\n  [untrusted:${hit.trust}] ${hit.snippet}`,

@@ -13,22 +13,14 @@ export interface DispatchAgentOption {
   status: string;
   dataClass: string;
   runBudgetUsd: number | null;
-  /** Goal drafted with the agent. Wins over the role suggestion. */
+  /** Goal drafted with the agent. */
   defaultGoal?: string;
 }
 
-const SUGGESTIONS: Record<string, string> = {
-  orchestrator:
-    "Checkout p95 latency jumped to 4.2s after the 14:05 deploy. Restore latency below 800ms.",
-  worker: "Complete the delegated task and return a short, factual summary.",
-  security:
-    "Red-team Incident Commander: prompt injection through retrieval, cross-agent escalation, and credential exfiltration.",
-};
-
+/** Only a goal someone wrote for this agent. Nothing is invented as a starting point. */
 function goalFor(option: DispatchAgentOption | undefined): string {
   const stored = option?.defaultGoal?.trim();
-  if (stored && stored.length >= 8) return stored;
-  return SUGGESTIONS[option?.role ?? "worker"] ?? "";
+  return stored && stored.length >= 8 ? stored : "";
 }
 
 export function DispatchPanel({

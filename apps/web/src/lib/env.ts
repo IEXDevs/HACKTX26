@@ -45,6 +45,12 @@ export const env = {
     baseUrl: process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com",
   },
 
+  /** Hosts `http.fetch` may reach. Comma-separated; add more with EGRESS_ALLOWED_HOSTS. */
+  egressAllowedHosts: (process.env.EGRESS_ALLOWED_HOSTS ?? "github.com")
+    .split(",")
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean),
+
   defaults: {
     runBudgetUsd: num(process.env.RUN_BUDGET_USD, 2.5),
     maxStepsPerAgent: num(process.env.MAX_STEPS_PER_AGENT, 12),

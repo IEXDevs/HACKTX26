@@ -28,7 +28,7 @@ export default function PrivacyPage() {
             </li>
             <li>
               <b>Usage.</b> Live model calls: tokens, cost, model, agent, and source
-              (run, builder, or composer). Seeded demo runs are not counted.
+              (run, builder, or composer).
             </li>
             <li>
               <b>Prompt traces.</b> Messages, thinking, and completions. Secrets are

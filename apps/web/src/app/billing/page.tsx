@@ -17,7 +17,7 @@ export default async function BillingPage() {
   const monthStart = new Date();
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);
-  // Only live runs are billed; seeded demo runs are not.
+  // Only live runs are billed. Replays and scripted runs cost nothing.
   const [policies, agents, history, cloudMonth] = await Promise.all([
     listBudgetPolicies(workspace.id),
     listAgents(workspace.id),
@@ -100,7 +100,7 @@ export default async function BillingPage() {
           ))}
         </ul>
       </section>
-      <p className="bill-caption bill-disclaimer">Estimated costs from live model usage, in USD. Seeded demo runs are not billed. No payments are collected.</p>
+      <p className="bill-caption bill-disclaimer">Estimated costs from live model usage, in USD. No payments are collected.</p>
     </div>
   );
 }

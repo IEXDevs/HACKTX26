@@ -209,16 +209,22 @@ export function SecurityView({
       <section className="section">
         <h2>Reports</h2>
         {reports.length ? (
-          reports.map((report) => (
-            <article className="home-panel sec-report" key={report.id}>
-              <div className="section-head">
+          reports.map((report, index) => (
+            // The newest report starts open; older ones start collapsed. Opening one is the reader's own call.
+            <details className="home-panel sec-report" key={report.id} open={index === 0}>
+              <summary className="section-head">
                 <h2>
                   {report.agent}
                   {report.open ? ` · ${report.open} not fixed` : ""}
                   {report.held ? ` · ${report.held} held` : ""}
                 </h2>
-                <span className="muted">{report.when}</span>
-              </div>
+                <span className="muted">
+                  {report.when}
+                  <span className="sec-report-chevron" aria-hidden>
+                    ›
+                  </span>
+                </span>
+              </summary>
               {report.probes.length ? (
                 <ul className="checklist">
                   {report.probes.map((probe) => (
@@ -236,7 +242,7 @@ export function SecurityView({
               ) : (
                 <p className="empty">No probe detail on this report.</p>
               )}
-            </article>
+            </details>
           ))
         ) : (
           <p className="empty">No tests yet. Pick an agent, set a limit, and hit Go.</p>

@@ -29,7 +29,7 @@ export default async function WorkflowPage({
   const content = contextFile.ensure();
   return (
     <Workflow
-      key={runId ?? "draft"}
+      key={id}
       workflow={workflow}
       graph={await workflowGraph(workspace.id, id)}
       context={{ content, stub: isContextStub(content) }}

@@ -75,7 +75,7 @@ function KindIcon({ slug, logoUrl }: { slug: string; logoUrl: string | null }) {
 function initialMessage(composio: boolean, linked?: string): string | null {
   if (linked === "1") return "App linked. Agents on your next run can use it.";
   if (linked === "0") return "Could not finish linking. Try Connect again.";
-  if (!composio) return "Set COMPOSIO_API_KEY in .env.local to link apps. Search still works over the popular catalog.";
+  if (!composio) return "App linking is off until a Composio API key is configured. Search still works over the popular catalog.";
   return null;
 }
 
@@ -233,13 +233,16 @@ export function ConnectorsView({
   }
 
   function Card({ connector }: { connector: ConnectorView }) {
+    const needsComposio = !connector.builtin && !composio;
     const actionLabel = connector.builtin
       ? connector.connected
         ? "Ready"
         : "Needs key"
       : connector.connected
         ? "Disconnect"
-        : "Connect";
+        : needsComposio
+          ? "Needs key"
+          : "Connect";
     return (
       <article className="tile" key={connector.slug} style={{ minHeight: 150 }}>
         <div className="tile-main">
@@ -254,7 +257,7 @@ export function ConnectorsView({
           </span>
           <button
             className="btn small"
-            disabled={busy === connector.slug || (connector.builtin && connector.connected)}
+            disabled={busy === connector.slug || (connector.builtin && connector.connected) || needsComposio}
             onClick={() =>
               void (connector.connected && !connector.builtin
                 ? disconnect(connector.slug)
@@ -430,7 +433,7 @@ export function ConnectorsView({
           </ul>
         ) : (
           <p className="empty" style={{ marginTop: 12 }}>
-            No documents yet. Add one and agents can search it.
+            No documents yet.
           </p>
         )}
 

@@ -49,11 +49,11 @@ export function TemplateProposals({ proposals }: { proposals: ProposalView[] }) 
   return (
     <section className="section">
       <h2>Proposed child templates</h2>
-      <p className="empty" style={{ marginBottom: 12 }}>
-        {pending.length > 0
-          ? `${pending.length} waiting for approval. Saving adds the child to the builder gallery.`
-          : "Nothing is waiting. Turn on template proposals when you create the agent, then dispatch a run that delegates."}
-      </p>
+      {pending.length > 0 ? (
+        <p className="empty" style={{ marginBottom: 12 }}>
+          {pending.length} waiting for approval.
+        </p>
+      ) : null}
       {proposals.length === 0 ? (
         <p className="empty">No proposals yet.</p>
       ) : (

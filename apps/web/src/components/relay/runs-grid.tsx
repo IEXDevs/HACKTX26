@@ -48,21 +48,18 @@ export function RunsGrid({
         <Kpi
           label="Failed"
           value={String(kpis.failed)}
-          hint="Stopped, halted, or cancelled in 7 days"
           series={kpis.series.failed}
           tone={kpis.failed ? "bad" : ""}
         />
         <Kpi
           label="Waiting for you"
           value={String(kpis.waiting)}
-          hint="Need a decision now"
           series={kpis.series.waiting}
           tone={kpis.waiting ? "warn" : ""}
         />
         <Kpi
           label="Spend today"
           value={usd(kpis.spendToday)}
-          hint="Last 7 days in the graph"
           series={kpis.series.spend}
           tone="ok"
         />
@@ -104,7 +101,7 @@ export function RunsGrid({
         </div>
       ) : (
         <p className="empty">
-          {search ? "No runs match that search." : "No runs yet. Start one with New run."}
+          {search ? "No runs match that search." : "No runs yet."}
         </p>
       )}
     </div>
@@ -120,7 +117,7 @@ function Kpi({
 }: {
   label: string;
   value: string;
-  hint: string;
+  hint?: string;
   series: number[];
   tone: "ok" | "warn" | "bad" | "";
 }) {
@@ -154,7 +151,7 @@ function Kpi({
           )}
         </svg>
       </div>
-      <small>{hint}</small>
+      {hint ? <small>{hint}</small> : null}
     </div>
   );
 }

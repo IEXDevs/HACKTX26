@@ -14,6 +14,7 @@ export type AppDatabase = BetterSQLite3Database<typeof schema> & {
 interface DbCache {
   db: AppDatabase;
   sqlite: Database.Database;
+  ensured?: boolean;
 }
 
 const globalForDb = globalThis as unknown as { __agentOsDb?: DbCache };
@@ -36,27 +37,132 @@ function migrationsFolder(): string {
   return candidates[0]!;
 }
 
-function isDuplicateColumn(error: unknown): boolean {
-  const message = error instanceof Error ? `${error.message} ${String((error as { cause?: unknown }).cause)}` : String(error);
-  return /duplicate column name/i.test(message);
+interface JournalEntry {
+  tag: string;
+  when: number;
+  hash: string;
 }
 
-function markNextMigrationApplied(sqlite: Database.Database, folder: string) {
+function readJournal(folder: string): JournalEntry[] {
   const journal = JSON.parse(fs.readFileSync(path.join(folder, "meta/_journal.json"), "utf8")) as {
     entries: Array<{ tag: string; when: number }>;
   };
-  const applied = sqlite.prepare("select hash from `__drizzle_migrations`").all() as Array<{ hash: string }>;
-  const known = new Set(applied.map((row) => row.hash));
-  const insert = sqlite.prepare(
-    "insert into `__drizzle_migrations` (`hash`, `created_at`) values (?, ?)",
-  );
-  for (const entry of journal.entries) {
+  return journal.entries.map((entry) => {
     const sql = fs.readFileSync(path.join(folder, `${entry.tag}.sql`), "utf8");
-    const hash = createHash("sha256").update(sql).digest("hex");
-    if (known.has(hash)) continue;
-    insert.run(hash, entry.when);
+    return { tag: entry.tag, when: entry.when, hash: createHash("sha256").update(sql).digest("hex") };
+  });
+}
+
+function flattenError(error: unknown): string {
+  const parts: string[] = [];
+  for (let current: unknown = error, depth = 0; current && depth < 6; depth++) {
+    if (current instanceof Error) {
+      parts.push(current.message);
+      current = current.cause;
+      continue;
+    }
+    parts.push(String(current));
     break;
   }
+  return parts.join("\n");
+}
+
+function isAlreadyApplied(error: unknown): boolean {
+  return /duplicate column name|already exists/i.test(flattenError(error));
+}
+
+function hasMigrationsTable(sqlite: Database.Database): boolean {
+  const row = sqlite
+    .prepare("select 1 as ok from sqlite_master where type = 'table' and name = '__drizzle_migrations'")
+    .get();
+  return Boolean(row);
+}
+
+/**
+ * Drizzle only compares the latest `__drizzle_migrations.created_at` to each
+ * file's journal `when`. If a hash was recorded under an older timestamp
+ * (db:push, a renamed file, a partial stamp), it will try to run that SQL
+ * again. Bump recorded times to match the journal before migrate runs.
+ */
+function alignMigrationTimestamps(sqlite: Database.Database, folder: string) {
+  if (!hasMigrationsTable(sqlite)) return;
+  const update = sqlite.prepare(
+    "update `__drizzle_migrations` set `created_at` = ? where `hash` = ? and `created_at` < ?",
+  );
+  sqlite.transaction(() => {
+    for (const entry of readJournal(folder)) {
+      update.run(entry.when, entry.hash, entry.when);
+    }
+  })();
+}
+
+function stampNextPending(sqlite: Database.Database, folder: string) {
+  const last = sqlite.prepare("select max(`created_at`) as t from `__drizzle_migrations`").get() as {
+    t: number | null;
+  };
+  const lastAt = Number(last?.t ?? 0);
+  const pending = readJournal(folder).find((entry) => entry.when > lastAt);
+  if (!pending) return;
+  sqlite
+    .prepare("insert into `__drizzle_migrations` (`hash`, `created_at`) values (?, ?)")
+    .run(pending.hash, pending.when);
+}
+
+/** Tables a partial migrate can skip when it stamps a file without running it. */
+function ensureCoreTables(sqlite: Database.Database) {
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS kb_documents (
+      id text PRIMARY KEY NOT NULL,
+      workspace_id text NOT NULL,
+      title text NOT NULL,
+      data_class text DEFAULT 'internal' NOT NULL,
+      body text NOT NULL,
+      added_by text NOT NULL,
+      created_at integer NOT NULL,
+      FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE cascade
+    );
+    CREATE INDEX IF NOT EXISTS kb_documents_workspace_idx ON kb_documents (workspace_id);
+    CREATE TABLE IF NOT EXISTS connected_accounts (
+      id text PRIMARY KEY NOT NULL,
+      workspace_id text NOT NULL,
+      user_id text NOT NULL,
+      toolkit text NOT NULL,
+      toolkit_name text NOT NULL,
+      composio_account_id text,
+      auth_config_id text,
+      status text DEFAULT 'disconnected' NOT NULL,
+      scopes text DEFAULT '[]' NOT NULL,
+      metadata text DEFAULT '{}' NOT NULL,
+      last_sync_at integer,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE cascade
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS connected_accounts_user_toolkit_idx
+      ON connected_accounts (workspace_id, user_id, toolkit);
+    CREATE TABLE IF NOT EXISTS connector_grants (
+      id text PRIMARY KEY NOT NULL,
+      workspace_id text NOT NULL,
+      agent_id text NOT NULL,
+      toolkit text NOT NULL,
+      granted_by text,
+      created_at integer NOT NULL,
+      FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE cascade
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS connector_grants_agent_toolkit_idx
+      ON connector_grants (agent_id, toolkit);
+    CREATE TABLE IF NOT EXISTS connector_catalog (
+      toolkit text PRIMARY KEY NOT NULL,
+      name text NOT NULL,
+      description text DEFAULT '' NOT NULL,
+      logo_url text,
+      category text,
+      auth_schemes text DEFAULT '[]' NOT NULL,
+      popular integer DEFAULT false NOT NULL,
+      metadata text DEFAULT '{}' NOT NULL,
+      updated_at integer NOT NULL
+    );
+  `);
 }
 
 function applyMigrations(db: AppDatabase, sqlite: Database.Database) {
@@ -68,17 +174,23 @@ function applyMigrations(db: AppDatabase, sqlite: Database.Database) {
         `[db] no migrations folder at ${folder}; run \`pnpm db:generate\` to create one.`,
       );
     }
+    ensureCoreTables(sqlite);
     return;
   }
+  alignMigrationTimestamps(sqlite, folder);
   for (let attempt = 0; ; attempt++) {
     try {
       migrate(db, { migrationsFolder: folder });
+      ensureCoreTables(sqlite);
       return;
     } catch (error) {
-      // Column already present (db:push or a previous partial migrate) but
-      // `__drizzle_migrations` never recorded it. Stamp that file and retry.
-      if (!isDuplicateColumn(error) || attempt > 8) throw error;
-      markNextMigrationApplied(sqlite, folder);
+      // Schema already matches (db:push or a previous partial migrate) but
+      // `__drizzle_migrations` never recorded this file. Stamp it and retry.
+      if (!isAlreadyApplied(error) || attempt > 8) {
+        ensureCoreTables(sqlite);
+        throw error;
+      }
+      stampNextPending(sqlite, folder);
     }
   }
 }
@@ -129,7 +241,18 @@ function cached(): DbCache {
 }
 
 export function getDb(): AppDatabase {
-  return cached().db;
+  const cache = cached();
+  if (!cache.ensured) {
+    ensureCoreTables(cache.sqlite);
+    cache.ensured = true;
+  }
+  return cache.db;
+}
+
+/** Re-apply pending files on the open connection. Used by tests. */
+export function applyPendingMigrations(): void {
+  const cache = cached();
+  applyMigrations(cache.db, cache.sqlite);
 }
 
 export { schema };

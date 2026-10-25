@@ -7,7 +7,6 @@ import {
   resetDemoPassword,
 } from "@/lib/auth";
 import { supabaseAuthEnabled } from "@/lib/env";
-import { recordAuthEvent } from "@/lib/observability";
 import { authOrigin, createSupabaseRequestClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -53,21 +52,13 @@ export async function POST(request: NextRequest) {
     ({ data, error } = await client.supabase.auth.signInWithPassword({ email, password }));
   }
   if (error || !data.user) {
-    await recordAuthEvent({
-      email,
-      event: "login_failed",
-      provider: "email",
-      ip: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
-      userAgent: request.headers.get("user-agent"),
-      metadata: { username, message: error?.message ?? "sign-in failed" },
-    });
     return NextResponse.redirect(
       new URL(`/login?error=${encodeURIComponent(error?.message ?? "Sign-in failed")}`, origin),
       303,
     );
   }
 
-  await acceptSignedInUser(data.user, request);
+  await acceptSignedInUser(data.user);
   // 303, not 307: a form POST must follow as GET, or the session cookies land
   // on a replayed POST to `/` and the browser looks unsigned-in.
   return client.applyCookies(NextResponse.redirect(new URL(next, origin), 303));

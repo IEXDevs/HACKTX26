@@ -48,7 +48,7 @@ export function StartRun({
       if (!response.ok) throw new Error(value.error ?? "The run could not start.");
       setOpen(false);
       setGoal(goalFor(agentId));
-      router.push(`/runs/${value.runId}`);
+      router.push(`/workflows/${agentId}`);
       router.refresh();
     } catch (e) {
       setError((e as Error).message);

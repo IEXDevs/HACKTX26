@@ -4,10 +4,10 @@ import { useEffect, useState } from "react";
 import { Monitor, Moon, Sun } from "@/components/icons";
 import { readChoice, saveChoice, THEME_EVENT, type ThemeChoice } from "@/lib/theme";
 
-const CHOICES: Array<{ value: ThemeChoice; label: string; hint: string; Icon: typeof Sun }> = [
-  { value: "light", label: "Light", hint: "Paper surfaces, daylight canvas", Icon: Sun },
-  { value: "dark", label: "Dark", hint: "Low light, same green marks", Icon: Moon },
-  { value: "system", label: "System", hint: "Matches your device, day and night", Icon: Monitor },
+const CHOICES: Array<{ value: ThemeChoice; label: string; Icon: typeof Sun }> = [
+  { value: "light", label: "Light", Icon: Sun },
+  { value: "dark", label: "Dark", Icon: Moon },
+  { value: "system", label: "System", Icon: Monitor },
 ];
 
 /** Light / dark / system picker for Settings. */
@@ -28,7 +28,7 @@ export function AppearanceControl() {
 
   return (
     <div className="appearance-picks" role="group" aria-label="Color theme">
-      {CHOICES.map(({ value, label, hint, Icon }) => (
+      {CHOICES.map(({ value, label, Icon }) => (
         <button
           key={value}
           type="button"
@@ -38,7 +38,6 @@ export function AppearanceControl() {
         >
           <Icon size={18} aria-hidden />
           <b>{label}</b>
-          <small>{hint}</small>
         </button>
       ))}
     </div>

@@ -194,6 +194,17 @@ export function modelColor(modelId: string | null, provider: string): string {
   return (modelId && MODEL_COLORS[modelId]) || PROVIDER_COLORS[provider] || "#6B786F";
 }
 
+/** A newly spawned child starts on its parent, then eases out to its seat. */
+export function spawnOrigin(parent: V2 | undefined, target: V2): V2 {
+  return parent ? { x: parent.x, y: parent.y } : { x: target.x, y: target.y };
+}
+
+/** 0 at birth, 1 after `durationMs`. Ease-out cubic so the pop settles quickly. */
+export function spawnScale(ageMs: number, durationMs = 700): number {
+  const t = Math.min(1, Math.max(0, ageMs / durationMs));
+  return 1 - (1 - t) ** 3;
+}
+
 /** Blend a hex color toward grey. `amount` 0 keeps it, 1 is fully grey. */
 export function greyed(hex: string, amount: number, grey = 128): string {
   const n = Number.parseInt(hex.slice(1), 16);

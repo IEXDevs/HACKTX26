@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Square } from "@/components/icons";
 import type { RunLive } from "@/lib/views";
 import { plainText } from "@/lib/plain-text";
-import { RichText } from "./rich-text";
+import { LogStream } from "./log-stream";
 import { useAutoRefresh } from "./use-auto-refresh";
 
 export interface RunViewData extends RunLive {
@@ -174,52 +174,17 @@ export function RunView({
 
       {(history.length > 0 || run.draft) && (
         <section className="section">
-          <h2>History</h2>
-          <div className="card" style={{ display: "grid", gap: 16 }}>
-            {history.length > 0 && (
-              <ol className="run-feed">
-                {history.map((item) => (
-                  <li
-                    key={item.id}
-                    className={
-                      item.kind === "tool" || item.kind === "handoff"
-                        ? "run-tool"
-                        : item.kind === "thinking"
-                          ? "run-thinking"
-                          : undefined
-                    }
-                  >
-                    <time>{item.at}</time>
-                    <div>
-                      <b>
-                        {item.who}
-                        {item.kind === "thinking" ? (
-                          <span className="run-tool-name"> thinking</span>
-                        ) : item.kind === "tool" || item.kind === "handoff" ? (
-                          <span className="run-tool-name">
-                            {" "}
-                            {item.tool}
-                            {item.status ? ` · ${item.status}` : ""}
-                          </span>
-                        ) : null}
-                      </b>
-                      {item.kind === "thought" || item.kind === "thinking" ? (
-                        <RichText text={item.text} />
-                      ) : item.text && item.text !== item.tool ? (
-                        <p className="run-tool-preview">{plainText(item.text).slice(0, 280)}</p>
-                      ) : null}
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            )}
+          <h2>Activity</h2>
+          <div className="log-panel">
+            <LogStream
+              rows={history}
+              empty="No events yet."
+              agentHref={(id) => `/agents/${id}/trail`}
+            />
             {run.draft && (
-              <div className="run-draft" aria-live="polite">
+              <div className="log-draft" aria-live="polite">
                 <span>{run.draft.who} is writing</span>
-                <div>
-                  <RichText text={run.draft.text} />
-                  <i className="run-caret" aria-hidden="true" />
-                </div>
+                <p>{plainText(run.draft.text).slice(0, 280)}</p>
               </div>
             )}
           </div>

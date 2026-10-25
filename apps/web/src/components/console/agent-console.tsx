@@ -152,6 +152,7 @@ export function AgentConsole({
   toolCallRunId,
   recentRun,
   budgets,
+  workflowHref,
 }: {
   agentId: string;
   agentName: string;
@@ -166,6 +167,7 @@ export function AgentConsole({
   toolCallRunId: string | null;
   recentRun: ConsoleRun | null;
   budgets: { runUsd: number | null; dayUsd: number | null; spentTodayUsd: number };
+  workflowHref?: string;
 }) {
   const router = useRouter();
   const [tree, setTree] = useState<ConsoleNode>(initialTree);
@@ -315,7 +317,7 @@ export function AgentConsole({
         setError(payload.error ?? "Dispatch failed.");
         return;
       }
-      router.push(`/runs/${payload.runId}`);
+      router.push(workflowHref ?? `/workflows/${agentId}`);
     } catch (cause) {
       setError((cause as Error).message || "Dispatch failed.");
     } finally {
@@ -561,8 +563,7 @@ export function AgentConsole({
           {activityTab === "tools" ? (
             toolCalls.length === 0 ? (
               <p className="px-3 py-4 text-[10.5px] leading-relaxed text-ink-4">
-                No tool calls recorded for this agent yet. Dispatch a run to see the executor
-                working inside this sandbox.
+                No tool calls yet.
               </p>
             ) : (
               <>
@@ -630,9 +631,6 @@ export function AgentConsole({
         <Panel>
           <div className="border-b border-line px-3 py-2">
             <span className="panel-title">Prompt this agent</span>
-            <div className="mt-0.5 text-[10px] text-ink-4">
-              Launches a real run rooted at this agent.
-            </div>
           </div>
           <div className="space-y-2 p-3">
             <textarea

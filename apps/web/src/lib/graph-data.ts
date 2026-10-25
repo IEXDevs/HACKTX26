@@ -2,8 +2,16 @@
  * Per-workflow bubble map. A workflow is a root agent plus its team; the
  * canvas never mixes two workflows into one constellation.
  */
-import { MODEL_BY_ID, projectRun, routeModel, type DataClass, type TaskComplexity } from "@agent-os/core";
+import {
+  MODEL_BY_ID,
+  projectRun,
+  routeModel,
+  type DataClass,
+  type ProjectedAgent,
+  type TaskComplexity,
+} from "@agent-os/core";
 import type { AgentRow } from "./db/schema";
+import { foldRunHistory, type HistoryItem } from "./views";
 import {
   getRunEvents,
   getWorkspace,
@@ -44,6 +52,8 @@ export interface GraphAgent {
   trailHref: string;
   consoleHref: string;
   kind: "orchestrator" | "worker" | "security" | "swarm";
+  rank: string;
+  createdAt: string;
 }
 
 export interface GraphTask {
@@ -66,6 +76,9 @@ export interface GraphSnapshot {
   agents: GraphAgent[];
   tasks: GraphTask[];
   flows: GraphFlow[];
+  activity: HistoryItem[];
+  liveRunId: string | null;
+  now: string;
   live: boolean;
 }
 
@@ -82,6 +95,59 @@ function teamIds(all: AgentRow[], rootId: string): Set<string> {
 }
 
 const FALLBACK_MODEL = "muse-spark-1.3";
+
+function liveRunStatus(liveStatus: string | undefined, fallback?: string): string | undefined {
+  if (liveStatus === "thinking" || liveStatus === "working") return "running";
+  if (liveStatus === "blocked") return "awaiting_approval";
+  if (liveStatus === "failed") return "failed";
+  if (liveStatus === "done") return "succeeded";
+  return fallback;
+}
+
+function ghostAgent(projected: ProjectedAgent, runId: string, runAt: string): GraphAgent {
+  const catalog = MODEL_BY_ID.get(projected.model);
+  const status = liveRunStatus(projected.status, "running") ?? "running";
+  const kind: GraphAgent["kind"] =
+    projected.role === "security"
+      ? projected.parentAgentId
+        ? "swarm"
+        : "security"
+      : projected.role === "orchestrator"
+        ? "orchestrator"
+        : "worker";
+  const started = new Date(projected.spawnedAt).getTime();
+  return {
+    id: projected.id,
+    name: projected.name,
+    role: projected.role,
+    status: "active",
+    summary: "Stood up during this run.",
+    parentAgentId: projected.parentAgentId,
+    model: catalog?.label ?? projected.model,
+    modelId: catalog ? projected.model : null,
+    provider: catalog?.provider ?? "unknown",
+    complexity: "standard",
+    dataClass: "internal",
+    tools: [],
+    grants: [],
+    maxSteps: 6,
+    version: 1,
+    lastRun: { id: runId, status, at: runAt },
+    openFindings: 0,
+    budgetUsd: null,
+    spentUsd: projected.costUsd,
+    inputTokens: projected.promptTokens,
+    outputTokens: projected.completionTokens,
+    durationMs: Number.isFinite(started) ? Math.max(0, Date.now() - started) : null,
+    filesTouched: [],
+    diff: { reads: 0, writes: 0, deletes: 0 },
+    trailHref: `/agents/${projected.id}/trail`,
+    consoleHref: `/agents/${projected.id}/console`,
+    kind,
+    rank: "grunt",
+    createdAt: projected.spawnedAt,
+  };
+}
 
 /** The model an agent ran on, or the one the router would pick for it now. */
 function provisionedModel(agent: AgentRow, deniedModelIds: string[], recorded?: string | null): string {
@@ -124,7 +190,8 @@ export async function workflowGraph(
 
   const ids = teamIds(agents, root.id);
   const latestWorkflowRun = runs.find((run) => ids.has(run.agentId)) ?? null;
-  const projection = latestWorkflowRun ? projectRun(await getRunEvents(latestWorkflowRun.id), latestWorkflowRun.id) : null;
+  const runEvents = latestWorkflowRun ? await getRunEvents(latestWorkflowRun.id) : [];
+  const projection = latestWorkflowRun ? projectRun(runEvents, latestWorkflowRun.id) : null;
 
   const visible = agents.filter((agent) => {
     if (!ids.has(agent.id)) return false;
@@ -142,16 +209,7 @@ export async function workflowGraph(
     const started = projected?.spawnedAt ? new Date(projected.spawnedAt).getTime() : latest?.startedAt.getTime() ?? null;
     const ended = latest?.endedAt?.getTime() ?? (projection?.endedAt ? new Date(projection.endedAt).getTime() : null);
     const liveStatus = projected?.status;
-    const runStatus =
-      liveStatus === "thinking" || liveStatus === "working"
-        ? "running"
-        : liveStatus === "blocked"
-          ? "awaiting_approval"
-          : liveStatus === "failed"
-            ? "failed"
-            : liveStatus === "done"
-              ? "succeeded"
-              : latest?.status;
+    const runStatus = liveRunStatus(liveStatus, latest?.status);
     const provisioned = projected?.model || (agent.modelPolicy.mode === "pinned" ? agent.modelPolicy.pinnedModelId : null);
     const modelId = provisionedModel(agent, denied, provisioned);
     const catalog = MODEL_BY_ID.get(modelId);
@@ -209,8 +267,22 @@ export async function workflowGraph(
       trailHref: `/agents/${agent.id}/trail`,
       consoleHref: `/agents/${agent.id}/console`,
       kind,
+      rank: agent.rank,
+      createdAt: agent.createdAt.toISOString(),
     };
   });
+
+  if (projection && latestWorkflowRun) {
+    const known = new Set(graphAgents.map((agent) => agent.id));
+    for (const projected of projection.agents.values()) {
+      if (known.has(projected.id)) continue;
+      graphAgents.push(
+        ghostAgent(projected, latestWorkflowRun.id, latestWorkflowRun.startedAt.toISOString()),
+      );
+      known.add(projected.id);
+      ids.add(projected.id);
+    }
+  }
 
   const flows: GraphFlow[] = [];
   for (const handoff of projection?.handoffs ?? []) {
@@ -235,6 +307,17 @@ export async function workflowGraph(
         latestWorkflowRun.status === "queued" ||
         latestWorkflowRun.status === "awaiting_approval"),
   );
+  const nameOf = (id: string) =>
+    graphAgents.find((agent) => agent.id === id)?.name ??
+    projection?.agents.get(id)?.name ??
+    "Agent";
+  const activity = latestWorkflowRun ? foldRunHistory(runEvents, nameOf) : [];
+  const working = [...(projection?.tasks.values() ?? [])].find((task) => task.status === "running");
+  const now = working
+    ? `${nameOf(working.agentId)}: ${working.title}`
+    : live
+      ? activity.at(-1)?.text || "Working"
+      : "";
 
   return {
     workflowId: root.id,
@@ -242,6 +325,9 @@ export async function workflowGraph(
     agents: graphAgents,
     tasks,
     flows,
+    activity: activity.slice(-48),
+    liveRunId: live ? latestWorkflowRun?.id ?? null : null,
+    now,
     live,
   };
 }

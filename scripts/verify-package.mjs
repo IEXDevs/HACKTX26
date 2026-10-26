@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 const workspace = fileURLToPath(new URL("..", import.meta.url));
 const app = path.join(workspace, "apps/web/.next/standalone/apps/web");
 const migrations = path.join(app, "src/lib/db/pg-migrations");
+assert.ok(fs.existsSync(path.join(migrations, "..", "supabase-ca.crt")), "Missing packaged Supabase database CA certificate.");
 assert.ok(!fs.existsSync(path.join(app, ".data/agent-os.db")), "A local runtime database was copied into the package.");
 assert.ok(!fs.readdirSync(app).some((name) => name.startsWith(".env")), "Local environment files were copied into the package.");
 const journal = JSON.parse(fs.readFileSync(path.join(migrations, "meta/_journal.json"), "utf8"));

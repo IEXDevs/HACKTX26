@@ -8,6 +8,7 @@ import { drizzle as localDrizzle } from "drizzle-orm/pglite";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { env } from "@/lib/env";
+import { queryRows } from "./raw";
 import * as schema from "./schema";
 
 export type AppDatabase = PgDatabase<PgQueryResultHKT, typeof schema>;
@@ -40,7 +41,9 @@ async function migrate(db: AppDatabase): Promise<void> {
   const migrations = readMigrationFiles({ migrationsFolder: migrationsFolder() });
   await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(746973761347)`);
-    await tx.execute(sql`create schema if not exists astronom`);
+    const [namespace] = await queryRows<{ present: boolean }>(tx,
+      "select exists(select 1 from pg_namespace where nspname='astronom') present");
+    if (!namespace?.present) await tx.execute(sql`create schema astronom`);
     await tx.execute(sql`create table if not exists astronom.__drizzle_migrations (
       id serial primary key, hash text not null, created_at bigint not null
     )`);
@@ -61,12 +64,17 @@ function create(): DbCache {
   let reset = false;
 
   if (/^postgres(?:ql)?:\/\//.test(url)) {
+    const hostname = new URL(url).hostname;
+    const supabaseHost = hostname.endsWith(".pooler.supabase.com") || hostname.endsWith(".supabase.co");
     const client = postgres(url, {
       prepare: false,
       max: 5,
       idle_timeout: 20,
       connect_timeout: 10,
-      ssl: /^(localhost|127\.0\.0\.1|\[::1\])$/.test(new URL(url).hostname) ? undefined : { rejectUnauthorized: true },
+      ssl: /^(localhost|127\.0\.0\.1|\[::1\])$/.test(hostname) ? undefined : {
+        rejectUnauthorized: true,
+        ...(supabaseHost ? { ca: fs.readFileSync(path.join(migrationsFolder(), "..", "supabase-ca.crt"), "utf8") } : {}),
+      },
       onnotice: () => undefined,
     });
     db = drizzle(client, { schema });

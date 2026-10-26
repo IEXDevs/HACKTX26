@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
   // @agent-os/core ships TypeScript source, not a build artifact.
   transpilePackages: ["@agent-os/core"],
   output: "standalone",
-  outputFileTracingIncludes: { "/*": ["./src/lib/db/pg-migrations/**/*"] },
+  outputFileTracingIncludes: { "/*": ["./src/lib/db/pg-migrations/**/*", "./src/lib/db/supabase-ca.crt"] },
   outputFileTracingExcludes: {
     "/*": ["./.data/**/*", "../../.runtime/**/*", "./.env*"],
   },

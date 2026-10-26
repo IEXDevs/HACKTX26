@@ -36,10 +36,10 @@ one-year expiry.
 
 ## Current preparation
 
-The core schema has been applied to Supabase. The runtime database login has
-**not** been created. The database URL files are prepared locally, but that URL
-will not work until the login and ownership step are approved and completed.
-Google Cloud setup and the new deployment job remain disabled until then.
+The core schema and restricted runtime login have been applied to Supabase after
+explicit operator approval. The local SQLite data has been imported into the
+remote target in one transaction with checks for every table count. Google Cloud
+setup is in progress. The new deployment job remains disabled until it is ready.
 
 The local SQLite file has been imported into local PGlite with row-count checks.
 The original SQLite file is retained. Only this local copy needs to be preserved
@@ -111,3 +111,10 @@ pnpm db:migrate                               # apply pending Postgres migration
 Development and tests use embedded Postgres (`pglite://`). Cloud Run rejects a
 local database URL. Legacy SQLite migration files stay in the repository as
 history; new schema changes use `apps/web/src/lib/db/pg-migrations`.
+
+Supabase database connections verify the server hostname and certificate chain.
+The package includes the public CA certificate linked from this project's
+Database Settings. Its source is
+`https://supabase-downloads.s3-ap-southeast-1.amazonaws.com/prod/ssl/prod-ca-2021.crt`.
+Update that file when Supabase rotates its CA. Other remote Postgres hosts use
+the platform trust store.

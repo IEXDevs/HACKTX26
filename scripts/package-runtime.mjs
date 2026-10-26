@@ -9,6 +9,7 @@ const build = path.join(app, ".next");
 const standalone = path.join(build, "standalone");
 const migrations = path.join(standalone, "apps/web/src/lib/db/pg-migrations");
 const journal = JSON.parse(fs.readFileSync(path.join(migrations, "meta/_journal.json"), "utf8"));
+assert.ok(fs.existsSync(path.join(migrations, "..", "supabase-ca.crt")), "Missing Supabase database CA certificate.");
 for (const entry of journal.entries) assert.ok(fs.existsSync(path.join(migrations, `${entry.tag}.sql`)), `Missing packaged migration ${entry.tag}`);
 
 function within(root, file) {

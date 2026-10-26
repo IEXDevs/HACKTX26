@@ -2846,10 +2846,6 @@ div.rich li {
   display: block;
   margin-bottom: 6px;
 }
-.login-hint {
-  margin: 12px 0 0 !important;
-  font-size: 13px;
-}
 .login-split {
   display: grid;
   grid-template-columns: 1fr auto 1fr;

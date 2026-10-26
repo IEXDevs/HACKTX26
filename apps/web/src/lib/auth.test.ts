@@ -11,7 +11,7 @@ describe("password login identity", () => {
     expect(emailFromLogin("maya@astronom.dev")).toBe("maya@astronom.dev");
   });
 
-  it("keeps the demo credentials the login card advertises", () => {
+  it("keeps the demo account available after the login card stops showing it", () => {
     expect(DEMO_LOGIN).toMatchObject({ username: "testuser", password: "astronomtest" });
   });
 });

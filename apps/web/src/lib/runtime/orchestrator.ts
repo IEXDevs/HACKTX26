@@ -1143,6 +1143,10 @@ class RunEngine {
   async #askUser(agent: AgentRow, taskId: string | null, call: { id: string; args: Record<string, unknown> }) {
     const parsed = QuestionSchema.safeParse(call.args);
     if (!parsed.success) return { ok: false, preview: "", error: "user.ask requires a clear question and reason." };
+    // Red-team test runs have no one to answer; pausing would leave the check waiting forever.
+    if (this.run.purpose === "retest") {
+      return { ok: false, preview: "", error: "No one is available to answer during a red-team test run. Continue without user input and report what you could not do." };
+    }
     const db = getDb();
     let [request] = await db.select().from(inputRequests).where(and(eq(inputRequests.runId, this.run.id), eq(inputRequests.callId, call.id)));
     if (!request) {

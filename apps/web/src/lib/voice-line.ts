@@ -154,6 +154,15 @@ function addDays(date: string, days: number): string {
   return addMinutes(`${date}T00:00:00`, days * 24 * 60).slice(0, 10);
 }
 
+/** The instant a `YYYY-MM-DDTHH:MM:SS` wall-clock time happens in a timezone. */
+export function localToInstant(local: string, timeZone: string): Date {
+  const asUtc = new Date(`${local}Z`).getTime();
+  const offsetAt = (instant: number) => new Date(`${localDateTime(new Date(instant), timeZone)}Z`).getTime() - instant;
+  // Twice, so a guess that lands across a daylight-saving change settles.
+  const guess = asUtc - offsetAt(asUtc);
+  return new Date(asUtc - offsetAt(guess));
+}
+
 /* -------------------------------------------------------------------------- */
 /* Which apps a call may use                                                  */
 /* -------------------------------------------------------------------------- */
@@ -349,8 +358,9 @@ export function translateVoiceCall(
       action: FIND_FREE_SLOTS,
       arguments: {
         items: ["primary"],
-        time_min: `${startDate}T00:00:00`,
-        time_max: `${addDays(lastDay, 1)}T00:00:00`,
+        // Exact instants: Google reads times without an offset as UTC.
+        time_min: localToInstant(`${startDate}T00:00:00`, timeZone).toISOString(),
+        time_max: localToInstant(`${addDays(lastDay, 1)}T00:00:00`, timeZone).toISOString(),
         timezone: timeZone,
       },
       durationMinutes,
@@ -427,14 +437,15 @@ interface Slot {
   end: Date;
 }
 
-function slotsIn(value: unknown, underFree = false, out: Slot[] = []): Slot[] {
+/** Time ranges found under keys matching `kind` (such as free or busy), at any depth. */
+function rangesIn(value: unknown, kind: RegExp, under = false, out: Slot[] = []): Slot[] {
   if (Array.isArray(value)) {
-    for (const item of value) slotsIn(item, underFree, out);
+    for (const item of value) rangesIn(item, kind, under, out);
     return out;
   }
   if (!value || typeof value !== "object") return out;
   const record = value as Record<string, unknown>;
-  if (underFree) {
+  if (under) {
     const start = record.start ?? record.start_time ?? record.startTime;
     const end = record.end ?? record.end_time ?? record.endTime;
     if (typeof start === "string" && typeof end === "string") {
@@ -445,32 +456,65 @@ function slotsIn(value: unknown, underFree = false, out: Slot[] = []): Slot[] {
     }
   }
   for (const [key, child] of Object.entries(record)) {
-    slotsIn(child, underFree || /free/i.test(key), out);
+    rangesIn(child, kind, under || kind.test(key), out);
   }
   return out;
 }
 
-/** Free gaps as short spoken lines. Falls back to the raw preview if the shape is unfamiliar. */
-export function describeFreeSlots(preview: string, durationMinutes: number, timeZone: string): string {
-  let parsed: unknown = null;
+function parseJson(preview: string): unknown {
   try {
-    parsed = JSON.parse(preview);
+    return JSON.parse(preview);
   } catch {
-    parsed = null;
+    return null;
   }
-  const slots = parsed ? slotsIn(parsed) : [];
-  if (slots.length === 0) {
+}
+
+const STEP_MS = 30 * 60_000;
+/** Earliest and latest start hours worth listing; the agent's own business hours narrow them further. */
+const FIRST_HOUR = 7;
+const LAST_HOUR = 20;
+
+/** Start times on the half hour where an appointment of `durationMinutes` fits inside a free gap. */
+function openStarts(free: Slot[], durationMinutes: number, timeZone: string): Date[] {
+  const starts: Date[] = [];
+  for (const gap of [...free].sort((a, b) => a.start.getTime() - b.start.getTime())) {
+    for (let t = Math.ceil(gap.start.getTime() / STEP_MS) * STEP_MS; t + durationMinutes * 60_000 <= gap.end.getTime(); t += STEP_MS) {
+      const hour = Number(localDateTime(new Date(t), timeZone).slice(11, 13));
+      if (hour >= FIRST_HOUR && hour < LAST_HOUR) starts.push(new Date(t));
+    }
+  }
+  return starts;
+}
+
+/**
+ * Free time as exact start times the agent may offer, with what is taken.
+ * Ranges read badly aloud ("free until 10" became "10 is free"), so the agent
+ * gets a list to pick from. Falls back to the raw preview if the shape is unfamiliar.
+ */
+export function describeFreeSlots(preview: string, durationMinutes: number, timeZone: string): string {
+  const parsed = parseJson(preview);
+  const free = parsed ? rangesIn(parsed, /free/i) : [];
+  const busy = parsed ? rangesIn(parsed, /busy/i) : [];
+  if (free.length === 0 && busy.length === 0) {
     return `Calendar free time (${timeZone}). Only offer gaps of at least ${durationMinutes} minutes inside business hours:\n${preview.slice(0, 2_500)}`;
   }
-  const fitting = slots
-    .filter((slot) => slot.end.getTime() - slot.start.getTime() >= durationMinutes * 60_000)
+  const byDay = new Map<string, string[]>();
+  for (const start of openStarts(free, durationMinutes, timeZone)) {
+    const day = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short", month: "short", day: "numeric" }).format(start);
+    const list = byDay.get(day) ?? [];
+    if (list.length < 16) list.push(shortTime(start, timeZone, false));
+    byDay.set(day, list);
+  }
+  const taken = busy
     .sort((a, b) => a.start.getTime() - b.start.getTime())
-    .slice(0, 20);
-  if (fitting.length === 0) return `No open gaps of ${durationMinutes} minutes in that window.`;
-  const lines = fitting.map(
-    (slot) => `- ${shortTime(slot.start, timeZone, true)} to ${shortTime(slot.end, timeZone, false)}`,
-  );
-  return `Open on the calendar (${timeZone}), at least ${durationMinutes} minutes each. Only offer times inside business hours:\n${lines.join("\n")}`;
+    .slice(0, 20)
+    .map((slot) => `- ${shortTime(slot.start, timeZone, true)} to ${shortTime(slot.end, timeZone, false)}`);
+  const open = [...byDay].map(([day, times]) => `- ${day}: ${times.join(", ")}`);
+  return [
+    `Open start times for a ${durationMinutes}-minute appointment (${timeZone}). Offer only times from this list, and only inside business hours. Any time not listed is taken.`,
+    open.length ? open.join("\n") : "- None in that window.",
+    ...(taken.length ? ["Already taken:", ...taken] : []),
+  ].join("\n");
 }
 
 /* -------------------------------------------------------------------------- */
@@ -636,6 +680,17 @@ export async function executeVoiceAction(
     );
   }
 
+  // The model can misread free time, so a booking is checked against the calendar first.
+  if (call.booking) {
+    const clash = await bookingClash(call.booking, timeZone, input.operatorUserId, agent.name, deps);
+    if (clash) {
+      return refuse(
+        `That time is already taken on the calendar. Don't book it. Tell the caller and offer one of these instead.\n${clash}`,
+        "The requested time overlaps an existing calendar event.",
+      );
+    }
+  }
+
   let result: { ok: boolean; preview: string; error?: string };
   try {
     result = await (deps.execute ?? executeComposioAction)({
@@ -701,6 +756,43 @@ export async function executeVoiceAction(
     return { ok: true, result: describeFreeSlots(result.preview, call.durationMinutes ?? 30, timeZone) };
   }
   return { ok: true, result: result.preview.slice(0, 3_000) || "Done." };
+}
+
+/**
+ * The open times that day if the booking overlaps an existing event, else null.
+ * If the calendar can't be read, the booking goes ahead as before.
+ */
+async function bookingClash(
+  booking: NonNullable<ConnectorCall["booking"]>,
+  timeZone: string,
+  userId: string,
+  agentName: string,
+  deps: VoiceDeps,
+): Promise<string | null> {
+  const lookup = translateVoiceCall(
+    "find_open_times",
+    { date: booking.start.slice(0, 10), duration_minutes: booking.durationMinutes },
+    timeZone,
+    agentName,
+  );
+  if ("error" in lookup) return null;
+  try {
+    const result = await (deps.execute ?? executeComposioAction)({
+      userId,
+      toolkit: lookup.toolkit,
+      action: lookup.action,
+      arguments: lookup.arguments,
+    });
+    if (!result.ok) return null;
+    const parsed = parseJson(result.preview);
+    const busy = parsed ? rangesIn(parsed, /busy/i) : [];
+    const start = localToInstant(booking.start, timeZone).getTime();
+    const end = start + booking.durationMinutes * 60_000;
+    const overlaps = busy.some((slot) => slot.start.getTime() < end && slot.end.getTime() > start);
+    return overlaps ? describeFreeSlots(result.preview, booking.durationMinutes, timeZone) : null;
+  } catch {
+    return null;
+  }
 }
 
 /* -------------------------------------------------------------------------- */

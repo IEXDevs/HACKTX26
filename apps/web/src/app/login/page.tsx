@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { Logo } from "@/components/icons";
-import { DEMO_LOGIN, ensureDemoUser, getSessionUser } from "@/lib/auth";
+import { ensureDemoUser, getSessionUser } from "@/lib/auth";
 import { supabaseAuthEnabled } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
@@ -32,31 +32,16 @@ export default async function LoginPage({
               {next ? <input type="hidden" name="next" value={next} /> : null}
               <label className="field">
                 <span>Username</span>
-                <input
-                  name="username"
-                  type="text"
-                  autoComplete="username"
-                  defaultValue={DEMO_LOGIN.username}
-                  required
-                />
+                <input name="username" type="text" autoComplete="username" required />
               </label>
               <label className="field">
                 <span>Password</span>
-                <input
-                  name="password"
-                  type="password"
-                  autoComplete="current-password"
-                  defaultValue={DEMO_LOGIN.password}
-                  required
-                />
+                <input name="password" type="password" autoComplete="current-password" required />
               </label>
               <button type="submit" className="btn primary login-google">
                 Sign in
               </button>
             </form>
-            <p className="login-hint">
-              Demo account: <code>{DEMO_LOGIN.username}</code> / <code>{DEMO_LOGIN.password}</code>
-            </p>
             <div className="login-split">or</div>
             <form action="/auth/login" method="post">
               {next ? <input type="hidden" name="next" value={next} /> : null}

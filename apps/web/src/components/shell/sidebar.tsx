@@ -13,6 +13,7 @@ import {
   ListTree,
   Lock,
   LogOut,
+  Plus,
   ScrollText,
   Settings,
   ShieldHalf,
@@ -28,6 +29,8 @@ interface NavItem {
   exact?: boolean;
   /** Other routes that light up this item. */
   also?: string[];
+  /** A shortcut revealed under the item on hover or focus. */
+  shortcut?: { href: string; label: string };
 }
 
 export function Sidebar({
@@ -52,7 +55,13 @@ export function Sidebar({
   const pathname = usePathname();
   const main: NavItem[] = [
     { href: "/", label: "Home", icon: House, exact: true },
-    { href: "/agents", label: "Agents", icon: Bot, count: pendingApprovals },
+    {
+      href: "/agents",
+      label: "Agents",
+      icon: Bot,
+      count: pendingApprovals,
+      shortcut: { href: "/agents/new", label: "New agent" },
+    },
     { href: "/workflows", label: "Workflows", icon: GitBranch, also: ["/graph"] },
     { href: "/runs", label: "Runs", icon: ListTree },
     { href: "/usage", label: "Usage", icon: Activity },
@@ -65,15 +74,17 @@ export function Sidebar({
     { href: "/policy", label: "Privacy", icon: Lock },
     { href: "/settings", label: "Settings", icon: Settings },
   ];
+  const onShortcut = (item: NavItem) => item.shortcut !== undefined && pathname === item.shortcut.href;
   const isActive = (item: NavItem) =>
-    item.exact
+    !onShortcut(item) &&
+    (item.exact
       ? pathname === item.href
       : [item.href, ...(item.also ?? [])].some(
           (href) => pathname === href || pathname.startsWith(`${href}/`),
-        );
+        ));
   const used = Math.min(1, spendTodayUsd / Math.max(dailyBudgetUsd, 0.01));
 
-  const renderItem = (item: NavItem) => (
+  const renderLink = (item: NavItem) => (
     <Link
       key={item.href}
       href={item.href}
@@ -86,6 +97,29 @@ export function Sidebar({
       {item.count ? <span className="shell-count">{item.count}</span> : null}
     </Link>
   );
+
+  const renderItem = (item: NavItem) => {
+    if (!item.shortcut) return renderLink(item);
+    const here = onShortcut(item);
+    return (
+      <div key={item.href} className={`shell-nav-group${here ? " open" : ""}`}>
+        {renderLink(item)}
+        <div className="shell-nav-reveal">
+          <div>
+            <Link
+              href={item.shortcut.href}
+              className={`shell-nav-shortcut${here ? " active" : ""}`}
+              aria-current={here ? "page" : undefined}
+              title={item.shortcut.label}
+            >
+              <Plus size={15} aria-hidden />
+              <span>{item.shortcut.label}</span>
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <aside className="shell-sidebar">

@@ -641,6 +641,76 @@ button.glass-pill:hover:not(:disabled) {
   justify-self: start;
   margin-top: 6px;
 }
+/* Voice and video: Talk to Astro, Upload video. */
+.composer-sphere {
+  margin-bottom: 12px;
+}
+.composer-voice-tools {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+.composer-dock .composer-voice-tools {
+  justify-content: flex-start;
+  margin-top: 0;
+}
+.composer-voice-tools .glass-pill {
+  height: 38px;
+  font-size: 13px;
+}
+.composer-voice-tools .glass-pill:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.composer-status {
+  margin: 12px 0 0;
+  text-align: center;
+  color: var(--muted);
+}
+.composer-voice {
+  position: sticky;
+  top: 8px;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.chat .spoken p {
+  opacity: 0.65;
+}
+.chat .chat-searched {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.draft-apps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.draft-apps li > * {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--green-soft);
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 500;
+}
+.draft-apps a {
+  background: transparent;
+  border: 1px dashed var(--green);
+}
 .composer-dock {
   position: sticky;
   bottom: 16px;

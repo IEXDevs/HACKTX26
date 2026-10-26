@@ -609,13 +609,25 @@ export const DELEGATION_GUIDANCE = [
   "You have agent.delegate.",
   "Use it when one piece of the goal is bounded and narrower than the decision you owe: a lookup, a file read, a draft, or a check.",
   "Name the grunt, and give it a title and a task that includes the done condition.",
+  "List only the tools the task needs in the tools argument; a new grunt without that list can only read.",
   "You may pin a Meta Model API model for the child (`muse-spark-1.3` for almost everything, `muse-wonder-1.0` only for critical work) via the model argument.",
   "Pass `connectors` (toolkit slugs such as github, gmail, slack, serpapi) to let the child use those linked apps. The child cannot use an app you did not grant.",
   "Do not delegate the final decision, a credential, or your whole goal.",
   "The grunt is created under you the first time you use that name, then reused. It runs, then its summary is returned to you on this run. Grunts cannot delegate further.",
 ].join(" ");
 
-/** Low and medium tools a grunt may inherit. Credentials and delegation stay with the parent. */
+/** Tools that only read. A grunt starts with these unless its parent names what it needs. */
+export function isReadOnlyTool(name: string): boolean {
+  const entry = TOOL_BY_NAME.get(name);
+  return entry?.risk === "low" && entry.scopes.every((scope) => scope === "read") && name !== "agent.delegate";
+}
+
+/**
+ * The tools a grunt starts with: the ones its parent named for the task, or
+ * else only the parent's read-only tools. Never more than the parent holds,
+ * and never credentials, delegation, or anything high risk. A grunt that
+ * needs more asks its parent during the run.
+ */
 export function gruntTools(
   parentTools: readonly string[],
   requested?: readonly string[],
@@ -637,8 +649,8 @@ export function gruntTools(
   );
   const picked = requested?.length
     ? requested.filter((name) => ceiling.has(name))
-    : [...ceiling];
-  const tools = picked.length > 0 ? picked : ["kb.search", "fs.read", "context.read"];
+    : [...ceiling].filter(isReadOnlyTool);
+  const tools = picked.length > 0 ? picked : ["kb.search", "fs.read", "context.read"].filter((name) => ceiling.has(name));
   return [...new Set(tools)];
 }
 

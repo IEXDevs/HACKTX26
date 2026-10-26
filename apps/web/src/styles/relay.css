@@ -251,6 +251,33 @@ select:not([multiple]):not([size]):disabled {
   color: var(--green);
   font-weight: 600;
 }
+/* A shortcut under a nav item, revealed on hover or keyboard focus. */
+.shell-nav-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 0.22s ease, opacity 0.18s ease;
+}
+.shell-nav-reveal > div {
+  overflow: hidden;
+}
+.shell-nav-group:hover .shell-nav-reveal,
+.shell-nav-group:focus-within .shell-nav-reveal,
+.shell-nav-group.open .shell-nav-reveal {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.shell-nav a.shell-nav-shortcut {
+  min-height: 34px;
+  margin-top: 2px;
+  padding-left: 37px;
+  font-size: 13px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .shell-nav-reveal {
+    transition: none;
+  }
+}
 .shell-count {
   margin-left: auto;
   min-width: 20px;
@@ -342,6 +369,7 @@ select:not([multiple]):not([size]):disabled {
     display: none;
   }
   .shell-nav a,
+  .shell-nav a.shell-nav-shortcut,
   .shell-bottom button {
     justify-content: center;
     padding: 0;

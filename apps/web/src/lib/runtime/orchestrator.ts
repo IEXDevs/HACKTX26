@@ -95,6 +95,7 @@ import {
   isBlueLead,
   isProbeLead,
 } from "./capabilities";
+import { clampToParent, grantsFromParent } from "./attenuate";
 import { insertHelperAgent, reactivateHelper } from "./helper-agents";
 import { AgentLifecycle, type AgentOutcome } from "./lifecycle";
 import { cancelledRuns, HEARTBEAT_MS, liveRuns } from "./reaper";
@@ -1142,6 +1143,10 @@ class RunEngine {
   async #askUser(agent: AgentRow, taskId: string | null, call: { id: string; args: Record<string, unknown> }) {
     const parsed = QuestionSchema.safeParse(call.args);
     if (!parsed.success) return { ok: false, preview: "", error: "user.ask requires a clear question and reason." };
+    // Red-team test runs have no one to answer; pausing would leave the check waiting forever.
+    if (this.run.purpose === "retest") {
+      return { ok: false, preview: "", error: "No one is available to answer during a red-team test run. Continue without user input and report what you could not do." };
+    }
     const db = getDb();
     let [request] = await db.select().from(inputRequests).where(and(eq(inputRequests.runId, this.run.id), eq(inputRequests.callId, call.id)));
     if (!request) {
@@ -1558,9 +1563,10 @@ class RunEngine {
     if (child.id === agent.id) {
       return { ok: false, preview: "", error: "An agent cannot delegate to itself." };
     }
-    const granted = parseConnectorList(call.args.connectors).filter((slug) =>
-      this.#connectorsFor(agent).includes(slug),
-    );
+    // Without a connectors argument, a child keeps the apps it was built with, still within the parent's.
+    const requestedApps =
+      call.args.connectors === undefined ? child.allowedConnectors : parseConnectorList(call.args.connectors);
+    const granted = requestedApps.filter((slug) => this.#connectorsFor(agent).includes(slug));
     this.#runConnectors.set(child.id, granted);
     child.allowedConnectors = granted;
     await persistConnectorGrants(this.run.workspaceId, child.id, granted, agent.id);
@@ -1822,7 +1828,8 @@ class RunEngine {
           complexityForTask(task),
           this.workspace.deniedModelIds,
         ),
-        grants: grantsForSpecialist(tools),
+        // Cut from the parent's grants, so the grunt never holds more than the parent.
+        grants: grantsFromParent(parent, tools),
         allowedTools: tools,
         allowedConnectors: granted,
         complexity: complexityForTask(task),
@@ -1835,8 +1842,12 @@ class RunEngine {
         updatedAt: now,
       });
 
+    // A grunt reused from an earlier run may hold more than its parent does now. Hold it to the parent for this run.
+    if (!isNew) Object.assign(created, clampToParent(created, parent));
     this.#spawnedGrunts.add(created.id);
-    if (!this.agentRows.some((row) => row.id === created.id)) this.agentRows.push(created);
+    const known = this.agentRows.find((row) => row.id === created.id);
+    if (known) Object.assign(known, { allowedTools: created.allowedTools, grants: created.grants });
+    else this.agentRows.push(created);
     this.#runConnectors.set(created.id, granted);
     await persistConnectorGrants(this.run.workspaceId, created.id, granted, parent.id);
     if (!isNew) return created;

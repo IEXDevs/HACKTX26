@@ -21,7 +21,7 @@ import { agents, auditLog, budgetPolicies, promptBlocks, workspaceContexts, type
 import { env, newId } from "./env";
 import { workerDepths } from "./agent-tree";
 import type { BuilderConversation } from "./builder-conversation";
-import { hydrateContextFromStores, mirrorContext } from "./connectors";
+import { hydrateContextFromStores, mirrorContext, parseConnectorList, persistConnectorGrants } from "./connectors";
 import { upsertBuilderContext } from "./runtime/builder-context";
 import { WorkspaceContextFile } from "./runtime/workspace-context";
 
@@ -42,6 +42,8 @@ export interface GraphSpec {
     tools: string[];
     parentIndex?: number;
   }>;
+  /** Composio toolkit slugs granted to every agent in the team. */
+  apps?: string[];
 }
 
 export const ORCHESTRATOR_TOOLS = [
@@ -128,6 +130,7 @@ export async function createAgentGraph(options: {
   }
   const db = getDb();
   const dataClass = options.dataClass ?? workspace.defaultDataClass;
+  const apps = parseConnectorList(spec.apps ?? []);
   const now = new Date();
 
   const orgBlocks = await db
@@ -167,6 +170,7 @@ export async function createAgentGraph(options: {
     modelPolicy: policyFor(spec.orchestrator.complexity, "orchestrator"),
     grants: grantsFor(ORCHESTRATOR_TOOLS),
     allowedTools: ORCHESTRATOR_TOOLS,
+    allowedConnectors: apps,
     complexity: spec.orchestrator.complexity,
     maxSteps: 12,
     dataClass,
@@ -199,6 +203,7 @@ export async function createAgentGraph(options: {
       modelPolicy: policyFor(worker.complexity, worker.role),
       grants: grantsFor(tools),
       allowedTools: tools,
+      allowedConnectors: apps,
       complexity: worker.complexity,
       maxSteps: worker.role === "security" ? 16 : 10,
       dataClass,
@@ -272,6 +277,12 @@ export async function createAgentGraph(options: {
       context.file.write(context.content);
     }
   });
+  if (apps.length > 0) {
+    // Same grant records as delegation, so the Connectors page and audits see them.
+    for (const agentId of agentIds) {
+      await persistConnectorGrants(workspace.id, agentId, apps, options.contextUpdatedBy ?? "builder");
+    }
+  }
   if (context) {
     await mirrorContext(workspace.id, context.content, options.contextUpdatedBy ?? null).catch((error) => {
       console.warn("[builder] CONTEXT.md cloud sync:", (error as Error).message);

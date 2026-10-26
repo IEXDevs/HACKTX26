@@ -2,10 +2,33 @@ import { eq } from "drizzle-orm";
 import { NextRequest } from "next/server";
 import { getDb } from "@/lib/db/client";
 import { agents } from "@/lib/db/schema";
-import { CHECK_MAX_USD, RED_TEAM_CATEGORIES, startRedTeamCheck } from "@/lib/loop/redteam-check";
+import {
+  CHECK_MAX_USD,
+  listCheckReports,
+  liveChecks,
+  RED_TEAM_CATEGORIES,
+  startRedTeamCheck,
+} from "@/lib/loop/redteam-check";
 import { getWorkspaceUser } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
+
+/** Where this agent's red-team check stands: running, finished, or never run. */
+export async function GET(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  const { workspace } = await getWorkspaceUser();
+  const [agent] = await getDb().select().from(agents).where(eq(agents.id, id)).limit(1);
+  if (!agent || agent.workspaceId !== workspace.id) {
+    return Response.json({ error: "Agent not found." }, { status: 404 });
+  }
+  const live = liveChecks().find((check) => check.agentId === id);
+  if (live) {
+    return Response.json({ state: "running", probesDone: live.probesDone, probesTotal: live.probesTotal });
+  }
+  const report = (await listCheckReports(workspace.id, 50)).find((row) => row.agentId === id);
+  if (!report) return Response.json({ state: "none" });
+  return Response.json({ state: "finished", findings: report.findingIds.length, at: report.at });
+}
 
 /**
  * Start a red-team check on one published agent. A person asks for it after

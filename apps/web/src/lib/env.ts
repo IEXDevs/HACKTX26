@@ -31,13 +31,9 @@ export const env = {
     | "anthropic",
 
   openai: {
-    // Hackathon key, hardcoded so live inference works with zero config in
-    // every environment (local, Docker, Cloud Run). Usage is capped at $10 on
-    // the Meta dashboard. Override with env vars; explicit env always wins.
-    // If this repo ever becomes public, rotate the key and remove this.
-    apiKey:
-      process.env.OPENAI_API_KEY ??
-      "",
+    // Any OpenAI-compatible endpoint, including the Meta Model API. Without a
+    // key the runtime falls back to the scripted gateway.
+    apiKey: process.env.OPENAI_API_KEY ?? "",
     baseUrl: process.env.OPENAI_BASE_URL ?? "https://api.meta.ai/v1",
   },
   anthropic: {
@@ -70,6 +66,10 @@ export const env = {
   serpapi: {
     apiKey: process.env.SERPAPI_API_KEY ?? "",
   },
+  /** Server only. The browser gets short-lived Live tokens, never this key. */
+  gemini: {
+    apiKey: process.env.GEMINI_API_KEY ?? "",
+  },
 
   isProduction: process.env.NODE_ENV === "production",
 } as const;
@@ -90,6 +90,11 @@ export function composioEnabled(): boolean {
 
 export function serpApiEnabled(): boolean {
   return Boolean(env.serpapi.apiKey);
+}
+
+/** Astro voice, agent voice lines, and workflow videos. */
+export function geminiEnabled(): boolean {
+  return Boolean(env.gemini.apiKey);
 }
 
 /* -------------------------------------------------------------------------- */

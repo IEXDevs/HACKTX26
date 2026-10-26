@@ -213,16 +213,42 @@ function grantCovers(
   return true;
 }
 
+/** The agent's grant that covers this request, paths and hosts included. */
+export function coveringGrant(request: PermissionRequest): PermissionGrant | undefined {
+  return request.agentGrants?.find((g) => grantCovers(g, request));
+}
+
+/**
+ * Whether the agent holds grants for this capability, but every one of them
+ * is limited to other paths or hosts. Such a request is outside what the
+ * agent was given, whatever the workspace allows in general.
+ */
+export function beyondGrants(request: PermissionRequest): boolean {
+  const own = (request.agentGrants ?? []).filter(
+    (g) => globMatches(g.resource, request.resource) && request.scopes.every((s) => g.scopes.includes(s)),
+  );
+  return own.length > 0 && !own.some((g) => grantCovers(g, request));
+}
+
 /**
  * Explicit per-agent grants win over org defaults: an agent may be *more*
  * restricted than the org, never less, unless the grant was itself approved.
- * `deny` rules always win, in every tier.
+ * A grant's path and host limits hold even where workspace policy allows the
+ * action. `deny` rules always win, in every tier.
  */
 export function evaluatePermission(
   request: PermissionRequest,
   rules: readonly PolicyRule[] = DEFAULT_POLICY_RULES,
   actionEffects?: Readonly<Record<string, PolicyEffect>>,
 ): PermissionDecision {
+  if (beyondGrants(request)) {
+    return {
+      effect: "deny",
+      reason: `Outside the ${request.path ? "paths" : "hosts"} this agent's grant for ${request.resource} allows.`,
+      matchedRuleId: null,
+    };
+  }
+
   const workspaceEffect = actionEffects?.[request.resource];
   if (workspaceEffect) {
     return {

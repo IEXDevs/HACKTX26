@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
   }
 
   const workspace = await requireWorkspace();
-  const db = getDb();
+  const db = await getDb();
   const data = parsed.data;
   const allowedTools = [...new Set(data.allowedTools.filter((tool) => TOOL_BY_NAME.has(tool)))];
   if (allowedTools.length === 0) {

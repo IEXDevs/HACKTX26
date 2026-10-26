@@ -16,7 +16,7 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
   if (!found || found.workspaceId !== workspace.id) notFound();
   // Judge a finished retest on view, in case the engine hook has not yet.
   const row = await checkRetest(found.id);
-  const db = getDb();
+  const db = await getDb();
   const [[finding], [target]] = await Promise.all([
     db.select().from(securityFindings).where(eq(securityFindings.id, row.findingId)).limit(1),
     db.select().from(agents).where(eq(agents.id, row.targetAgentId)).limit(1),

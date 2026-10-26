@@ -14,7 +14,7 @@ const PARENT = "agt_incident_commander";
 async function freshDb() {
   const g = globalThis as unknown as { __agentOsDb?: unknown };
   delete g.__agentOsDb;
-  getDb();
+  (await getDb());
   await seedDatabase();
 }
 
@@ -95,7 +95,7 @@ describe("helper creation", () => {
     ]);
     expect(a.row.id).toBe(b.row.id);
     expect([a.created, b.created].filter(Boolean)).toHaveLength(1);
-    const rows = await getDb().select().from(agents).where(eq(agents.name, "Runbook Analyst"));
+    const rows = await (await getDb()).select().from(agents).where(eq(agents.name, "Runbook Analyst"));
     expect(rows).toHaveLength(1);
   });
 
@@ -109,7 +109,7 @@ describe("helper creation", () => {
 
   it("brings a retired helper back instead of creating a copy", async () => {
     const first = await insertHelperAgent(helper("agt_test_e"));
-    await getDb().update(agents).set({ status: "archived" }).where(eq(agents.id, first.row.id));
+    await (await getDb()).update(agents).set({ status: "archived" }).where(eq(agents.id, first.row.id));
     const again = await insertHelperAgent(helper("agt_test_f"));
     expect(again).toMatchObject({ created: false, row: { id: first.row.id, status: "active" } });
   });
@@ -122,7 +122,7 @@ describe("run reaper", () => {
 
   async function activeRun(id: string, heartbeatAgoMs: number) {
     const at = new Date(Date.now() - heartbeatAgoMs);
-    await getDb().insert(runs).values({
+    await (await getDb()).insert(runs).values({
       id,
       workspaceId: WS,
       agentId: PARENT,
@@ -135,7 +135,7 @@ describe("run reaper", () => {
     });
     const logger = await RunLogger.open(id);
     await logger.emit({ type: "agent.spawned", agentId: PARENT, parentAgentId: null, name: "Incident Commander", role: "orchestrator", model: "muse-spark-1.3" }, PARENT);
-    await getDb().insert(approvals).values({
+    await (await getDb()).insert(approvals).values({
       id: `apr_${id}`,
       workspaceId: WS,
       runId: id,
@@ -153,16 +153,16 @@ describe("run reaper", () => {
     await activeRun("run_dead", STALE_AFTER_MS + 60_000);
     expect(await reapStaleRuns()).toContain("run_dead");
 
-    const [run] = await getDb().select().from(runs).where(eq(runs.id, "run_dead"));
+    const [run] = await (await getDb()).select().from(runs).where(eq(runs.id, "run_dead"));
     expect(run).toMatchObject({ status: "failed" });
     expect(run!.failureReason).toMatch(/server stopped/);
-    const events = await getDb().select().from(runEvents).where(eq(runEvents.runId, "run_dead"));
+    const events = await (await getDb()).select().from(runEvents).where(eq(runEvents.runId, "run_dead"));
     const types = events.sort((x, y) => x.seq - y.seq).map((e) => e.payload);
     expect(types.at(-1)).toMatchObject({ type: "run.completed", status: "failed" });
     expect(types.some((p) => p.type === "agent.status" && p.status === "failed")).toBe(true);
-    const [approval] = await getDb().select().from(approvals).where(eq(approvals.id, "apr_run_dead"));
+    const [approval] = await (await getDb()).select().from(approvals).where(eq(approvals.id, "apr_run_dead"));
     expect(approval!.status).toBe("expired");
-    const audits = await getDb().select().from(auditLog).where(eq(auditLog.targetId, "run_dead"));
+    const audits = await (await getDb()).select().from(auditLog).where(eq(auditLog.targetId, "run_dead"));
     expect(audits.map((a) => a.action)).toContain("run.reaped");
 
     // Reaping twice changes nothing.
@@ -172,7 +172,7 @@ describe("run reaper", () => {
   it("never reaps seeded replays", async () => {
     const reaped = await reapStaleRuns();
     expect(reaped.filter((id) => id.startsWith("run_0"))).toEqual([]);
-    const [seeded] = await getDb().select().from(runs).where(eq(runs.id, "run_04_contract"));
+    const [seeded] = await (await getDb()).select().from(runs).where(eq(runs.id, "run_04_contract"));
     expect(seeded!.status).toBe("awaiting_approval");
   });
 

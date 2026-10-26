@@ -7,7 +7,7 @@ import { checkRetest, loadCase, type RetestRunner } from "./cases";
 export async function freshDb() {
   const g = globalThis as unknown as { __agentOsDb?: unknown };
   delete g.__agentOsDb;
-  getDb();
+  (await getDb());
   await seedDatabase();
 }
 
@@ -36,7 +36,7 @@ export function fakeRunner(
       const id = `run_test_${goals.length}_${Math.random().toString(36).slice(2, 8)}`;
       runIds.push(id);
       const result = outcome(goal, goals.length - 1);
-      const db = getDb();
+      const db = await getDb();
       await db.insert(runs).values({
         id,
         workspaceId,

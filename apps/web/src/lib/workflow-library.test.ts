@@ -10,12 +10,12 @@ describe("workflows from existing agents", () => {
   beforeEach(() => { delete (globalThis as { __agentOsDb?: unknown }).__agentOsDb; });
 
   async function fixture() {
-    const workspace = (await getDb().insert(workspaces).values({ id: "ws_library", name: "Library", slug: "library", createdAt: new Date() }).returning())[0]!;
+    const workspace = (await (await getDb()).insert(workspaces).values({ id: "ws_library", name: "Library", slug: "library", createdAt: new Date() }).returning())[0]!;
     await createAgentGraph({ workspace, actor: "test", auditAction: "agent.created", spec: {
       orchestrator: { name: "Research lead", summary: "Research existing documents.", instructions: "Read the available documents and summarize the findings.", complexity: "standard" },
       workers: [{ name: "Reader", role: "worker", instructions: "Read the source documents.", complexity: "trivial", tools: ["kb.search", "fs.read"] }],
     } });
-    const library = await getDb().select().from(agents);
+    const library = await (await getDb()).select().from(agents);
     return { workspace, library };
   }
 
@@ -30,7 +30,7 @@ describe("workflows from existing agents", () => {
         { id: "nested", parentId: "child", agentId: reader.id },
       ],
     }, "test");
-    const rows = await getDb().select().from(agents);
+    const rows = await (await getDb()).select().from(agents);
     expect(rows.filter((agent) => !agent.sourceAgentId)).toEqual(library);
     const root = rows.find((agent) => agent.id === result.workflowId)!;
     expect(root).toMatchObject({ name: "Onboarding review", sourceAgentId: lead.id, defaultGoal: "Review the onboarding source documents.", status: "active", canSpawnSubagents: false, modelPolicy: lead.modelPolicy, grants: lead.grants });
@@ -42,9 +42,9 @@ describe("workflows from existing agents", () => {
 
   it("rejects unavailable source agents before writing a workflow", async () => {
     const { workspace, library } = await fixture();
-    await getDb().update(agents).set({ status: "archived" }).where(eq(agents.id, library[0]!.id));
+    await (await getDb()).update(agents).set({ status: "archived" }).where(eq(agents.id, library[0]!.id));
     await expect(saveLibraryWorkflow(workspace, { name: "Invalid", mode: "manual", nodes: [{ id: "lead", parentId: null, agentId: library[0]!.id }] }, "test")).rejects.toThrow("no longer available");
-    expect(await getDb().select().from(agents)).toHaveLength(library.length);
+    expect(await (await getDb()).select().from(agents)).toHaveLength(library.length);
   });
 
   it("shows an empty selection as a placeholder and rejects saving it", () => {

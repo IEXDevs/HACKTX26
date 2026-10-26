@@ -6,6 +6,7 @@ import { runBus } from "@/lib/runtime/emitter";
 export const dynamic = "force-dynamic";
 
 const HEARTBEAT_MS = 15_000;
+const POLL_MS = 2_000;
 
 function frame(event: RunEvent): string {
   return `id: ${event.seq}\nevent: run-event\ndata: ${JSON.stringify(event)}\n\n`;
@@ -42,6 +43,7 @@ export async function GET(
       let closed = false;
       let lastSeq = since;
       let buffered = false;
+      let polling = false;
       const backlog: RunEvent[] = [];
 
       const stop = (error?: unknown) => {
@@ -72,6 +74,9 @@ export async function GET(
 
       const deliver = (event: RunEvent) => {
         if (closed || event.seq <= lastSeq) return;
+        // A local event may arrive before earlier events from another process.
+        // Leave the cursor in place so the next database poll fills the gap.
+        if (event.seq !== lastSeq + 1) return;
         lastSeq = event.seq;
         write(frame(event));
         if (event.payload.type === "run.completed") {
@@ -91,11 +96,30 @@ export async function GET(
         write(`: keep-alive ${Date.now()}\n\n`);
       }, HEARTBEAT_MS);
 
+      // The executor can be in another Cloud Run revision. The local bus is
+      // only a fast path; persisted events remain the source of truth.
+      const poll = setInterval(async () => {
+        if (closed || !buffered || polling) return;
+        polling = true;
+        try {
+          for (const event of await getRunEvents(id, lastSeq)) deliver(event);
+          if (!closed) {
+            const current = await getRun(id);
+            if (current && isTerminalStatus(current.status)) close(current.status);
+          }
+        } catch (error) {
+          stop(error);
+        } finally {
+          polling = false;
+        }
+      }, POLL_MS);
+
       const onAbort = () => stop();
 
       cleanup = () => {
         closed = true;
         clearInterval(heartbeat);
+        clearInterval(poll);
         runBus().off(id, listener);
         request.signal.removeEventListener("abort", onAbort);
       };

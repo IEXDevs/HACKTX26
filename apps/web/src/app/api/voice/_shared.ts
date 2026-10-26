@@ -26,7 +26,7 @@ export async function voiceContext(agentId: string): Promise<VoiceContext> {
   if (supabaseAuthEnabled() && !session?.id) {
     return { ok: false, response: Response.json({ error: "Sign in required." }, { status: 401 }) };
   }
-  const [agent] = await getDb().select().from(agents).where(eq(agents.id, agentId)).limit(1);
+  const [agent] = await (await getDb()).select().from(agents).where(eq(agents.id, agentId)).limit(1);
   if (!agent || agent.workspaceId !== workspace.id || agent.status === "archived") {
     return { ok: false, response: Response.json({ error: "That agent was not found." }, { status: 404 }) };
   }
@@ -45,7 +45,7 @@ export async function voiceRun(
   ctx: Extract<VoiceContext, { ok: true }>,
   runId: string,
 ): Promise<RunRow | null> {
-  const [run] = await getDb().select().from(runs).where(eq(runs.id, runId)).limit(1);
+  const [run] = await (await getDb()).select().from(runs).where(eq(runs.id, runId)).limit(1);
   if (
     !run ||
     run.workspaceId !== ctx.workspace.id ||

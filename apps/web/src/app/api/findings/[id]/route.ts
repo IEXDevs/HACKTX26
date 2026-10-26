@@ -30,7 +30,7 @@ export async function PATCH(
   }
 
   const workspace = await requireWorkspace();
-  const db = getDb();
+  const db = await getDb();
   const [finding] = await db
     .select()
     .from(securityFindings)

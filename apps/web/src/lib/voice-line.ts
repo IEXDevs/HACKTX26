@@ -197,7 +197,7 @@ export async function resolveVoiceApps(
   const linked = await (deps.linkedToolkits ?? connectedToolkitsFor)(agent.workspaceId, operatorUserId);
   let templateConnectors: string[] = [];
   if (agent.templateId) {
-    const [template] = await getDb()
+    const [template] = await (await getDb())
       .select({ requiredConnectors: templates.requiredConnectors })
       .from(templates)
       .where(eq(templates.id, agent.templateId))
@@ -535,7 +535,7 @@ export function isCalendarBooking(toolkit: string, action: string): boolean {
 
 /** The settings the session stored on the call's run, or null if this is not a voice call. */
 export async function voiceCallSettings(runId: string): Promise<VoiceCallSettings | null> {
-  const rows = await getDb()
+  const rows = await (await getDb())
     .select({ payload: runEvents.payload })
     .from(runEvents)
     .where(and(eq(runEvents.runId, runId), eq(runEvents.type, "log")))
@@ -569,7 +569,7 @@ export async function executeVoiceAction(
   deps: VoiceDeps = {},
 ): Promise<VoiceActionResult> {
   const { runId, agent } = input;
-  const db = getDb();
+  const db = await getDb();
   const started = Date.now();
   const settings = input.apps && input.timeZone ? null : await voiceCallSettings(runId);
   const apps = input.apps ?? settings?.apps ?? [];
@@ -807,7 +807,7 @@ export async function startVoiceCall(input: {
   model: string;
 }): Promise<string> {
   const { agent, settings } = input;
-  const db = getDb();
+  const db = await getDb();
   const [workspace] = await db
     .select({ defaultRunBudgetUsd: workspaces.defaultRunBudgetUsd })
     .from(workspaces)
@@ -877,7 +877,7 @@ export async function startVoiceCall(input: {
 const TERMINAL = new Set(["succeeded", "failed", "halted", "cancelled"]);
 
 export async function endVoiceCall(runId: string, transcript: TranscriptLine[]): Promise<void> {
-  const db = getDb();
+  const db = await getDb();
   const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
   if (!run) throw new Error("That call does not exist.");
   // Ending twice is harmless: the second time changes nothing.

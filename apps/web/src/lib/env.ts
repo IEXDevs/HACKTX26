@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
+import { runtimeEnv } from "./runtime-env";
 
 /* -------------------------------------------------------------------------- */
 /* Environment                                                                */
@@ -15,11 +16,13 @@ function num(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+// Supabase is used on the server. Read the deployed runtime values instead of
+// baking NEXT_PUBLIC_* values from the build machine into the image.
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
 
-  /** SQLite URL, e.g. `file:./.data/agent-os.db`. */
-  databaseUrl: process.env.DATABASE_URL ?? "file:./.data/agent-os.db",
+  /** Supabase pooled Postgres URL. PGlite is for local development only. */
+  databaseUrl: process.env.DATABASE_URL ?? "pglite://./.data/postgres",
 
   /** Root for per-agent sandboxed filesystems. */
   sandboxRoot:
@@ -55,8 +58,8 @@ export const env = {
   },
 
   supabase: {
-    url: process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
-    anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
+    url: runtimeEnv("NEXT_PUBLIC_SUPABASE_URL") ?? "",
+    anonKey: runtimeEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY") ?? "",
     serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
   },
 

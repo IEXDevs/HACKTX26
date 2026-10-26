@@ -33,7 +33,7 @@ export function cancelledRuns(): Set<string> {
 
 /** Agents that spawned in a run but never reported a final status. */
 async function openAgents(runId: string): Promise<string[]> {
-  const rows = await getDb()
+  const rows = await (await getDb())
     .select({ type: runEvents.type, payload: runEvents.payload })
     .from(runEvents)
     .where(eq(runEvents.runId, runId));
@@ -49,7 +49,7 @@ async function openAgents(runId: string): Promise<string[]> {
 
 /** Close every active run whose heartbeat stopped. Returns the run ids it closed. */
 export async function reapStaleRuns(now = Date.now()): Promise<string[]> {
-  const db = getDb();
+  const db = await getDb();
   const cutoff = new Date(now - STALE_AFTER_MS);
   const candidates = await db
     .select()
@@ -120,7 +120,7 @@ export function startRunReaper(): void {
   if (g.__agentOsReaper) return;
   const sweep = () =>
     reapStaleRuns().catch((error) => {
-
+       
       console.error("[reaper] sweep failed", error);
     });
   void sweep();

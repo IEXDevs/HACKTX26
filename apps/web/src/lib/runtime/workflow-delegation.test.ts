@@ -21,7 +21,7 @@ describe("delegation in a selected static workflow", () => {
   afterEach(() => vi.restoreAllMocks());
 
   async function fixture() {
-    const db = getDb();
+    const db = await getDb();
     const workspace = (await db.insert(workspaces).values({ id: "ws_selected", name: "Selected", slug: "selected", createdAt: new Date() }).returning())[0]!;
     await createAgentGraph({ workspace, actor: "test", auditAction: "agent.created", spec: {
       orchestrator: { name: "Lead", summary: "Summarizes documents.", instructions: "Delegate document reading to the Reader and summarize its report.", complexity: "standard" },
@@ -42,7 +42,7 @@ describe("delegation in a selected static workflow", () => {
     target = "Reader";
     const { workflow, reader } = await fixture();
     await executeRun("run_selected");
-    const spawned = (await getDb().select().from(runEvents)).filter((event) => event.type === "agent.spawned").map((event) => event.agentId);
+    const spawned = (await (await getDb()).select().from(runEvents)).filter((event) => event.type === "agent.spawned").map((event) => event.agentId);
     expect(spawned).toContain(workflow.nodes.find((node) => node.id === "reader")!.agentId);
     expect(spawned).not.toContain(reader.id);
   });
@@ -51,6 +51,6 @@ describe("delegation in a selected static workflow", () => {
     target = "Outside";
     await fixture();
     await executeRun("run_selected");
-    expect(JSON.stringify(await getDb().select().from(runEvents))).toContain("connected below it in this workflow");
+    expect(JSON.stringify(await (await getDb()).select().from(runEvents))).toContain("connected below it in this workflow");
   });
 });

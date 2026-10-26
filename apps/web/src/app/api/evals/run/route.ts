@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     const { user } = await getWorkspaceUser();
     const casesPassed = batch.results.reduce((sum, result) => sum + result.row.casesPassed, 0);
     const casesTotal = batch.results.reduce((sum, result) => sum + result.row.casesTotal, 0);
-    await getDb().insert(auditLog).values({
+    await (await getDb()).insert(auditLog).values({
       id: newId("aud"),
       workspaceId: workspace.id,
       actor: user?.email ?? "operator@local",
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
 }
 
 async function suiteIdsFor(workspaceId: string, templateId: string | undefined, overall: boolean): Promise<string[]> {
-  const db = getDb();
+  const db = await getDb();
   const suites = await db.select().from(evalSuites).where(eq(evalSuites.workspaceId, workspaceId));
   if (overall) return suites.map((suite) => suite.id);
   if (!templateId) return [];

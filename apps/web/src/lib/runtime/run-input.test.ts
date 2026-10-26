@@ -34,7 +34,7 @@ describe("pausing for user input", () => {
   afterEach(() => vi.restoreAllMocks());
 
   async function fixture() {
-    const db = getDb();
+    const db = await getDb();
     const id = newId("ws_input_test");
     const [workspace] = await db.insert(workspaces).values({ id, slug: id, name: "Input test", createdAt: new Date() }).returning();
     const created = await createAgentGraph({ workspace: workspace!, actor: "test", auditAction: "agent.created", spec: {
@@ -48,8 +48,8 @@ describe("pausing for user input", () => {
     await db.insert(runs).values({ id: runId, workspaceId: id, agentId: created.orchestratorId, goal: "Prepare the requested course assignment report.", mode: "scripted", budgetUsd: 1, startedAt: new Date() });
     return { runId, workspaceId: id };
   }
-  async function row(id: string) { return (await getDb().select().from(runs).where(eq(runs.id, id)))[0]!; }
-  async function events(id: string) { return (await getDb().select().from(runEvents).where(eq(runEvents.runId, id))).map((event) => event.payload); }
+  async function row(id: string) { return (await (await getDb()).select().from(runs).where(eq(runs.id, id)))[0]!; }
+  async function events(id: string) { return (await (await getDb()).select().from(runEvents).where(eq(runEvents.runId, id))).map((event) => event.payload); }
 
   it("pauses without finishing, shows the full question on Home, then resumes without repeating earlier calls", async () => {
     turns = [[
@@ -68,7 +68,7 @@ describe("pausing for user input", () => {
     expect((await homeView(workspaceId)).needs).toContainEqual(expect.objectContaining({ id: pending!.id, kind: "input", ask: "Which course should I include?" }));
     const tooLate = Date.now() + STALE_AFTER_MS * 3;
     expect(await reapStaleRuns(tooLate)).not.toContain(runId);
-    expect(answerInput(pending!.id, workspaceId, "CS 314", "operator")).toMatchObject({ ok: true, runId });
+    expect(await answerInput(pending!.id, workspaceId, "CS 314", "operator")).toMatchObject({ ok: true, runId });
     await executeRun(runId); // New engine instance loads only the persisted continuation.
     const completed = await row(runId);
     expect(completed).toMatchObject({ status: "succeeded", summary: final });
@@ -80,7 +80,7 @@ describe("pausing for user input", () => {
     expect(all.filter((event) => event.type === "tool.completed" && event.callId === "read_after")).toHaveLength(1);
     expect(all.filter((event) => event.type === "run.started")).toHaveLength(1);
     expect(await listPendingInputs(workspaceId)).toHaveLength(0);
-    expect(await getDb().select().from(runCheckpoints)).toHaveLength(0);
+    expect(await (await getDb()).select().from(runCheckpoints)).toHaveLength(0);
   });
 
   it("resumes a paused worker and returns its result to its lead without recreating the task", async () => {
@@ -93,7 +93,7 @@ describe("pausing for user input", () => {
     expect((await row(runId)).status).toBe("awaiting_input");
     const [pending] = await listPendingInputs(workspaceId);
     expect(pending!.agentId).not.toBe((await row(runId)).agentId);
-    answerInput(pending!.id, workspaceId, "CS 314", "operator");
+    (await answerInput(pending!.id, workspaceId, "CS 314", "operator"));
     await executeRun(runId);
     expect(await row(runId)).toMatchObject({ status: "succeeded", summary: final, inputTokens: 400 });
     expect((await events(runId)).filter((event) => event.type === "task.created")).toHaveLength(1);
@@ -106,12 +106,12 @@ describe("pausing for user input", () => {
     const { runId, workspaceId } = await fixture();
     await executeRun(runId);
     const [pending] = await listPendingInputs(workspaceId);
-    expect(answerInput(pending!.id, workspaceId, " ", "operator")).toMatchObject({ ok: false, status: 400 });
-    expect(answerInput(pending!.id, "other_workspace", "CS 314", "operator")).toMatchObject({ ok: false, status: 404 });
-    const before = (await getDb().select().from(agents)).map((agent) => agent.grants);
-    expect(answerInput(pending!.id, workspaceId, "CS 314", "operator").ok).toBe(true);
-    expect(answerInput(pending!.id, workspaceId, "CS 311", "operator")).toMatchObject({ ok: false, status: 409 });
-    expect((await getDb().select().from(agents)).map((agent) => agent.grants)).toEqual(before);
+    expect(await answerInput(pending!.id, workspaceId, " ", "operator")).toMatchObject({ ok: false, status: 400 });
+    expect(await answerInput(pending!.id, "other_workspace", "CS 314", "operator")).toMatchObject({ ok: false, status: 404 });
+    const before = (await (await getDb()).select().from(agents)).map((agent) => agent.grants);
+    expect((await answerInput(pending!.id, workspaceId, "CS 314", "operator")).ok).toBe(true);
+    expect(await answerInput(pending!.id, workspaceId, "CS 311", "operator")).toMatchObject({ ok: false, status: 409 });
+    expect((await (await getDb()).select().from(agents)).map((agent) => agent.grants)).toEqual(before);
   });
 
   it("can cancel a paused run and removes its pending question", async () => {
@@ -122,7 +122,7 @@ describe("pausing for user input", () => {
     await cancelRun(runId);
     expect(await row(runId)).toMatchObject({ status: "cancelled", endedAt: expect.any(Date) });
     expect(await listPendingInputs(workspaceId)).toHaveLength(0);
-    expect(answerInput(pending!.id, workspaceId, "CS 314", "operator")).toMatchObject({ ok: false, status: 409 });
+    expect(await answerInput(pending!.id, workspaceId, "CS 314", "operator")).toMatchObject({ ok: false, status: 409 });
     await executeRun(runId);
     expect(requests).toHaveLength(1);
   });
@@ -133,8 +133,8 @@ describe("pausing for user input", () => {
     await executeRun(runId);
     const paused = await row(runId);
     const [pending] = await listPendingInputs(workspaceId);
-    answerInput(pending!.id, workspaceId, "CS 314", "operator");
-    await getDb().update(runs).set({ budgetUsd: paused.costUsd }).where(eq(runs.id, runId));
+    (await answerInput(pending!.id, workspaceId, "CS 314", "operator"));
+    await (await getDb()).update(runs).set({ budgetUsd: paused.costUsd }).where(eq(runs.id, runId));
     await executeRun(runId);
     expect(requests).toHaveLength(1);
     expect((await row(runId)).status).toBe("halted");
@@ -149,13 +149,13 @@ describe("pausing for user input", () => {
     });
     turns = [[question], [{ type: "tool_call", call: { id: "read_work", name: "fs.read", args: { path: "repo/work.md" } } }], [text(final)]];
     const { runId, workspaceId } = await fixture();
-    await getDb().update(runs).set({ operatorUserId: "test-operator" }).where(eq(runs.id, runId));
+    await (await getDb()).update(runs).set({ operatorUserId: "test-operator" }).where(eq(runs.id, runId));
     await executeRun(runId);
     const root = await row(runId);
     const sandbox = new AgentSandbox(env.sandboxRoot, workspaceId, root.agentId);
     sandbox.write("repo/work.md", "In-progress local findings.");
     const [pending] = await listPendingInputs(workspaceId);
-    answerInput(pending!.id, workspaceId, "CS 314", "operator");
+    (await answerInput(pending!.id, workspaceId, "CS 314", "operator"));
     await executeRun(runId);
     expect(sync).toHaveBeenCalledTimes(1);
     expect(sandbox.read("repo/work.md")).toBe("In-progress local findings.");
@@ -170,7 +170,7 @@ describe("pausing for user input", () => {
       [text(final)],
     ];
     const { runId } = await fixture();
-    await getDb().update(agents).set({ maxSteps: 1 }).where(eq(agents.name, "Reader"));
+    await (await getDb()).update(agents).set({ maxSteps: 1 }).where(eq(agents.name, "Reader"));
     await executeRun(runId);
     const returned = requests[2]!.messages.find((message) => message.role === "tool" && message.toolName === "agent.delegate");
     expect(returned?.content).toContain("ERROR: Reader did not complete");
@@ -181,11 +181,11 @@ describe("pausing for user input", () => {
   it("keeps completed lead work when a follow-up review pauses for input", async () => {
     turns = [[text(final)], [question], [text(final)]];
     const { runId, workspaceId } = await fixture();
-    await getDb().update(runs).set({ goal: "Prepare the course report and a security review." }).where(eq(runs.id, runId));
+    await (await getDb()).update(runs).set({ goal: "Prepare the course report and a security review." }).where(eq(runs.id, runId));
     await executeRun(runId);
     expect((await row(runId)).status).toBe("awaiting_input");
     const [pending] = await listPendingInputs(workspaceId);
-    answerInput(pending!.id, workspaceId, "CS 314", "operator");
+    (await answerInput(pending!.id, workspaceId, "CS 314", "operator"));
     await executeRun(runId);
     expect(await row(runId)).toMatchObject({ status: "succeeded", summary: final });
     expect(requests).toHaveLength(3);

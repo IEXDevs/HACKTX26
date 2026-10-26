@@ -82,7 +82,7 @@ export function rankDocuments(docs: readonly KbDocument[], query: string, topK =
 }
 
 export async function listKbDocuments(workspaceId: string) {
-  return getDb()
+  return (await getDb())
     .select({
       id: kbDocuments.id,
       title: kbDocuments.title,
@@ -97,7 +97,7 @@ export async function listKbDocuments(workspaceId: string) {
 }
 
 export async function countKbDocuments(workspaceId: string): Promise<number> {
-  const [row] = await getDb()
+  const [row] = await (await getDb())
     .select({ total: count() })
     .from(kbDocuments)
     .where(eq(kbDocuments.workspaceId, workspaceId));
@@ -113,7 +113,7 @@ export async function searchKnowledgeBase(
   query: string,
   options: { topK?: number; dataClass?: DataClass } = {},
 ): Promise<KbHit[]> {
-  const rows = await getDb().select().from(kbDocuments).where(eq(kbDocuments.workspaceId, workspaceId));
+  const rows = await (await getDb()).select().from(kbDocuments).where(eq(kbDocuments.workspaceId, workspaceId));
   const visible = options.dataClass
     ? rows.filter((row) => classAllows(options.dataClass!, row.dataClass))
     : rows;
@@ -128,7 +128,7 @@ export async function addKbDocument(input: {
   addedBy: string;
 }): Promise<string> {
   const id = newId("kb");
-  await getDb().insert(kbDocuments).values({
+  await (await getDb()).insert(kbDocuments).values({
     id,
     workspaceId: input.workspaceId,
     title: input.title,
@@ -141,7 +141,7 @@ export async function addKbDocument(input: {
 }
 
 export async function removeKbDocument(workspaceId: string, id: string): Promise<boolean> {
-  const removed = await getDb()
+  const removed = await (await getDb())
     .delete(kbDocuments)
     .where(and(eq(kbDocuments.workspaceId, workspaceId), eq(kbDocuments.id, id)))
     .returning({ id: kbDocuments.id });

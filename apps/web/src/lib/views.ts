@@ -570,7 +570,7 @@ export async function usageView(workspaceId: string, range: UsageRange): Promise
     if (bucket) bucket.tokens += run.inputTokens + run.outputTokens;
   }
 
-  const usage = await getDb()
+  const usage = await (await getDb())
     .select({ payload: runEvents.payload, agentId: runEvents.agentId })
     .from(runEvents)
     .innerJoin(runs, eq(runs.id, runEvents.runId))

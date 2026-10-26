@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/agents/from-template/route";
@@ -6,7 +6,7 @@ import { getDb } from "./db/client";
 import { agents, auditLog, budgetPolicies, promptBlocks, templates, workspaces } from "./db/schema";
 
 vi.mock("./queries", () => ({
-  requireWorkspace: async () => (await getDb().select().from(workspaces).where(eq(workspaces.id, "ws_template")))[0],
+  requireWorkspace: async () => (await (await getDb()).select().from(workspaces).where(eq(workspaces.id, "ws_template")))[0],
   getWorkspaceUser: async () => ({ user: { email: "builder@local" } }),
 }));
 
@@ -17,7 +17,7 @@ const create = (body: unknown) => POST(new NextRequest("http://localhost/api/age
 describe("template creation through the shared factory", () => {
   beforeEach(async () => {
     delete (globalThis as { __agentOsDb?: unknown }).__agentOsDb;
-    const db = getDb();
+    const db = await getDb();
     await db.insert(workspaces).values({ id: "ws_template", name: "Templates", slug: "template-test", createdAt: new Date(), defaultRunBudgetUsd: 3 });
     await db.insert(promptBlocks).values({ id: "org_template", workspaceId: "ws_template", name: "Company", level: "org", content: "Follow policy.", locked: true, createdAt: new Date() });
     await db.insert(templates).values({ id: "tpl_test", key: "test", name: "Test", category: "operations", description: "A template.", outcome: "A verified report.", requiredConnectors: ["github"], createdAt: new Date(), graph: {
@@ -34,7 +34,7 @@ describe("template creation through the shared factory", () => {
     expect(response.status).toBe(201);
     const result = await response.json();
     expect(result).toMatchObject({ status: "draft", agentIds: expect.any(Array), issues: expect.any(Array) });
-    const db = getDb();
+    const db = await getDb();
     const rows = await db.select().from(agents);
     expect(rows).toHaveLength(3);
     expect(new Set(rows.map((row) => row.slug)).size).toBe(3);
@@ -53,8 +53,8 @@ describe("template creation through the shared factory", () => {
   });
 
   it("rolls back the whole graph if its audit write fails", async () => {
-    const db = getDb();
-    db.$client.exec("CREATE TRIGGER fail_template_audit BEFORE INSERT ON audit_log BEGIN SELECT RAISE(ABORT, 'audit failed'); END;");
+    const db = await getDb();
+    await db.execute(sql`alter table astronom.audit_log add constraint fail_template_audit check (action <> 'agent.created_from_template')`);
     await expect(create({ templateId: "tpl_test" })).rejects.toThrow();
     expect(await db.select().from(agents)).toEqual([]);
     expect(await db.select().from(budgetPolicies)).toEqual([]);
@@ -63,6 +63,6 @@ describe("template creation through the shared factory", () => {
   it("rejects invalid bodies and missing templates without writing agents", async () => {
     expect((await create({})).status).toBe(400);
     expect((await create({ templateId: "missing" })).status).toBe(404);
-    expect(await getDb().select().from(agents)).toEqual([]);
+    expect(await (await getDb()).select().from(agents)).toEqual([]);
   });
 });

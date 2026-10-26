@@ -119,4 +119,30 @@ describe("run event stream", () => {
     expect(bus.listenerCount(runId)).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it("delivers committed events from another web process", async () => {
+    const response = await request();
+    vi.mocked(getRunEvents).mockResolvedValueOnce([
+      event(0), event(1, { type: "run.completed", status: "succeeded", totalCostUsd: 0, durationMs: 1 }),
+    ]);
+    await vi.advanceTimersByTimeAsync(2000);
+    const text = await response.text();
+    expect(text).toContain("id: 0");
+    expect(text).toContain("id: 1");
+    expect(text).toContain("event: end");
+    expect(bus.listenerCount(runId)).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("fills a sequence gap before delivering a later local completion", async () => {
+    const response = await request();
+    const completed = event(1, { type: "run.completed", status: "succeeded", totalCostUsd: 0, durationMs: 1 });
+    bus.emit(runId, completed);
+    vi.mocked(getRunEvents).mockResolvedValueOnce([event(0), completed]);
+    await vi.advanceTimersByTimeAsync(2000);
+    const text = await response.text();
+    expect([...text.matchAll(/^id: (\d+)$/gm)].map((match) => Number(match[1]))).toEqual([0, 1]);
+    expect(text).toContain("event: end");
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });

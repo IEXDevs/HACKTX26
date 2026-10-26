@@ -30,7 +30,7 @@ import {
 export const DEFAULT_WORKSPACE_SLUG = "astronom-platform";
 
 export async function getWorkspace(slug = DEFAULT_WORKSPACE_SLUG) {
-  const db = getDb();
+  const db = await getDb();
   const [workspace] = await db
     .select()
     .from(workspaces)
@@ -54,7 +54,7 @@ export async function requireWorkspace(slug = DEFAULT_WORKSPACE_SLUG) {
 }
 
 export async function getCurrentUser(workspaceId: string) {
-  const db = getDb();
+  const db = await getDb();
   const session = await getSessionUser();
   if (session?.email) {
     const [matched] = await db.select().from(users).where(eq(users.email, session.email)).limit(1);
@@ -78,7 +78,7 @@ export async function getWorkspaceUser() {
 
 export async function getWorkspaceContext() {
   const workspace = await requireWorkspace();
-  const db = getDb();
+  const db = await getDb();
 
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
@@ -117,7 +117,7 @@ export async function getWorkspaceContext() {
 /* -------------------------------------------------------------------------- */
 
 export async function listAgents(workspaceId: string): Promise<AgentRow[]> {
-  return getDb()
+  return (await getDb())
     .select()
     .from(agents)
     .where(eq(agents.workspaceId, workspaceId))
@@ -125,12 +125,12 @@ export async function listAgents(workspaceId: string): Promise<AgentRow[]> {
 }
 
 export async function getAgent(agentId: string): Promise<AgentRow | null> {
-  const [row] = await getDb().select().from(agents).where(eq(agents.id, agentId)).limit(1);
+  const [row] = await (await getDb()).select().from(agents).where(eq(agents.id, agentId)).limit(1);
   return row ?? null;
 }
 
 export async function getAgentDetail(agentId: string) {
-  const db = getDb();
+  const db = await getDb();
   const agent = await getAgent(agentId);
   if (!agent) return null;
 
@@ -166,7 +166,7 @@ export async function listRuns(
     excludeTests?: boolean;
   },
 ): Promise<RunListRow[]> {
-  const db = getDb();
+  const db = await getDb();
   const rows = await db
     .select({
       run: runs,
@@ -193,7 +193,7 @@ export async function listRuns(
 }
 
 export async function getRun(runId: string) {
-  const db = getDb();
+  const db = await getDb();
   const [row] = await db
     .select({ run: runs, agent: agents })
     .from(runs)
@@ -218,7 +218,7 @@ function toRunEvent(row: RunEventRow): RunEvent {
 
 /** A run's events in order; `afterSeq` skips the ones a client already has. */
 export async function getRunEvents(runId: string, afterSeq?: number): Promise<RunEvent[]> {
-  const rows = await getDb()
+  const rows = await (await getDb())
     .select()
     .from(runEvents)
     .where(
@@ -232,7 +232,7 @@ export async function getRunEvents(runId: string, afterSeq?: number): Promise<Ru
 }
 
 export async function getRunApprovals(runId: string) {
-  return getDb()
+  return (await getDb())
     .select()
     .from(approvals)
     .where(eq(approvals.runId, runId))
@@ -244,7 +244,7 @@ export async function getRunApprovals(runId: string) {
 /* -------------------------------------------------------------------------- */
 
 export async function listPendingApprovals(workspaceId: string, limit = 20) {
-  return getDb()
+  return (await getDb())
     .select()
     .from(approvals)
     .where(and(eq(approvals.workspaceId, workspaceId), eq(approvals.status, "pending")))
@@ -253,7 +253,7 @@ export async function listPendingApprovals(workspaceId: string, limit = 20) {
 }
 
 export async function listTaskLog(workspaceId: string, limit = 12) {
-  return getDb()
+  return (await getDb())
     .select()
     .from(taskLog)
     .where(eq(taskLog.workspaceId, workspaceId))
@@ -262,7 +262,7 @@ export async function listTaskLog(workspaceId: string, limit = 12) {
 }
 
 export async function listFindings(workspaceId: string, limit = 50) {
-  return getDb()
+  return (await getDb())
     .select()
     .from(securityFindings)
     .where(eq(securityFindings.workspaceId, workspaceId))
@@ -271,7 +271,7 @@ export async function listFindings(workspaceId: string, limit = 50) {
 }
 
 export async function listEvalSuites(workspaceId: string) {
-  const db = getDb();
+  const db = await getDb();
   const suites = await db
     .select()
     .from(evalSuites)
@@ -292,7 +292,7 @@ export async function listEvalSuites(workspaceId: string) {
 }
 
 export async function listConnectors(workspaceId: string) {
-  const db = getDb();
+  const db = await getDb();
   const [connectorRows, credentialRows] = await Promise.all([
     db.select().from(connectors).where(eq(connectors.workspaceId, workspaceId)),
     db
@@ -314,11 +314,11 @@ export async function listConnectors(workspaceId: string) {
 }
 
 export async function listTemplates() {
-  return getDb().select().from(templates).orderBy(asc(templates.name));
+  return (await getDb()).select().from(templates).orderBy(asc(templates.name));
 }
 
 export async function listBudgetPolicies(workspaceId: string) {
-  return getDb()
+  return (await getDb())
     .select()
     .from(budgetPolicies)
     .where(eq(budgetPolicies.workspaceId, workspaceId));

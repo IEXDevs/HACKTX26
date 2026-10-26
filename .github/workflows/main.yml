@@ -1,30 +1,28 @@
-name: Main checks
+name: Main checks and deployment
 
 on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   verify:
     name: Lint, test, and build
     runs-on: ubuntu-latest
-    environment: main
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-
-      - name: Confirm Supabase secret is available
-        env:
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: |
-          if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
-            echo "::error::SUPABASE_SERVICE_ROLE_KEY is missing from the main environment"
-            exit 1
-          fi
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -51,3 +49,69 @@ jobs:
 
       - name: Build production app
         run: pnpm build
+
+      - name: Verify standalone package
+        run: pnpm verify:package
+
+  deploy:
+    name: Deploy Cloud Run and sandbox image
+    needs: verify
+    if: github.ref == 'refs/heads/main' && vars.GCP_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: main
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load public deployment settings
+        run: |
+          source deploy/gcp.env
+          for name in GCP_PROJECT_ID GCP_PROJECT_NUMBER GCP_REGION GCP_WIF_POOL GCP_WIF_PROVIDER GCP_DEPLOY_ACCOUNT; do
+            printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_ENV"
+          done
+          registry="$GCP_REGION-docker.pkg.dev/$GCP_PROJECT_ID/$GCP_REPOSITORY"
+          echo "APP_IMAGE=$registry/web:$GITHUB_SHA" >> "$GITHUB_ENV"
+          echo "SANDBOX_IMAGE=$registry/sandbox:$GITHUB_SHA" >> "$GITHUB_ENV"
+
+      - name: Authenticate with Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: projects/${{ env.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/${{ env.GCP_WIF_POOL }}/providers/${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_DEPLOY_ACCOUNT }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Configure image registry
+        run: gcloud auth configure-docker "$GCP_REGION-docker.pkg.dev" --quiet
+
+      - name: Build and push web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.APP_IMAGE }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+      - name: Build and push sandbox image
+        uses: docker/build-push-action@v6
+        with:
+          context: sandbox
+          push: true
+          tags: ${{ env.SANDBOX_IMAGE }}
+          cache-from: type=gha,scope=sandbox
+          cache-to: type=gha,mode=max,scope=sandbox
+
+      - name: Sync the Supabase server secret
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || { echo 'Missing SUPABASE_SERVICE_ROLE_KEY in the main environment' >&2; exit 1; }
+          printf '%s' "$SUPABASE_SERVICE_ROLE_KEY" | gcloud secrets versions add astronom-supabase-service-role-key --project="$GCP_PROJECT_ID" --data-file=- >/dev/null
+
+      - name: Deploy and check readiness before switching traffic
+        run: bash scripts/gcp/deploy.sh

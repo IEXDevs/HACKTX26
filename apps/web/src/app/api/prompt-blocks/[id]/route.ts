@@ -25,7 +25,7 @@ export async function PATCH(
   }
 
   const workspace = await requireWorkspace();
-  const db = getDb();
+  const db = await getDb();
   const [block] = await db.select().from(promptBlocks).where(eq(promptBlocks.id, id)).limit(1);
   if (!block || block.workspaceId !== workspace.id) {
     return Response.json({ error: "Prompt block not found." }, { status: 404 });

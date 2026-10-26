@@ -11,9 +11,11 @@ export default defineConfig({
     // Tests that touch the database get a private in-memory copy with the real migrations.
     // Tests that run the engine write agent sandboxes under the system temp directory.
     env: {
-      DATABASE_URL: ":memory:",
+      DATABASE_URL: "pglite://:memory:",
       MODEL_GATEWAY: "scripted",
       SANDBOX_ROOT: path.join(os.tmpdir(), "astronom-test-sandboxes"),
     },
+    maxWorkers: 2,
+    hookTimeout: 30000,
   },
 });

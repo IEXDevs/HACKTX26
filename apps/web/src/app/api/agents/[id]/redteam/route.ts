@@ -17,14 +17,14 @@ export const dynamic = "force-dynamic";
 export async function GET(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const { workspace } = await getWorkspaceUser();
-  const [agent] = await getDb().select().from(agents).where(eq(agents.id, id)).limit(1);
+  const [agent] = await (await getDb()).select().from(agents).where(eq(agents.id, id)).limit(1);
   if (!agent || agent.workspaceId !== workspace.id) {
     return Response.json({ error: "Agent not found." }, { status: 404 });
   }
   const live = liveChecks().find((check) => check.agentId === id);
   if (live) {
     const pendingApprovals = live.runIds.length
-      ? await getDb()
+      ? await (await getDb())
           .select({
             id: approvals.id,
             agentId: approvals.agentId,
@@ -67,7 +67,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
 export async function POST(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const { workspace, user } = await getWorkspaceUser();
-  const [agent] = await getDb().select().from(agents).where(eq(agents.id, id)).limit(1);
+  const [agent] = await (await getDb()).select().from(agents).where(eq(agents.id, id)).limit(1);
   if (!agent || agent.workspaceId !== workspace.id) {
     return Response.json({ error: "Agent not found." }, { status: 404 });
   }

@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { AUTH_COOKIE_OPTIONS, hasAuthTokenCookie, writeAuthCookies } from "./auth-cookies";
+import { runtimeEnv } from "./runtime-env";
 
 const PUBLIC_PATHS = [
   "/login",
@@ -9,6 +10,7 @@ const PUBLIC_PATHS = [
   "/auth/password",
   "/auth/signout",
   "/api/connectors/callback",
+  "/api/health",
 ];
 
 function isPublic(pathname: string): boolean {
@@ -16,8 +18,8 @@ function isPublic(pathname: string): boolean {
 }
 
 export async function updateSession(request: NextRequest): Promise<NextResponse> {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+  const url = runtimeEnv("NEXT_PUBLIC_SUPABASE_URL") ?? "";
+  const anonKey = runtimeEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY") ?? "";
   const pathname = request.nextUrl.pathname;
   const https = request.nextUrl.protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";
 

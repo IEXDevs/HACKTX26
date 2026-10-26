@@ -22,7 +22,7 @@ export async function fileChildTemplateProposal(input: {
 }): Promise<boolean> {
   if (!input.parent.proposeTemplates || input.parent.rank === "grunt") return false;
 
-  const db = getDb();
+  const db = await getDb();
   const prior = await db
     .select({ id: templateProposals.id, status: templateProposals.status })
     .from(templateProposals)

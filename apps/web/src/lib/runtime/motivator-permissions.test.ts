@@ -36,7 +36,7 @@ describe("motivator permission decisions", () => {
     });
     vi.spyOn(tools, "executeTool").mockResolvedValue({ ok: true, preview: "The permitted check completed." });
     vi.spyOn(broker, "waitForApprovalDecision").mockImplementation(async (id) => {
-      const db = getDb();
+      const db = await getDb();
       const [pending] = await db.select().from(approvals).where(eq(approvals.id, id));
       const [run] = await db.select().from(runs).where(eq(runs.id, pending!.runId));
       expect(pending!.status).toBe("pending");
@@ -48,7 +48,7 @@ describe("motivator permission decisions", () => {
   afterEach(() => vi.restoreAllMocks());
 
   async function fixture(mode: "request" | "motivator" = "motivator", worker = false) {
-    const db = getDb(), workspaceId = newId("ws_permission_test");
+    const db = (await getDb()), workspaceId = newId("ws_permission_test");
     const [workspace] = await db.insert(workspaces).values({ id: workspaceId, slug: workspaceId, name: "Permissions test", approvalMode: mode, createdAt: new Date() }).returning();
     const created = await createAgentGraph({ workspace: workspace!, actor: "test", auditAction: "agent.created", canSpawnSubagents: false, spec: {
       orchestrator: { name: "Check lead", summary: "Checks the workspace.", instructions: "Run the scoped workspace check and report the findings.", complexity: "standard" },
@@ -81,12 +81,12 @@ describe("motivator permission decisions", () => {
     expect(permissionReviews[1]!.priorReviews[0]!.verdict).toBe("approve");
     expect(broker.waitForApprovalDecision).not.toHaveBeenCalled();
     expect(tools.executeTool).toHaveBeenCalledTimes(2);
-    const rows = await getDb().select().from(approvals).where(eq(approvals.runId, runId));
+    const rows = await (await getDb()).select().from(approvals).where(eq(approvals.runId, runId));
     expect(rows).toHaveLength(2);
     expect(rows.every((row) => row.status === "approved" && row.decidedBy === `mot_${runId}` && row.resolvedAt)).toBe(true);
-    const audit = await getDb().select().from(auditLog);
+    const audit = await (await getDb()).select().from(auditLog);
     expect(audit.filter((row) => row.actor === `mot_${runId}` && row.action === "approval.approved")).toHaveLength(2);
-    const events = (await getDb().select().from(runEvents).where(eq(runEvents.runId, runId))).map((row) => row.payload);
+    const events = (await (await getDb()).select().from(runEvents).where(eq(runEvents.runId, runId))).map((row) => row.payload);
     expect(events.filter((event) => event.type === "model.usage" && event.agentId === `mot_${runId}`)).toHaveLength(3);
     expect(events.some((event) => event.type === "log" && event.message.includes("waiting for your approval"))).toBe(false);
   });
@@ -97,16 +97,16 @@ describe("motivator permission decisions", () => {
     await executeRun(runId);
     expect(tools.executeTool).not.toHaveBeenCalled();
     expect(broker.waitForApprovalDecision).not.toHaveBeenCalled();
-    expect((await getDb().select().from(approvals))[0]).toMatchObject({ status: "denied", decidedBy: `mot_${runId}` });
+    expect((await (await getDb()).select().from(approvals))[0]).toMatchObject({ status: "denied", decidedBy: `mot_${runId}` });
   });
 
   it.each(["request", "motivator"] as const)("gates linked GitHub writes in %s mode even when local file writes are allowed", async (mode) => {
     const { runId, rootId } = await fixture(mode);
-    await getDb().update(agents).set({ allowedTools: ["fs.write"] }).where(eq(agents.id, rootId));
+    await (await getDb()).update(agents).set({ allowedTools: ["fs.write"] }).where(eq(agents.id, rootId));
     turns = [[{ type: "tool_call", call: { id: "github_write", name: "fs.write", args: { path: "repo/src/check.ts", content: "export const checked = true;" } } }], [report]];
     humanDecision = "denied";
     await executeRun(runId);
-    const [approval] = await getDb().select().from(approvals).where(eq(approvals.runId, runId));
+    const [approval] = await (await getDb()).select().from(approvals).where(eq(approvals.runId, runId));
     expect(approval).toMatchObject({ resource: "fs.write", risk: "high", status: mode === "motivator" ? "approved" : "denied" });
     expect(approval!.reason).toContain("commits back to the remote");
     if (mode === "motivator") {
@@ -121,11 +121,11 @@ describe("motivator permission decisions", () => {
 
   it("keeps ordinary local writes available without treating them as GitHub commits", async () => {
     const { runId, rootId } = await fixture();
-    await getDb().update(agents).set({ allowedTools: ["fs.write"] }).where(eq(agents.id, rootId));
+    await (await getDb()).update(agents).set({ allowedTools: ["fs.write"] }).where(eq(agents.id, rootId));
     turns = [[{ type: "tool_call", call: { id: "local_write", name: "fs.write", args: { path: "notes/report.md", content: "# Findings" } } }], [report]];
     await executeRun(runId);
     expect(reviews.some((review) => review.proposal === "permission")).toBe(false);
-    expect(await getDb().select().from(approvals)).toHaveLength(0);
+    expect(await (await getDb()).select().from(approvals)).toHaveLength(0);
     expect(tools.executeTool).toHaveBeenCalledTimes(1);
   });
 
@@ -136,17 +136,17 @@ describe("motivator permission decisions", () => {
     await executeRun(runId);
     expect(broker.waitForApprovalDecision).toHaveBeenCalledTimes(1);
     expect(tools.executeTool).not.toHaveBeenCalled();
-    expect((await getDb().select().from(approvals))[0]!.reason).toContain("Only the user");
+    expect((await (await getDb()).select().from(approvals))[0]!.reason).toContain("Only the user");
   });
 
   it("cannot override a blocked policy or add a missing capability", async () => {
     const { runId, workspaceId } = await fixture();
-    await getDb().update(workspaces).set({ actionEffects: { "shell.exec": "deny" } }).where(eq(workspaces.id, workspaceId));
+    await (await getDb()).update(workspaces).set({ actionEffects: { "shell.exec": "deny" } }).where(eq(workspaces.id, workspaceId));
     await executeRun(runId);
     expect(reviews.some((review) => review.proposal === "permission")).toBe(false);
     expect(tools.executeTool).not.toHaveBeenCalled();
     const next = await fixture();
-    await getDb().update(agents).set({ allowedTools: [] }).where(eq(agents.id, next.rootId));
+    await (await getDb()).update(agents).set({ allowedTools: [] }).where(eq(agents.id, next.rootId));
     turns = [[shell()], [report]];
     await executeRun(next.runId);
     expect(reviews.some((review) => review.proposal === "permission")).toBe(false);
@@ -155,7 +155,7 @@ describe("motivator permission decisions", () => {
 
   it("respects switching back to Request permission during a review", async () => {
     const { runId, workspaceId } = await fixture();
-    duringReview = async () => { await getDb().update(workspaces).set({ approvalMode: "request" }).where(eq(workspaces.id, workspaceId)); };
+    duringReview = async () => { await (await getDb()).update(workspaces).set({ approvalMode: "request" }).where(eq(workspaces.id, workspaceId)); };
     humanDecision = "denied";
     await executeRun(runId);
     expect(broker.waitForApprovalDecision).toHaveBeenCalledTimes(1);
@@ -164,7 +164,7 @@ describe("motivator permission decisions", () => {
 
   it("respects a blocked policy added during a review", async () => {
     const { runId, workspaceId } = await fixture();
-    duringReview = async () => { await getDb().update(workspaces).set({ actionEffects: { "shell.exec": "deny" } }).where(eq(workspaces.id, workspaceId)); };
+    duringReview = async () => { await (await getDb()).update(workspaces).set({ actionEffects: { "shell.exec": "deny" } }).where(eq(workspaces.id, workspaceId)); };
     await executeRun(runId);
     expect(tools.executeTool).not.toHaveBeenCalled();
     expect(broker.waitForApprovalDecision).not.toHaveBeenCalled();
@@ -175,7 +175,7 @@ describe("motivator permission decisions", () => {
     duringReview = async () => { await cancelRun(runId); };
     await executeRun(runId);
     expect(tools.executeTool).not.toHaveBeenCalled();
-    expect((await getDb().select().from(runs).where(eq(runs.id, runId)))[0]!.status).toBe("cancelled");
+    expect((await (await getDb()).select().from(runs).where(eq(runs.id, runId)))[0]!.status).toBe("cancelled");
   });
 
   it("cannot approve an action past the shared run budget", async () => {
@@ -185,7 +185,7 @@ describe("motivator permission decisions", () => {
     }));
     await executeRun(runId);
     expect(tools.executeTool).not.toHaveBeenCalled();
-    expect((await getDb().select().from(runs).where(eq(runs.id, runId)))[0]!.status).toBe("halted");
+    expect((await (await getDb()).select().from(runs).where(eq(runs.id, runId)))[0]!.status).toBe("halted");
   });
 
   it("reviews a worker's action through the same motivator peer", async () => {
@@ -200,9 +200,9 @@ describe("motivator permission decisions", () => {
   it("keeps restricted worker context away from an ineligible motivator model", async () => {
     turns = [[{ type: "tool_call", call: { id: "delegate", name: "agent.delegate", args: { agent: "Check worker", task: "Run the scoped workspace check." } } }], [shell()], [report], [report]];
     const { runId, rootId } = await fixture("motivator", true);
-    const [lead] = await getDb().select().from(agents).where(eq(agents.id, rootId));
-    await getDb().update(agents).set({ modelPolicy: { ...lead!.modelPolicy, mode: "pinned", pinnedModelId: "muse-spark-1.3" } }).where(eq(agents.id, rootId));
-    await getDb().update(agents).set({ dataClass: "restricted" }).where(eq(agents.name, "Check worker"));
+    const [lead] = await (await getDb()).select().from(agents).where(eq(agents.id, rootId));
+    await (await getDb()).update(agents).set({ modelPolicy: { ...lead!.modelPolicy, mode: "pinned", pinnedModelId: "muse-spark-1.3" } }).where(eq(agents.id, rootId));
+    await (await getDb()).update(agents).set({ dataClass: "restricted" }).where(eq(agents.name, "Check worker"));
     humanDecision = "denied";
     await executeRun(runId);
     expect(reviews.some((review) => review.proposal === "permission")).toBe(false);

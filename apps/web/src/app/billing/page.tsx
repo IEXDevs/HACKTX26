@@ -21,7 +21,7 @@ export default async function BillingPage() {
   const [policies, agents, history, cloudMonth] = await Promise.all([
     listBudgetPolicies(workspace.id),
     listAgents(workspace.id),
-    getDb()
+    (await getDb())
       .select()
       .from(runs)
       .where(and(eq(runs.workspaceId, workspace.id), eq(runs.mode, "live")))

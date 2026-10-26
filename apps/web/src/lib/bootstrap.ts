@@ -15,7 +15,7 @@ let bootstrapPromise: Promise<void> | null = null;
 export function ensureBootstrapped(): Promise<void> {
   if (!bootstrapPromise) {
     bootstrapPromise = (async () => {
-      const db = getDb();
+      const db = await getDb();
       const existing = await db.select({ id: workspaces.id }).from(workspaces).limit(1);
       if (existing.length === 0) {
         await seedPlatform();

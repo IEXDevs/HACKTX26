@@ -42,8 +42,8 @@ async function insertAgent(overrides: Partial<AgentRow> = {}): Promise<AgentRow>
     updatedAt: now,
     ...overrides,
   };
-  await getDb().insert(agents).values(row);
-  const [stored] = await getDb().select().from(agents).where(eq(agents.id, row.id));
+  await (await getDb()).insert(agents).values(row);
+  const [stored] = await (await getDb()).select().from(agents).where(eq(agents.id, row.id));
   if (!stored) throw new Error("agent was not stored");
   return stored;
 }
@@ -60,7 +60,7 @@ function fakeComposio(preview = "{}") {
 }
 
 async function eventsOf(runId: string) {
-  const rows = await getDb().select().from(runEvents).where(eq(runEvents.runId, runId));
+  const rows = await (await getDb()).select().from(runEvents).where(eq(runEvents.runId, runId));
   return rows.sort((a, b) => a.seq - b.seq).map((row) => row.payload);
 }
 
@@ -173,7 +173,7 @@ describe("voice line permissions", () => {
     if (outcome.ok) expect(outcome.result).toContain("Tuesday, October 27");
     // The calendar is checked for a clash, then the event is created.
     expect(calls.map((c) => c.action)).toEqual([FIND_FREE_SLOTS, CREATE_EVENT]);
-    const audits = await getDb()
+    const audits = await (await getDb())
       .select()
       .from(auditLog)
       .where(and(eq(auditLog.targetId, runId), eq(auditLog.action, "voice.appointment_booked")));
@@ -252,7 +252,7 @@ describe("voice call lifecycle", () => {
     const agent = await insertAgent();
     const runId = await openCall(agent, true);
 
-    const [open] = await getDb().select().from(runs).where(eq(runs.id, runId));
+    const [open] = await (await getDb()).select().from(runs).where(eq(runs.id, runId));
     expect(open).toMatchObject({ status: "running", mode: "live", goal: "Voice call", operatorUserId: "local:usr_test" });
     expect(liveRuns().has(runId)).toBe(true);
     expect(await voiceCallSettings(runId)).toEqual({ allowBooking: true, timeZone: TZ, apps: ["googlecalendar"] });
@@ -275,7 +275,7 @@ describe("voice call lifecycle", () => {
       { role: "caller", text: "I'd like a service appointment." },
     ]);
 
-    const [closed] = await getDb().select().from(runs).where(eq(runs.id, runId));
+    const [closed] = await (await getDb()).select().from(runs).where(eq(runs.id, runId));
     expect(closed?.status).toBe("succeeded");
     expect(closed?.endedAt).toBeInstanceOf(Date);
     expect(closed?.summary).toBe("Call ended. Booked 1 appointment.");
@@ -284,7 +284,7 @@ describe("voice call lifecycle", () => {
     const messages = (await eventsOf(runId)).filter((p) => p.type === "agent.message");
     expect(messages.map((p) => (p.type === "agent.message" ? p.role : ""))).toEqual(["assistant", "user"]);
     expect((await eventsOf(runId)).some((p) => p.type === "run.completed")).toBe(true);
-    expect(await getDb().select().from(taskLog).where(eq(taskLog.runId, runId))).toHaveLength(1);
+    expect(await (await getDb()).select().from(taskLog).where(eq(taskLog.runId, runId))).toHaveLength(1);
 
     const listed = (await listRuns(WS)).find((row) => row.id === runId);
     expect(listed).toMatchObject({ agentName: "After-hours receptionist", status: "succeeded" });

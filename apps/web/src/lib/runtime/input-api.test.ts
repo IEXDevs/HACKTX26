@@ -16,7 +16,7 @@ describe("input answer API", () => {
   beforeEach(async () => {
     delete (globalThis as { __agentOsDb?: unknown }).__agentOsDb;
     vi.mocked(executeRun).mockClear();
-    const db = getDb();
+    const db = await getDb();
     await db.insert(workspaces).values({ id: "ws_input_api", slug: "input-api", name: "Input API", createdAt: new Date() });
     await db.insert(runs).values({ id: "run_input_api", workspaceId: "ws_input_api", agentId: "agt_api", goal: "Select the requested course.", status: "awaiting_input", budgetUsd: 1, startedAt: new Date() });
     await db.insert(inputRequests).values({ id: "inp_api", workspaceId: "ws_input_api", runId: "run_input_api", agentId: "agt_api", callId: "call_api", question: "Which course?", reason: "Two courses match.", requestedAt: new Date() });
@@ -36,7 +36,7 @@ describe("input answer API", () => {
   });
 
   it("keeps workspace access checks on the answer route", async () => {
-    await getDb().update(inputRequests).set({ workspaceId: "other_workspace" });
+    await (await getDb()).update(inputRequests).set({ workspaceId: "other_workspace" });
     expect((await reply("CS 314")).status).toBe(404);
     expect(executeRun).not.toHaveBeenCalled();
   });

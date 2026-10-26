@@ -18,23 +18,21 @@ export function runBus(): EventEmitter {
 /**
  * The only writer of run events.
  *
- * Writes are serialised through a promise chain so `seq` is strictly ordered
- * even when several subagents emit concurrently, and each payload is linked to
- * the previous hash. The row is persisted before it is broadcast, so a
+ * A run row lock orders writes across web processes. The local promise chain
+ * also preserves each caller's order. Each payload links to the previous hash.
+ * The row is persisted before it is broadcast, so a
  * subscriber can never observe an event that a replay would not also produce.
  */
 export class RunLogger {
   #seq = 0;
-  #prevHash = GENESIS_HASH;
   #chain: Promise<unknown> = Promise.resolve();
-  #count = 0;
 
   private constructor(readonly runId: string) {}
 
   static async open(runId: string): Promise<RunLogger> {
     const logger = new RunLogger(runId);
-    const [last] = await getDb()
-      .select({ seq: runEvents.seq, hash: runEvents.hash })
+    const [last] = await (await getDb())
+      .select({ seq: runEvents.seq })
       .from(runEvents)
       .where(eq(runEvents.runId, runId))
       .orderBy(desc(runEvents.seq))
@@ -42,8 +40,6 @@ export class RunLogger {
 
     if (last) {
       logger.#seq = last.seq + 1;
-      logger.#prevHash = last.hash;
-      logger.#count = last.seq + 1;
     }
     return logger;
   }
@@ -54,14 +50,18 @@ export class RunLogger {
 
   emit(payload: RunEventPayload, agentId?: string): Promise<RunEvent> {
     const task = this.#chain.then(async () => {
-      const db = getDb();
-      const ts = new Date().toISOString();
-      const seq = this.#seq;
-      const event = appendEvent(this.runId, seq, ts, payload, this.#prevHash);
-
+      const db = await getDb();
       // Commit both rows before advancing the in-memory chain or notifying readers.
-      db.transaction((tx) => {
-        tx.insert(runEvents).values({
+      const event = await db.transaction(async (tx) => {
+        const [run] = await tx.select({ id: runs.id }).from(runs)
+          .where(eq(runs.id, this.runId)).for("update");
+        if (!run) throw new Error("Cannot append an event to a missing run.");
+        const [last] = await tx.select({ seq: runEvents.seq, hash: runEvents.hash })
+          .from(runEvents).where(eq(runEvents.runId, this.runId))
+          .orderBy(desc(runEvents.seq)).limit(1);
+        const event = appendEvent(this.runId, (last?.seq ?? -1) + 1,
+          new Date().toISOString(), payload, last?.hash ?? GENESIS_HASH);
+        await tx.insert(runEvents).values({
           id: event.id,
           runId: event.runId,
           seq: event.seq,
@@ -71,15 +71,14 @@ export class RunLogger {
           hash: event.hash,
           prevHash: event.prevHash,
           payload,
-        }).run();
-        tx.update(runs)
-          .set({ eventCount: this.#count + 1 })
-          .where(eq(runs.id, this.runId)).run();
+        });
+        await tx.update(runs)
+          .set({ eventCount: event.seq + 1 })
+          .where(eq(runs.id, this.runId));
+        return event;
       });
 
-      this.#seq += 1;
-      this.#prevHash = event.hash;
-      this.#count += 1;
+      this.#seq = event.seq + 1;
 
       runBus().emit(this.runId, event);
       return event;

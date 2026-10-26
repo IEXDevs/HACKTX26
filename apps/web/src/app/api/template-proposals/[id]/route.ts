@@ -28,7 +28,7 @@ export async function POST(
   }
 
   const workspace = await requireWorkspace();
-  const db = getDb();
+  const db = await getDb();
   const [proposal] = await db
     .select()
     .from(templateProposals)

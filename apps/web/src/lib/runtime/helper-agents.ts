@@ -11,13 +11,8 @@ import { newId } from "@/lib/env";
 
 type NewAgent = typeof agents.$inferInsert & { parentAgentId: string };
 
-function isSlugConflict(error: unknown): boolean {
-  const message = String((error as Error)?.message ?? error);
-  return message.includes("UNIQUE constraint failed") && message.includes("slug");
-}
-
 async function existingHelper(parentAgentId: string, name: string): Promise<AgentRow | undefined> {
-  const [row] = await getDb()
+  const [row] = await (await getDb())
     .select()
     .from(agents)
     .where(and(eq(agents.parentAgentId, parentAgentId), eq(agents.name, name)))
@@ -28,7 +23,7 @@ async function existingHelper(parentAgentId: string, name: string): Promise<Agen
 /** Bring a retired helper back for new work. */
 export async function reactivateHelper(row: AgentRow): Promise<AgentRow> {
   if (row.status !== "archived") return row;
-  await getDb().update(agents).set({ status: "active", updatedAt: new Date() }).where(eq(agents.id, row.id));
+  await (await getDb()).update(agents).set({ status: "active", updatedAt: new Date() }).where(eq(agents.id, row.id));
   return { ...row, status: "active" };
 }
 
@@ -42,17 +37,10 @@ export async function insertHelperAgent(values: NewAgent): Promise<{ row: AgentR
     const existing = await existingHelper(values.parentAgentId, values.name);
     if (existing) return { row: await reactivateHelper(existing), created: false };
     const slug = attempt === 0 ? baseSlug : `${baseSlug}-${newId("x").slice(2, 8)}`;
-    try {
-      const [row] = await getDb()
-        .insert(agents)
-        .values({ ...values, slug })
-        .returning();
-      if (!row) throw new Error(`Failed to create ${values.name}.`);
-      return { row, created: true };
-    } catch (error) {
-      if (!isSlugConflict(error)) throw error;
-      // Lost a race on the slug: loop to reuse the winner or pick a new slug.
-    }
+    const [row] = await (await getDb()).insert(agents).values({ ...values, slug })
+      .onConflictDoNothing({ target: [agents.workspaceId, agents.slug] }).returning();
+    if (row) return { row, created: true };
+    // Lost a race on the slug: loop to reuse the winner or pick a new slug.
   }
   throw new Error(`Could not create ${values.name}: its name kept colliding with another agent.`);
 }

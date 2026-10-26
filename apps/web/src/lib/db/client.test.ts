@@ -1,33 +1,26 @@
-import { createHash } from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
-import type Database from "better-sqlite3";
 import { beforeEach, describe, expect, it } from "vitest";
 import { applyPendingMigrations, getDb } from "./client";
+import { queryRows } from "./raw";
+import { workspaces } from "./schema";
 
-function sqliteOf(): Database.Database {
-  return (globalThis as unknown as { __agentOsDb: { sqlite: Database.Database } }).__agentOsDb.sqlite;
-}
-
-function migrationHash(tag: string): string {
-  const file = path.resolve(process.cwd(), "src/lib/db/migrations", `${tag}.sql`);
-  return createHash("sha256").update(fs.readFileSync(file, "utf8")).digest("hex");
-}
-
-describe("migrations", () => {
+describe("Postgres migrations", () => {
   beforeEach(() => {
-    delete (globalThis as unknown as { __agentOsDb?: unknown }).__agentOsDb;
-    getDb();
+    delete (globalThis as { __agentOsDb?: unknown }).__agentOsDb;
   });
 
-  it("does not re-run a file whose hash is recorded with an older timestamp", () => {
-    const sqlite = sqliteOf();
-    const hash = migrationHash("0010_composio_connectors");
-    sqlite.prepare("update `__drizzle_migrations` set `created_at` = 1 where `hash` = ?").run(hash);
+  it("applies once and preserves data on repeated migration checks", async () => {
+    const db = await getDb();
+    await db.insert(workspaces).values({ id: "ws_migrate", name: "Migration", slug: "migration", createdAt: new Date() });
+    await applyPendingMigrations();
+    expect(await db.select().from(workspaces)).toHaveLength(1);
+    const journal = await queryRows<{ count: number }>(db, "select count(*)::int count from astronom.__drizzle_migrations");
+    expect(journal[0]!.count).toBe(2);
+  });
 
-    expect(() => applyPendingMigrations()).not.toThrow();
-
-    const cols = sqlite.prepare("pragma table_info(agents)").all() as Array<{ name: string }>;
-    expect(cols.some((col) => col.name === "allowed_connectors")).toBe(true);
+  it("keeps all app tables in the private schema with RLS enabled", async () => {
+    const tables = await queryRows<{ relname: string; relrowsecurity: boolean }>(await getDb(),
+      "select relname, relrowsecurity from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='astronom' and c.relkind='r' and c.relname <> '__drizzle_migrations'");
+    expect(tables).toHaveLength(28);
+    expect(tables.every((table) => table.relrowsecurity)).toBe(true);
   });
 });

@@ -6,7 +6,7 @@ import { getDb } from "./db/client";
 import { auditLog, workspaces } from "./db/schema";
 
 vi.mock("./queries", () => ({ getWorkspaceUser: async () => ({
-  workspace: (await getDb().select().from(workspaces).where(eq(workspaces.id, "ws_policy_test")))[0],
+  workspace: (await (await getDb()).select().from(workspaces).where(eq(workspaces.id, "ws_policy_test")))[0],
   user: { id: "operator", email: "operator@local" },
 }) }));
 
@@ -17,7 +17,7 @@ async function patch(body: unknown) {
 describe("AI permission settings", () => {
   beforeEach(async () => {
     delete (globalThis as { __agentOsDb?: unknown }).__agentOsDb;
-    await getDb().insert(workspaces).values([
+    await (await getDb()).insert(workspaces).values([
       { id: "ws_policy_test", slug: "policy-test", name: "Policy test", createdAt: new Date() },
       { id: "ws_other", slug: "other", name: "Other workspace", createdAt: new Date() },
     ]);
@@ -31,8 +31,8 @@ describe("AI permission settings", () => {
     const response = await patch({ approvalMode: "motivator" });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ approvalMode: "motivator", effects: { "cli:prod-deploy": "deny", "shell.exec": "require_approval" } });
-    expect((await getDb().select().from(workspaces).where(eq(workspaces.id, "ws_other")))[0]!.approvalMode).toBe("request");
-    expect((await getDb().select().from(auditLog))[0]!.detail).toMatchObject({ approvalMode: "motivator", previousApprovalMode: "request" });
+    expect((await (await getDb()).select().from(workspaces).where(eq(workspaces.id, "ws_other")))[0]!.approvalMode).toBe("request");
+    expect((await (await getDb()).select().from(auditLog))[0]!.detail).toMatchObject({ approvalMode: "motivator", previousApprovalMode: "request" });
     expect((await patch({ approvalMode: "request" })).status).toBe(200);
     expect(await (await GET()).json()).toMatchObject({ approvalMode: "request" });
   });
@@ -47,6 +47,6 @@ describe("AI permission settings", () => {
 
   it.each([{}, { approvalMode: "automatic" }, { approvalMode: true }, { effects: { "fs.read": "bad" }, approvalMode: "motivator" }])("rejects invalid settings without changing the workspace", async (body) => {
     expect((await patch(body)).status).toBe(400);
-    expect((await getDb().select().from(workspaces).where(eq(workspaces.id, "ws_policy_test")))[0]!.approvalMode).toBe("request");
+    expect((await (await getDb()).select().from(workspaces).where(eq(workspaces.id, "ws_policy_test")))[0]!.approvalMode).toBe("request");
   });
 });

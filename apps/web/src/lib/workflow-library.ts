@@ -9,7 +9,7 @@ import { WorkflowSelectionSchema, type WorkflowSelection } from "./workflow-sele
 /** Workflow instances reuse reviewed library configurations without moving the library agents. */
 export async function saveLibraryWorkflow(workspace: Workspace, input: WorkflowSelection, actor: string) {
   const selection = WorkflowSelectionSchema.parse(input);
-  const db = getDb();
+  const db = await getDb();
   const library = await db.select().from(agents).where(eq(agents.workspaceId, workspace.id));
   const sources = selection.nodes.map((node) => {
     const source = library.find((agent) => agent.id === node.agentId && !agent.sourceAgentId && agent.status !== "archived");
@@ -44,16 +44,16 @@ export async function saveLibraryWorkflow(workspace: Workspace, input: WorkflowS
   const problems = validateGraph(buildGraph(configs)).filter((issue) => issue.severity === "error");
   if (problems.length) throw new Error(problems.map((issue) => issue.message).join(" "));
   const workflowId = rows[0]!.id;
-  db.transaction((transaction) => {
-    transaction.insert(agents).values(rows).run();
-    transaction.insert(budgetPolicies).values({
+  await db.transaction(async (transaction) => {
+    await transaction.insert(agents).values(rows);
+    await transaction.insert(budgetPolicies).values({
       id: newId("bp"), workspaceId: workspace.id, agentId: workflowId, period: "run",
       limitUsd: workspace.defaultRunBudgetUsd, warnAt: 0.8, hardStop: true, createdAt: now,
-    }).run();
-    transaction.insert(auditLog).values({
+    });
+    await transaction.insert(auditLog).values({
       id: newId("aud"), workspaceId: workspace.id, actor, action: "workflow.created", targetType: "agent", targetId: workflowId,
       detail: { mode: selection.mode, sourceAgentIds: sources.map((source) => source.id), createdAgents: rows.map((row) => row.id) }, at: now,
-    }).run();
+    });
   });
   return { workflowId, nodes: selection.nodes.map((node) => ({ id: node.id, agentId: ids.get(node.id)! })) };
 }

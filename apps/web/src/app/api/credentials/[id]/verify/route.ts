@@ -18,7 +18,7 @@ export async function POST(
 ) {
   const { id } = await context.params;
   const workspace = await requireWorkspace();
-  const db = getDb();
+  const db = await getDb();
 
   const [credential] = await db
     .select()

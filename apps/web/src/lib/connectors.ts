@@ -60,7 +60,7 @@ export function operatorIdFor(sessionId: string | null | undefined, localUserId?
 }
 
 async function upsertCatalog(rows: ToolkitInfo[]): Promise<void> {
-  const db = getDb();
+  const db = await getDb();
   const now = new Date();
   for (const row of rows) {
     await db
@@ -185,7 +185,7 @@ export async function seedPopularCatalog(): Promise<void> {
 export async function syncConnectedAccounts(workspaceId: string, userId: string): Promise<void> {
   const remote = await listConnectedFromComposio(userId);
   if (!remote) return;
-  const db = getDb();
+  const db = await getDb();
   const now = new Date();
   const seen = new Set<string>();
   for (const item of remote) {
@@ -258,7 +258,7 @@ export async function listConnectorViews(input: {
 
   const [catalog, accounts] = await Promise.all([
     query ? searchToolkits(query) : Promise.resolve([SERPAPI_TOOLKIT_INFO, ...POPULAR_TOOLKITS]),
-    getDb()
+    (await getDb())
       .select()
       .from(connectedAccounts)
       .where(and(eq(connectedAccounts.workspaceId, input.workspaceId), eq(connectedAccounts.userId, input.userId))),
@@ -318,7 +318,7 @@ export async function getConnectedComposioAccountId(
   userId: string,
   toolkit: string,
 ): Promise<string | null> {
-  const [row] = await getDb()
+  const [row] = await (await getDb())
     .select()
     .from(connectedAccounts)
     .where(
@@ -337,7 +337,7 @@ export async function getGithubWorkingRepo(
   workspaceId: string,
   userId: string,
 ): Promise<GithubWorkingRepo | null> {
-  const [row] = await getDb()
+  const [row] = await (await getDb())
     .select()
     .from(connectedAccounts)
     .where(
@@ -360,7 +360,7 @@ export async function setGithubWorkingRepo(
 ): Promise<GithubWorkingRepo> {
   const parsed = parseGithubMetadata({ repo, branch: branch?.trim() || "main" });
   if (!parsed) throw new Error("Use owner/name for the repository, like acme/checkout.");
-  const [row] = await getDb()
+  const [row] = await (await getDb())
     .select()
     .from(connectedAccounts)
     .where(
@@ -374,7 +374,7 @@ export async function setGithubWorkingRepo(
     .limit(1);
   if (!row) throw new Error("Connect GitHub before picking a repository.");
   const metadata = { ...(row.metadata ?? {}), repo: parsed.repo, branch: parsed.branch };
-  await getDb()
+  await (await getDb())
     .update(connectedAccounts)
     .set({ metadata, updatedAt: new Date() })
     .where(eq(connectedAccounts.id, row.id));
@@ -384,7 +384,7 @@ export async function setGithubWorkingRepo(
 
 export async function connectedToolkitsFor(workspaceId: string, userId: string): Promise<string[]> {
   await syncConnectedAccounts(workspaceId, userId).catch(() => undefined);
-  const rows = await getDb()
+  const rows = await (await getDb())
     .select()
     .from(connectedAccounts)
     .where(
@@ -410,7 +410,7 @@ export async function persistConnectorGrants(
   toolkits: string[],
   grantedBy: string | null,
 ): Promise<void> {
-  const db = getDb();
+  const db = await getDb();
   await db.delete(connectorGrants).where(eq(connectorGrants.agentId, agentId));
   if (toolkits.length > 0) {
     await db.insert(connectorGrants).values(
@@ -444,7 +444,7 @@ export async function beginConnect(input: {
   const { redirectUrl } = await startToolkitLink(input.userId, slug, input.callbackUrl);
   const now = new Date();
   const known = POPULAR_TOOLKITS.find((item) => item.slug === slug);
-  await getDb()
+  await (await getDb())
     .insert(connectedAccounts)
     .values({
       id: newId("ca"),
@@ -465,7 +465,7 @@ export async function beginConnect(input: {
       target: [connectedAccounts.workspaceId, connectedAccounts.userId, connectedAccounts.toolkit],
       set: { status: "pending", updatedAt: now },
     });
-  const [pending] = await getDb()
+  const [pending] = await (await getDb())
     .select()
     .from(connectedAccounts)
     .where(
@@ -491,7 +491,7 @@ export async function disconnectAccount(workspaceId: string, userId: string, too
     throw new Error("Web search is controlled by SERPAPI_API_KEY, not a per-user link.");
   }
   await composioDisconnect(userId, slug);
-  await getDb()
+  await (await getDb())
     .delete(connectedAccounts)
     .where(
       and(
@@ -519,7 +519,7 @@ export async function persistContextFile(
 ): Promise<void> {
   const file = new WorkspaceContextFile(env.sandboxRoot, workspaceId);
   file.write(content);
-  await getDb()
+  await (await getDb())
     .insert(workspaceContexts)
     .values({
       workspaceId,
@@ -540,7 +540,7 @@ export async function hydrateContextFromStores(workspaceId: string): Promise<str
   const content = file.read();
   if (hasContextContent(content)) return content;
 
-  const [local] = await getDb()
+  const [local] = await (await getDb())
     .select()
     .from(workspaceContexts)
     .where(eq(workspaceContexts.workspaceId, workspaceId))

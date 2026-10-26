@@ -21,7 +21,7 @@ describe("saving agent builder context", () => {
 
   async function setup() {
     const id = newId("ws_context_test");
-    const [workspace] = await getDb().insert(workspaces).values({ id, name: "Context test", slug: id, createdAt: new Date() }).returning();
+    const [workspace] = await (await getDb()).insert(workspaces).values({ id, name: "Context test", slug: id, createdAt: new Date() }).returning();
     const file = new WorkspaceContextFile(env.sandboxRoot, id);
     files.push(file.file);
     file.ensure();
@@ -45,7 +45,7 @@ describe("saving agent builder context", () => {
     expect(isContextStub(saved)).toBe(true);
     expect(file.promptBlock()).toContain("Keep completed assignments out of the report.");
     expect(file.promptBlock({ canWrite: true })).toContain("Preserve existing builder context and operator notes");
-    const [stored] = await getDb().select().from(workspaceContexts);
+    const [stored] = await (await getDb()).select().from(workspaceContexts);
     expect(stored).toMatchObject({ content: saved, updatedBy: "operator_test" });
     fs.unlinkSync(file.file);
     expect(await hydrateContextFromStores(workspace.id)).toBe(saved);
@@ -61,7 +61,7 @@ describe("saving agent builder context", () => {
       builderConversation: [{ role: "user", content: "Keep this setup context." }],
     });
     expect(result).toMatchObject({ ok: false, error: expect.stringContaining("256 KB") });
-    expect(await getDb().select().from(agents)).toHaveLength(0);
+    expect(await (await getDb()).select().from(agents)).toHaveLength(0);
     expect(file.read()).toBe(original);
   });
 });
@@ -74,14 +74,14 @@ describe("saving nested agent trees", () => {
   beforeEach(() => { delete (globalThis as { __agentOsDb?: unknown }).__agentOsDb; });
 
   async function workspace() {
-    return (await getDb().insert(workspaces).values({ id: "ws_tree", name: "Tree test", slug: "tree-test", createdAt: new Date() }).returning())[0]!;
+    return (await (await getDb()).insert(workspaces).values({ id: "ws_tree", name: "Tree test", slug: "tree-test", createdAt: new Date() }).returning())[0]!;
   }
 
   it("persists each selected parent and gives nested agents the correct rank", async () => {
     const result = await createAgentGraph({ workspace: await workspace(), spec, canSpawnSubagents: false, actor: "test", auditAction: "workflow.created" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const rows = await getDb().select().from(agents);
+    const rows = await (await getDb()).select().from(agents);
     const byName = new Map(rows.map((row) => [row.name, row]));
     expect(byName.get("Research")).toMatchObject({ parentAgentId: result.orchestratorId, rank: "intermediate", canSpawnSubagents: false });
     expect(byName.get("Sources")).toMatchObject({ parentAgentId: byName.get("Research")!.id, rank: "intermediate_2", canSpawnSubagents: false });
@@ -97,10 +97,10 @@ describe("saving nested agent trees", () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const rows = await getDb().select().from(agents);
+    const rows = await (await getDb()).select().from(agents);
     expect(rows).toHaveLength(spec.workers.length + 1);
     for (const row of rows) expect(row.allowedConnectors).toEqual(["googlecalendar", "gmail"]);
-    const grants = await getDb().select().from(connectorGrants);
+    const grants = await (await getDb()).select().from(connectorGrants);
     expect(grants).toHaveLength(rows.length * 2);
     expect(new Set(grants.map((grant) => grant.agentId))).toEqual(new Set(result.agentIds));
     expect(grants.every((grant) => grant.grantedBy === "operator_test")).toBe(true);
@@ -108,13 +108,13 @@ describe("saving nested agent trees", () => {
 
   it("leaves connectors empty when the draft names no apps", async () => {
     await createAgentGraph({ workspace: await workspace(), spec, actor: "test", auditAction: "agent.created" });
-    for (const row of await getDb().select().from(agents)) expect(row.allowedConnectors).toEqual([]);
-    expect(await getDb().select().from(connectorGrants)).toHaveLength(0);
+    for (const row of await (await getDb()).select().from(agents)) expect(row.allowedConnectors).toEqual([]);
+    expect(await (await getDb()).select().from(connectorGrants)).toHaveLength(0);
   });
 
   it("rejects invalid topology before writing any agent", async () => {
     const result = await createAgentGraph({ workspace: await workspace(), spec: { ...spec, workers: [worker("Loop", 0)] }, actor: "test", auditAction: "workflow.created" });
     expect(result.ok).toBe(false);
-    expect(await getDb().select().from(agents)).toHaveLength(0);
+    expect(await (await getDb()).select().from(agents)).toHaveLength(0);
   });
 });

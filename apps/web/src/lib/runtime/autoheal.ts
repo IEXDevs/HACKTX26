@@ -61,7 +61,7 @@ export function suggestedChange(target: Pick<AgentRow, "instructions">, finding:
 
 /** Open (or reuse) the case for one finding and propose the suggested change. */
 export async function healFinding(workspaceId: string, findingId: string, actor: Actor): Promise<HealResult> {
-  const db = getDb();
+  const db = await getDb();
   const [finding] = await db
     .select()
     .from(securityFindings)
@@ -99,7 +99,7 @@ export async function healFinding(workspaceId: string, findingId: string, actor:
 
 /** Propose fixes for the top open or accepted high and critical findings. */
 export async function healWorkspace(workspaceId: string, actor: Actor, limit = 3): Promise<HealResult[]> {
-  const rows = await getDb()
+  const rows = await (await getDb())
     .select()
     .from(securityFindings)
     .where(

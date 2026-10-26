@@ -1983,11 +1983,56 @@ a.run-bar-track {
   background: color-mix(in oklab, var(--stopped) 14%, transparent);
   color: var(--stopped);
 }
-.select.verdict-select {
-  height: 34px;
-  min-width: 180px;
+.policy-list > li {
+  flex-wrap: wrap;
+}
+.policy-list > li > div:first-child {
+  flex: 1 1 160px;
+}
+.policy-list .policy-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  flex: 0 1 560px;
+  gap: 6px;
+}
+.policy-options button {
+  min-width: 0;
+  padding: 9px 8px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
   font-size: 13px;
   font-weight: 500;
+  line-height: 1.35;
+}
+.policy-options button:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--ink);
+}
+.policy-options button[aria-pressed='true'] {
+  border-color: currentColor;
+}
+.policy-options button[aria-pressed='true'].allow,
+.policy-options button[aria-pressed='true'].allow_with_log {
+  background: var(--green-soft);
+  color: var(--green);
+}
+.policy-options button[aria-pressed='true'].require_approval {
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+}
+.policy-options button[aria-pressed='true'].deny {
+  background: color-mix(in oklab, var(--stopped) 14%, transparent);
+  color: var(--stopped);
+}
+.policy-options button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.policy-options button:disabled {
+  cursor: wait;
+  opacity: 0.6;
 }
 
 /* ---------- Workflow page ---------- */

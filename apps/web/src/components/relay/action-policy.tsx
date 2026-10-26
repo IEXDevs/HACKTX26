@@ -70,30 +70,30 @@ export function ActionPolicy({
         : "Permission requests come to you for approval. Approve for me delegates each review to the motivator. This applies to new requests across the workspace."}</p>
       <h3>What agents may do</h3>
       {error ? <p className="error-text">{error}</p> : null}
-      <ul className="list">
+      <ul className="list policy-list">
         {ACTION_POLICIES.map((row) => {
           const effect = effects[row.resource] ?? "require_approval";
           return (
             <li key={row.resource}>
               <div>
-                <b>{row.action}</b>
+                <b id={`policy-${row.resource}`}>{row.action}</b>
               </div>
-              <label className="sr-only" htmlFor={`policy-${row.resource}`}>
-                Access level for {row.action}
-              </label>
-              <select
-                id={`policy-${row.resource}`}
-                className={`select verdict-select verdict ${effect}`}
-                value={effect}
-                disabled={busy !== null}
-                onChange={(event) => void save({ effects: { [row.resource]: event.target.value as PolicyEffect } }, row.resource)}
-              >
+              <div className="policy-options" role="group" aria-labelledby={`policy-${row.resource}`}>
                 {OPTIONS.map((option) => (
-                  <option key={option} value={option}>
+                  <button
+                    key={option}
+                    type="button"
+                    className={option}
+                    aria-pressed={effect === option}
+                    disabled={busy !== null}
+                    onClick={() => {
+                      if (option !== effect) void save({ effects: { [row.resource]: option } }, row.resource);
+                    }}
+                  >
                     {option === "require_approval" && approvalMode === "motivator" ? "Motivator reviews" : verdictWord[option]}
-                  </option>
+                  </button>
                 ))}
-              </select>
+              </div>
             </li>
           );
         })}

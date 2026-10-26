@@ -31,13 +31,9 @@ export const env = {
     | "anthropic",
 
   openai: {
-    // Hackathon key, hardcoded so live inference works with zero config in
-    // every environment (local, Docker, Cloud Run). Usage is capped at $10 on
-    // the Meta dashboard. Override with env vars; explicit env always wins.
-    // If this repo ever becomes public, rotate the key and remove this.
-    apiKey:
-      process.env.OPENAI_API_KEY ??
-      "",
+    // Any OpenAI-compatible endpoint, including the Meta Model API. Without a
+    // key the runtime falls back to the scripted gateway.
+    apiKey: process.env.OPENAI_API_KEY ?? "",
     baseUrl: process.env.OPENAI_BASE_URL ?? "https://api.meta.ai/v1",
   },
   anthropic: {

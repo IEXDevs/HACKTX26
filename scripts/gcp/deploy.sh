@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source "$(dirname "$0")/../../deploy/gcp.env"
+source "$(dirname "$0")/worker-access.sh"
 : "${APP_IMAGE:?Set APP_IMAGE to the immutable app image tag}"
 : "${SANDBOX_IMAGE:?Set SANDBOX_IMAGE to the matching sandbox image tag}"
 
@@ -35,9 +36,8 @@ done
 
 # GitHub runners cannot reach the private worker. Run the pull on the worker
 # via IAP; the worker uses a short-lived registry token passed over SSH stdin.
-gcloud auth print-access-token | gcloud compute ssh "$GCP_WORKER" --project="$GCP_PROJECT_ID" \
-  --zone="$GCP_ZONE" --tunnel-through-iap --quiet --ssh-key-expire-after=10m \
-  --command="set -eu; config=\$(mktemp -d); trap 'sudo rm -rf -- \"\$config\"' EXIT; sudo docker --config=\"\$config\" login -u oauth2accesstoken --password-stdin https://$GCP_REGION-docker.pkg.dev >/dev/null; sudo docker --config=\"\$config\" pull '$SANDBOX_IMAGE'"
+prepare_worker_access
+gcloud auth print-access-token | worker_ssh "set -eu; config=\$(mktemp -d); trap 'sudo rm -rf -- \"\$config\"' EXIT; sudo docker --config=\"\$config\" login -u oauth2accesstoken --password-stdin https://$GCP_REGION-docker.pkg.dev >/dev/null; sudo docker --config=\"\$config\" pull '$SANDBOX_IMAGE'"
 
 joined=$(IFS=,; printf '%s' "${secret_refs[*]}")
 gcloud run deploy "$GCP_SERVICE" --project="$GCP_PROJECT_ID" --region="$GCP_REGION" \

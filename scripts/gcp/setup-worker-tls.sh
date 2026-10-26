@@ -2,6 +2,7 @@
 set -euo pipefail
 umask 077
 source "$(dirname "$0")/../../deploy/gcp.env"
+source "$(dirname "$0")/worker-access.sh"
 temporary=$(mktemp -d)
 trap 'rm -rf -- "$temporary"' EXIT
 
@@ -23,14 +24,12 @@ for identity in server client; do
 done
 
 # Wait for the startup script to mount the durable disk and install packages.
-gcloud compute ssh "$GCP_WORKER" --zone="$GCP_ZONE" --tunnel-through-iap --quiet --ssh-key-expire-after=10m \
-  --command='for attempt in $(seq 1 120); do test -f /etc/docker/daemon.json && mountpoint -q /srv/astronom && exit 0; sleep 5; done; exit 1'
-gcloud compute ssh "$GCP_WORKER" --zone="$GCP_ZONE" --tunnel-through-iap --quiet --ssh-key-expire-after=10m \
-  --command='install -d -m 700 /tmp/astronom-tls-setup'
-gcloud compute scp --zone="$GCP_ZONE" --tunnel-through-iap --quiet \
-  "$temporary/ca.pem" "$temporary/ca-key.pem" "$temporary/server-cert.pem" "$temporary/server-key.pem" "$GCP_WORKER:/tmp/astronom-tls-setup/"
-gcloud compute ssh "$GCP_WORKER" --zone="$GCP_ZONE" --tunnel-through-iap --quiet --ssh-key-expire-after=10m \
-  --command='sudo install -m 600 /tmp/astronom-tls-setup/*.pem /srv/astronom/tls/ && rm -f /tmp/astronom-tls-setup/*.pem && rmdir /tmp/astronom-tls-setup && sudo systemctl restart docker && sudo docker info --format="{{.ServerVersion}}"'
+prepare_worker_access
+worker_ssh 'for attempt in $(seq 1 120); do test -f /etc/docker/daemon.json && mountpoint -q /srv/astronom && exit 0; sleep 5; done; exit 1'
+worker_ssh 'install -d -m 700 /tmp/astronom-tls-setup'
+worker_scp /tmp/astronom-tls-setup/ \
+  "$temporary/ca.pem" "$temporary/ca-key.pem" "$temporary/server-cert.pem" "$temporary/server-key.pem"
+worker_ssh 'sudo install -m 600 /tmp/astronom-tls-setup/*.pem /srv/astronom/tls/ && rm -f /tmp/astronom-tls-setup/*.pem && rmdir /tmp/astronom-tls-setup && sudo systemctl restart docker && sudo docker info --format="{{.ServerVersion}}"'
 
 for pair in ca:ca.pem cert:client-cert.pem key:client-key.pem; do
   gcloud secrets versions add "astronom-docker-${pair%%:*}" --data-file="$temporary/${pair#*:}" >/dev/null

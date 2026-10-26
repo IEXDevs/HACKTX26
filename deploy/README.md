@@ -34,12 +34,15 @@ instance. The worker is a single point of failure; disk snapshots and worker
 updates are operating tasks. TLS certificates need rotation before their
 one-year expiry.
 
-## Current preparation
+Worker SSH uses an OS Login key with a ten-minute lifetime. The helper registers
+it only in `us-central1` and uses IAP with host-key checks. This avoids a regional
+key-registration error from the default global OS Login request.
+
+## Preserved data
 
 The core schema and restricted runtime login have been applied to Supabase after
 explicit operator approval. The local SQLite data has been imported into the
-remote target in one transaction with checks for every table count. Google Cloud
-setup is in progress. The new deployment job remains disabled until it is ready.
+remote target in one transaction with checks for every table count.
 
 The local SQLite file has been imported into local PGlite with row-count checks.
 The original SQLite file is retained. Only this local copy needs to be preserved

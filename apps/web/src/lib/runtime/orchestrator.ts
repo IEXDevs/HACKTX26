@@ -152,7 +152,7 @@ function argsString(args: Record<string, unknown>, key: string): string | null {
 /* -------------------------------------------------------------------------- */
 
 export async function createRun(options: RunnerOptions): Promise<string> {
-  const db = getDb();
+  const db = await getDb();
 
   const [agent] = await db.select().from(agents).where(eq(agents.id, options.agentId)).limit(1);
   if (!agent) throw new Error(`Agent ${options.agentId} does not exist.`);
@@ -226,7 +226,7 @@ export async function createRun(options: RunnerOptions): Promise<string> {
   // and the client follows the event stream. The promise is kept alive by this
   // process, which is the same process that serves the stream.
   void executeRun(runId).catch((error) => {
-
+     
     console.error(`[run ${runId}] engine crashed`, error);
   });
 
@@ -234,22 +234,23 @@ export async function createRun(options: RunnerOptions): Promise<string> {
 }
 
 export async function cancelRun(runId: string): Promise<void> {
-  const db = getDb();
+  const db = await getDb();
   const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
   if (!run) throw new Error("That run does not exist.");
   if (run.status === "succeeded" || run.status === "failed" || run.status === "halted" || run.status === "cancelled") {
     return;
   }
   cancelledRuns().add(runId);
+  await db.update(runs).set({ cancelRequested: true }).where(eq(runs.id, runId));
   if (run.status === "awaiting_input" && !liveRuns().has(runId)) {
     const [checkpoint] = await db.select().from(runCheckpoints).where(eq(runCheckpoints.runId, runId));
     const endedAt = new Date();
-    const claimed = db.transaction((tx) => {
-      const row = tx.update(runs).set({ status: "cancelled", failureReason: "Stopped by the operator.", summary: "Run cancelled while waiting for input.", endedAt })
-        .where(and(eq(runs.id, runId), eq(runs.status, "awaiting_input"))).returning({ id: runs.id }).get();
+    const claimed = await db.transaction(async (tx) => {
+      const row = (await tx.update(runs).set({ status: "cancelled", failureReason: "Stopped by the operator.", summary: "Run cancelled while waiting for input.", endedAt })
+        .where(and(eq(runs.id, runId), eq(runs.status, "awaiting_input"))).returning({ id: runs.id }))[0];
       if (!row) return false;
-      tx.update(inputRequests).set({ status: "cancelled" }).where(and(eq(inputRequests.runId, runId), eq(inputRequests.status, "pending"))).run();
-      tx.delete(runCheckpoints).where(eq(runCheckpoints.runId, runId)).run();
+      await tx.update(inputRequests).set({ status: "cancelled" }).where(and(eq(inputRequests.runId, runId), eq(inputRequests.status, "pending")));
+      await tx.delete(runCheckpoints).where(eq(runCheckpoints.runId, runId));
       return true;
     });
     if (claimed) {
@@ -284,10 +285,14 @@ export async function executeRun(runId: string): Promise<void> {
 }
 
 async function executeRunOnce(runId: string): Promise<void> {
-  const db = getDb();
-  const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
-  if (!run) throw new Error(`Run ${runId} does not exist.`);
-  if (run.status === "awaiting_input" || run.endedAt) return;
+  const db = await getDb();
+  const [existing] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
+  if (!existing) throw new Error(`Run ${runId} does not exist.`);
+  if (existing.status !== "queued" || existing.endedAt) return;
+  // A shared database can have more than one web process during a rollout.
+  const [run] = await db.update(runs).set({ status: "running", heartbeatAt: new Date() })
+    .where(and(eq(runs.id, runId), eq(runs.status, "queued"))).returning();
+  if (!run) return;
 
   const [workspace] = await db
     .select()
@@ -307,7 +312,10 @@ async function executeRunOnce(runId: string): Promise<void> {
 
   // The heartbeat tells the reaper this process is still running the run.
   const beat = () =>
-    db.update(runs).set({ heartbeatAt: new Date() }).where(eq(runs.id, runId)).catch(() => undefined);
+    db.update(runs).set({ heartbeatAt: new Date() }).where(eq(runs.id, runId))
+      .returning({ cancelRequested: runs.cancelRequested })
+      .then(([row]) => { if (row?.cancelRequested) cancelledRuns().add(runId); })
+      .catch(() => undefined);
   await beat();
   const timer = setInterval(() => void beat(), HEARTBEAT_MS);
   timer.unref?.();
@@ -384,7 +392,7 @@ class RunEngine {
 
     let trigger: "manual" | "schedule" | "webhook" | "api" = "manual";
     if (this.run.triggerId) {
-      const [row] = await getDb()
+      const [row] = await (await getDb())
         .select()
         .from(triggers)
         .where(eq(triggers.id, this.run.triggerId))
@@ -464,7 +472,7 @@ class RunEngine {
           connectors: [...this.#runConnectors], budgetWrapUp: [...this.#budgetWrapUp],
         };
         if (this.#motivator) await this.logger.emit({ type: "agent.status", agentId: this.#motivator.id, status: "blocked" }, this.#motivator.id);
-        saveRunContinuation(this.run.id, state);
+        await saveRunContinuation(this.run.id, state);
         return;
       }
       const message = (error as Error).message;
@@ -522,7 +530,7 @@ class RunEngine {
       const done = this.#lifecycle.outcome(id) === "done";
       await this.logger.emit({ type: "agent.status", agentId: id, status: done ? "done" : "failed" }, id);
       if (this.#spawnedGrunts.has(id) && row.status !== "archived") {
-        await getDb().update(agents).set({ status: "archived", updatedAt: new Date() }).where(eq(agents.id, id));
+        await (await getDb()).update(agents).set({ status: "archived", updatedAt: new Date() }).where(eq(agents.id, id));
         row.status = "archived";
         await this.logger.emit(
           { type: "log", level: "info", message: `${row.name} has no work left and stopped. It will come back if it is needed again.`, agentId: id },
@@ -1029,7 +1037,7 @@ class RunEngine {
   #frameKey(agentId: string, taskId: string | null): string { return `${agentId}:${taskId ?? "root"}`; }
 
   async #reportToMotivator(agent: AgentRow, taskId: string | null, call: { id: string; args: Record<string, unknown> }) {
-    const [pending] = await getDb().select().from(inputRequests).where(and(eq(inputRequests.runId, this.run.id), eq(inputRequests.callId, call.id)));
+    const [pending] = await (await getDb()).select().from(inputRequests).where(and(eq(inputRequests.runId, this.run.id), eq(inputRequests.callId, call.id)));
     if (pending) return this.#askUser(agent, taskId, { id: call.id, args: { question: pending.question, reason: pending.reason } });
     const report = MotivatorReportSchema.safeParse(call.args);
     if (!report.success) return { ok: false, preview: "", error: "motivator.report requires an exact blocker and at least one concrete attempt. Include the evidence and remaining options." };
@@ -1060,7 +1068,7 @@ class RunEngine {
     if (this.run.purpose === "retest") {
       return { ok: false, preview: "", error: "No one is available to answer during a red-team test run. Continue without user input and report what you could not do." };
     }
-    const db = getDb();
+    const db = await getDb();
     let [request] = await db.select().from(inputRequests).where(and(eq(inputRequests.runId, this.run.id), eq(inputRequests.callId, call.id)));
     if (!request) {
       if (agent.id === this.run.agentId && this.#motivator && !this.#motivator.approvedQuestions.includes(call.id)) {
@@ -1203,7 +1211,7 @@ class RunEngine {
         path,
         host,
     };
-    const [policy] = await getDb().select().from(workspaces).where(eq(workspaces.id, this.run.workspaceId));
+    const [policy] = await (await getDb()).select().from(workspaces).where(eq(workspaces.id, this.run.workspaceId));
     if (!policy) return this.#toolFailure(agent, call.id, call.name, Date.now() - started, "Workspace policy is unavailable.");
     let decision = evaluatePermission(
       permissionRequest,
@@ -1243,7 +1251,7 @@ class RunEngine {
             });
           if (this.#isCancelled() || this.#isHalted()) return this.#toolFailure(agent, call.id, call.name, Date.now() - started, "Run stopped before permission was resolved.");
           // A user can revoke delegated approval while the model is reviewing.
-          const [latest] = await getDb().select().from(workspaces).where(eq(workspaces.id, this.run.workspaceId));
+          const [latest] = await (await getDb()).select().from(workspaces).where(eq(workspaces.id, this.run.workspaceId));
           if (!latest || evaluatePermission(permissionRequest, undefined, resolveActionEffects(latest.actionEffects)).effect === "deny") {
             return this.#toolFailure(agent, call.id, call.name, Date.now() - started, "The current workspace policy blocks this action.");
           }
@@ -1281,7 +1289,7 @@ class RunEngine {
         let resolution: ApprovalDecision;
         if (review && peerDecision) {
           resolution = { decision: review.verdict === "approve" ? "approved" : "denied", decidedBy: this.#motivator!.id, note: redactSecrets(review.reason) };
-          const [resolved] = await getDb().update(approvals).set({ status: resolution.decision, decidedBy: resolution.decidedBy, note: resolution.note, resolvedAt: new Date() })
+          const [resolved] = await (await getDb()).update(approvals).set({ status: resolution.decision, decidedBy: resolution.decidedBy, note: resolution.note, resolvedAt: new Date() })
             .where(and(eq(approvals.id, approvalId), eq(approvals.status, "pending"))).returning();
           if (!resolved) resolution = await waitForApprovalDecision(approvalId);
         } else {
@@ -1861,7 +1869,7 @@ class RunEngine {
     const rawRemediation = argsString(call.args, "remediation");
     const remediation = rawRemediation ? redactSecrets(rawRemediation) : undefined;
 
-    await getDb().insert(securityFindings).values({
+    await (await getDb()).insert(securityFindings).values({
       id: findingId,
       workspaceId: this.run.workspaceId,
       runId: this.run.id,
@@ -1987,7 +1995,7 @@ class RunEngine {
 
   async #setStatus(status: RunStatus, failureReason?: string): Promise<void> {
     this.#status = status;
-    await getDb()
+    await (await getDb())
       .update(runs)
       .set({
         status,
@@ -1997,7 +2005,7 @@ class RunEngine {
   }
 
   async #persistProgress(): Promise<void> {
-    await getDb()
+    await (await getDb())
       .update(runs)
       .set({
         costUsd: this.costUsd,
@@ -2200,7 +2208,7 @@ class RunEngine {
   }
 
   async #finish(status: RunStatus, summary: string, reason: string | null): Promise<void> {
-    const db = getDb();
+    const db = await getDb();
     await db.delete(runCheckpoints).where(eq(runCheckpoints.runId, this.run.id));
     await db.update(inputRequests).set({ status: "cancelled" }).where(and(eq(inputRequests.runId, this.run.id), eq(inputRequests.status, "pending")));
     const endedAt = new Date();
@@ -2245,9 +2253,10 @@ class RunEngine {
         const { noteRunFinished } = await import("@/lib/loop/blue-team");
         await noteRunFinished(this.run.id);
       } catch (error) {
-
+         
         console.error(`[run ${this.run.id}] feedback-loop check failed`, error);
       }
     }
   }
 }
+

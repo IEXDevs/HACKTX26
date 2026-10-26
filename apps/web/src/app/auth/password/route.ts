@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
     username.toLowerCase() === DEMO_LOGIN.username && password === DEMO_LOGIN.password;
   if ((error || !data.user) && isDemo) {
     await resetDemoPassword().catch((resetError) => {
-
+       
       console.warn("[auth] reset demo password:", resetError instanceof Error ? resetError.message : resetError);
     });
     ({ data, error } = await client.supabase.auth.signInWithPassword({ email, password }));

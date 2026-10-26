@@ -13,7 +13,7 @@ An internal platform for building, securing, running, and observing AI agents.
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js_16-000000?style=flat-square&logo=nextdotjs&logoColor=white)
 ![React](https://img.shields.io/badge/React-20232A?style=flat-square&logo=react&logoColor=61DAFB)
-![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)
+![Postgres](https://img.shields.io/badge/Postgres-4169E1?style=flat-square&logo=postgresql&logoColor=white)
 ![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=flat-square&logo=supabase&logoColor=white)
 ![Gemini](https://img.shields.io/badge/Gemini_Live-8E75B2?style=flat-square&logo=googlegemini&logoColor=white)
 ![Three.js](https://img.shields.io/badge/three.js-000000?style=flat-square&logo=threedotjs&logoColor=white)
@@ -69,7 +69,7 @@ flowchart TB
     ENG --> POL["Permission engine<br/>default-deny, grants, approvals"]
     ENG --> MODELS["Models<br/>Meta Muse via an OpenAI-compatible API"]
     ENG --> TOOLS["Tools<br/>sandbox files, knowledge base, web search, Composio apps"]
-    ENG --> LOG[("Hash-chained event log<br/>SQLite")]
+    ENG --> LOG[("Hash-chained event log<br/>Postgres")]
     LOG -->|Server-Sent Events| UI
     UI <-->|"one-use tokens"| LIVE["Gemini Live<br/>Astro and voice lines"]
 ```
@@ -83,7 +83,7 @@ pnpm install
 pnpm dev
 ```
 
-Open <http://localhost:3000>. The first request migrates and seeds the local SQLite database in `apps/web/.data/`. **No API keys are needed to look around:** the default planner is deterministic and every tool call still executes for real.
+Open <http://localhost:3000>. The first request migrates and seeds local embedded Postgres in `apps/web/.data/postgres`. **No API keys are needed to look around:** the default planner is deterministic and every tool call still executes for real.
 
 ```sh
 pnpm typecheck   # TypeScript, all packages
@@ -155,9 +155,9 @@ For a plain-language tour of the red and blue teams, read [`apps/web/src/lib/loo
 ## Operating notes
 
 - **Scripted vs live.** The default gateway is `scripted`; the plan is deterministic and every tool call runs through the production executor. For live inference set `MODEL_GATEWAY=openai` and `OPENAI_API_KEY` in `apps/web/.env.local`. The workspace model policy allows Meta models, so live runs route to Muse. Without a key it falls back to scripted (check the run's `mode`). Reasoning models spend completion tokens thinking, so live steps cost roughly 400–600 tokens each against the run budget ceiling.
-- **Storage.** Local data is SQLite (`DATABASE_URL=file:./.data/agent-os.db`). Agent sandboxes live under `.runtime/workspaces/`.
+- **Storage.** Production uses Supabase Postgres. Development uses embedded Postgres (`DATABASE_URL=pglite://./.data/postgres`). Agent sandboxes live under `.runtime/workspaces/`. The [Google Cloud deployment guide](deploy/README.md) covers persistent hosted storage and Docker execution.
 - **Secrets.** Credentials are encrypted at rest with AES-256-GCM. The local development key is derived; production requires `CREDENTIAL_ENCRYPTION_KEY` (32 bytes, base64).
-- **Reset.** `pnpm db:reset` deletes the local database; the next request reseeds the platform configuration.
+- **Reset.** `pnpm db:reset` clears and reseeds only a local PGlite database. It refuses remote database URLs. Existing SQLite files can be copied with `pnpm db:import-sqlite`; the source file stays unchanged.
 
 ## Team
 

@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
   const { user } = await getWorkspaceUser();
   const session = await getSessionUser();
   await persistContextFile(workspace.id, content, operatorIdFor(session?.id, user?.id));
-  await getDb().insert(auditLog).values({
+  await (await getDb()).insert(auditLog).values({
     id: newId("aud"),
     workspaceId: workspace.id,
     actor: user?.email ?? "operator@local",

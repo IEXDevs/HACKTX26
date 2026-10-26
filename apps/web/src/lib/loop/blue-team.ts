@@ -86,7 +86,7 @@ export function isBlueLead(agent: Pick<AgentRow, "team" | "rank">): boolean {
 }
 
 export async function blueLeadFor(workspaceId: string): Promise<AgentRow | null> {
-  const rows = await getDb()
+  const rows = await (await getDb())
     .select()
     .from(agents)
     .where(and(eq(agents.workspaceId, workspaceId), eq(agents.team, "blue"), eq(agents.status, "active")))
@@ -194,7 +194,7 @@ export function reproductionGaps(row: Pick<FindingCaseRow, "reproduction" | "obs
  * case becomes active, or waits behind the target's active case.
  */
 export async function recordTriage(caseId: string, memberId: string, note = ""): Promise<FindingCaseRow> {
-  const db = getDb();
+  const db = await getDb();
   const row = await loadCase(caseId);
   if (row.crew.triageId !== memberId) throw new Error("Only this finding's Triage can triage it.");
   if (row.triage) return row;
@@ -434,7 +434,7 @@ export async function retestApplied(caseId: string): Promise<FindingCaseRow> {
 
 /** Advance every active or untriaged case for one target, oldest first. */
 export async function advanceTarget(workspaceId: string, targetAgentId: string): Promise<void> {
-  const rows = await getDb()
+  const rows = await (await getDb())
     .select({ id: findingCases.id })
     .from(findingCases)
     .where(
@@ -454,7 +454,7 @@ export async function advanceTarget(workspaceId: string, targetAgentId: string):
  * case to a person. Either way the target's cases then move on.
  */
 export async function noteRunFinished(runId: string): Promise<void> {
-  const db = getDb();
+  const db = await getDb();
   const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
   if (!run) return;
   if (run.purpose === "retest") {

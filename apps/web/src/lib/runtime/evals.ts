@@ -66,7 +66,7 @@ export async function runEvalSuite(
   workspaceId: string,
   suiteId: string,
 ): Promise<EvalRunResult> {
-  const db = getDb();
+  const db = await getDb();
   const [suite] = await db
     .select()
     .from(evalSuites)

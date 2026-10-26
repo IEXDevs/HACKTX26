@@ -40,7 +40,7 @@ let testStart = new Date();
 async function settle() {
   let quiet = 0;
   for (let i = 0; i < 500 && quiet < 5; i++) {
-    const active = await getDb()
+    const active = await (await getDb())
       .select({ id: runs.id })
       .from(runs)
       .where(and(gte(runs.startedAt, testStart), inArray(runs.status, ["queued", "running"])));
@@ -50,15 +50,15 @@ async function settle() {
 }
 
 async function finding(id = FINDING) {
-  const [row] = await getDb().select().from(securityFindings).where(eq(securityFindings.id, id));
+  const [row] = await (await getDb()).select().from(securityFindings).where(eq(securityFindings.id, id));
   return row!;
 }
 async function agentRow(id: string) {
-  const [row] = await getDb().select().from(agents).where(eq(agents.id, id));
+  const [row] = await (await getDb()).select().from(agents).where(eq(agents.id, id));
   return row!;
 }
 async function seededAgentsExceptTarget(ids: string[]) {
-  return (await getDb().select().from(agents)).filter((a) => ids.includes(a.id) && a.id !== TARGET);
+  return (await (await getDb()).select().from(agents)).filter((a) => ids.includes(a.id) && a.id !== TARGET);
 }
 
 /** A person accepts the finding; the platform hands it to the blue team, which triages and drafts. */
@@ -92,7 +92,7 @@ describe("blue team", () => {
   it("triages, drafts, waits for approval, applies to the target only, retests three times, and verifies", async () => {
     const runner = fakeRunner(() => "pass");
     blueTeamDeps.runner = runner;
-    const seededIds = (await getDb().select({ id: agents.id }).from(agents)).map((a) => a.id);
+    const seededIds = (await (await getDb()).select({ id: agents.id }).from(agents)).map((a) => a.id);
     const targetBefore = await agentRow(TARGET);
 
     const drafted = await triagedAndDrafted();
@@ -133,9 +133,9 @@ describe("blue team", () => {
     expect(done.retests.at(-1)!.runs.map((r) => r.runId)).toEqual(runner.runIds);
 
     // The lead's three runs went through cleanly: no tool call was refused.
-    const leadRuns = await getDb().select().from(runs).where(and(eq(runs.agentId, LEAD), gte(runs.startedAt, testStart)));
+    const leadRuns = await (await getDb()).select().from(runs).where(and(eq(runs.agentId, LEAD), gte(runs.startedAt, testStart)));
     expect(leadRuns.map((r) => r.status)).toEqual(["succeeded", "succeeded", "succeeded"]);
-    const events = await getDb().select().from(runEvents).where(inArray(runEvents.runId, leadRuns.map((r) => r.id)));
+    const events = await (await getDb()).select().from(runEvents).where(inArray(runEvents.runId, leadRuns.map((r) => r.id)));
     const refused = events.filter((e) => e.payload.type === "tool.completed" && !e.payload.ok);
     expect(refused.map((e) => e.payload)).toEqual([]);
     const called = events.flatMap((e) => (e.payload.type === "tool.requested" ? [e.payload.tool] : []));
@@ -149,7 +149,7 @@ describe("blue team", () => {
     expect((await agentRow(LEAD)).status).toBe("active");
 
     // Every transition left an audit entry.
-    const audits = (await getDb().select().from(auditLog)).filter(
+    const audits = (await (await getDb()).select().from(auditLog)).filter(
       (r) => r.targetId === drafted.id || r.targetId === FINDING || (r.detail as { caseId?: string }).caseId === drafted.id,
     );
     const moves = audits
@@ -253,7 +253,7 @@ describe("blue team", () => {
   it("works one case per target at a time and merges duplicates", async () => {
     const runner = fakeRunner(() => "pass");
     blueTeamDeps.runner = runner;
-    await getDb().insert(securityFindings).values({
+    await (await getDb()).insert(securityFindings).values({
       id: "fnd_dup",
       workspaceId: WS,
       runId: "run_02_redteam",
@@ -298,7 +298,7 @@ describe("blue team", () => {
     expect(second.state).toBe("queued");
 
     // What the findings route does for "Not an issue".
-    await getDb().update(securityFindings).set({ status: "false_positive" }).where(eq(securityFindings.id, FINDING));
+    await (await getDb()).update(securityFindings).set({ status: "false_positive" }).where(eq(securityFindings.id, FINDING));
     const closed = await closeDismissedCase(FINDING, "sid@astronom.dev");
     expect(closed?.state).toBe("closed");
     expect((await agentRow(first.crew.drafterId!)).status).toBe("archived");
@@ -310,18 +310,18 @@ describe("blue team", () => {
     expect(swarmCapUsd(40, 2.5)).toBe(10);
     expect(swarmCapUsd(null, 2.5)).toBe(2.5);
     const drafted = await triagedAndDrafted();
-    await getDb().update(budgetPolicies).set({ limitUsd: 1 }).where(eq(budgetPolicies.id, "bp_workspace_day"));
+    await (await getDb()).update(budgetPolicies).set({ limitUsd: 1 }).where(eq(budgetPolicies.id, "bp_workspace_day"));
 
     const row = await approveAndHandOff(drafted.id);
     expect(row.state).toBe("escalated");
     expect(row.escalationReason).toMatch(/daily cap/);
     expect((await finding()).status).toBe("applied");
-    const [day] = await getDb().select().from(budgetPolicies).where(eq(budgetPolicies.id, "bp_workspace_day"));
+    const [day] = await (await getDb()).select().from(budgetPolicies).where(eq(budgetPolicies.id, "bp_workspace_day"));
     expect(day!.limitUsd).toBe(1);
   });
 
   it("has the red-team lead accept only an exact reproduction", async () => {
-    await getDb().insert(securityFindings).values({
+    await (await getDb()).insert(securityFindings).values({
       id: "fnd_vague",
       workspaceId: WS,
       runId: "run_02_redteam",

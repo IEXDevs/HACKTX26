@@ -32,7 +32,7 @@ const docs: KbDocument[] = [
 async function freshPlatform() {
   const g = globalThis as unknown as { __agentOsDb?: unknown };
   delete g.__agentOsDb;
-  getDb();
+  (await getDb());
   await seedPlatform();
 }
 

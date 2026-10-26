@@ -5,12 +5,18 @@ build/
 dist/
 *.tsbuildinfo
 
-# Runtime sandbox + sqlite artifacts
+# Runtime data and local package caches
 .runtime/
+.localappdata/
+.node-gyp/
+.pnpm-store/
 *.db
 *.db-shm
 *.db-wal
 **/.data/*.jsonl
+**/.data/postgres/
+gha-creds-*.json
+deploy/.secrets/
 
 .DS_Store
 Thumbs.db

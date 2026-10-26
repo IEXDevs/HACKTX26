@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
         content: parsed.data.content,
       }).catch((error: Error) => ({ ok: false, preview: "", error: error.message }));
     }
-    await getDb().insert(auditLog).values({
+    await (await getDb()).insert(auditLog).values({
       id: newId("aud"),
       workspaceId: ctx.workspace.id,
       actor: ctx.user?.email ?? "operator@local",
@@ -142,7 +142,7 @@ export async function DELETE(request: NextRequest) {
   try {
     ctx.sandbox.remove(relativePath);
     const { user } = await getWorkspaceUser();
-    await getDb().insert(auditLog).values({
+    await (await getDb()).insert(auditLog).values({
       id: newId("aud"),
       workspaceId: ctx.workspace.id,
       actor: user?.email ?? "operator@local",

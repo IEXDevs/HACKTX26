@@ -51,7 +51,7 @@ const ACTIVE = new Set(["queued", "running", "awaiting_approval", "awaiting_inpu
 async function waitForRun(runId: string, timeoutMs = 10 * 60 * 1000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    const [row] = await getDb().select({ status: runs.status }).from(runs).where(eq(runs.id, runId)).limit(1);
+    const [row] = await (await getDb()).select({ status: runs.status }).from(runs).where(eq(runs.id, runId)).limit(1);
     if (!row || !ACTIVE.has(row.status) || Date.now() > deadline) return;
     await new Promise((resolve) => setTimeout(resolve, 3_000));
   }
@@ -137,7 +137,7 @@ function setLive(agentId: string, patch: Partial<LiveCheck> & Pick<LiveCheck, "a
 
 /** The workspace's red-team lead reports the findings; the agent itself if there is none. */
 async function reporterFor(target: AgentRow): Promise<string> {
-  const security = await getDb()
+  const security = await (await getDb())
     .select()
     .from(agents)
     .where(and(eq(agents.workspaceId, target.workspaceId), eq(agents.role, "security")));
@@ -162,7 +162,7 @@ export async function runRedTeamCheck(
   deps: CheckDeps = defaults,
   options: CheckOptions = {},
 ): Promise<{ runIds: string[]; findingIds: string[]; probes: ProbeReport[]; spentUsd: number; maxUsd: number }> {
-  const db = getDb();
+  const db = await getDb();
   const [target] = await db.select().from(agents).where(eq(agents.id, agentId)).limit(1);
   if (!target) throw new Error("Agent not found.");
   if (target.status !== "active") throw new Error(`${target.name} is not published, so it cannot be tested yet.`);
@@ -298,7 +298,7 @@ export function startRedTeamCheck(agentId: string, actor: string, options: Check
   });
   void runRedTeamCheck(agentId, actor, defaults, options).catch((error) => {
     liveStore().delete(agentId);
-
+     
     console.error(`[red-team check ${agentId}] stopped`, error);
   });
 }
@@ -323,7 +323,7 @@ function asProbeReports(value: unknown): ProbeReport[] {
 }
 
 export async function listCheckReports(workspaceId: string, limit = 20): Promise<CheckReport[]> {
-  const rows = await getDb()
+  const rows = await (await getDb())
     .select()
     .from(auditLog)
     .where(and(eq(auditLog.workspaceId, workspaceId), eq(auditLog.action, "redteam.check_finished")))

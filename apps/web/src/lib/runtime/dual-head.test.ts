@@ -44,18 +44,18 @@ describe("orchestrator and motivator", () => {
 
   async function fixture(maxSteps = 6) {
     const workspaceId = newId("ws_dual_test");
-    const [workspace] = await getDb().insert(workspaces).values({ id: workspaceId, slug: workspaceId, name: "Dual head test", createdAt: new Date() }).returning();
+    const [workspace] = await (await getDb()).insert(workspaces).values({ id: workspaceId, slug: workspaceId, name: "Dual head test", createdAt: new Date() }).returning();
     const created = await createAgentGraph({ workspace: workspace!, actor: "test", auditAction: "agent.created", canSpawnSubagents: false, spec: {
       orchestrator: { name: "Notes lead", summary: "Reads workspace notes.", instructions: "Read the workspace notes and summarize the findings.", complexity: "standard" }, workers: [],
     } });
     if (!created.ok) throw new Error(created.error);
-    await getDb().update(agents).set({ status: "active", maxSteps }).where(eq(agents.id, created.orchestratorId));
+    await (await getDb()).update(agents).set({ status: "active", maxSteps }).where(eq(agents.id, created.orchestratorId));
     const runId = newId("run_dual_test");
-    await getDb().insert(runs).values({ id: runId, workspaceId, agentId: created.orchestratorId, goal: "Read the workspace notes and summarize the findings.", mode: "scripted", budgetUsd: 1, startedAt: new Date() });
+    await (await getDb()).insert(runs).values({ id: runId, workspaceId, agentId: created.orchestratorId, goal: "Read the workspace notes and summarize the findings.", mode: "scripted", budgetUsd: 1, startedAt: new Date() });
     return { runId, workspaceId, rootId: created.orchestratorId };
   }
-  async function run(id: string) { return (await getDb().select().from(runs).where(eq(runs.id, id)))[0]!; }
-  async function events(id: string) { return (await getDb().select().from(runEvents).where(eq(runEvents.runId, id))).map((row) => row.payload); }
+  async function run(id: string) { return (await (await getDb()).select().from(runs).where(eq(runs.id, id)))[0]!; }
+  async function events(id: string) { return (await (await getDb()).select().from(runEvents).where(eq(runEvents.runId, id))).map((row) => row.payload); }
 
   it("starts both peers before work and shows them in the same graph without a library copy", async () => {
     turns = [[read], [say(final)]];
@@ -69,7 +69,7 @@ describe("orchestrator and motivator", () => {
     expect(all.indexOf(spawned[1]!)).toBeLessThan(all.findIndex((event) => event.type === "tool.requested"));
     const graph = await workflowGraph(workspaceId, rootId);
     expect(graph?.agents.find((agent) => agent.kind === "motivator")).toMatchObject({ name: "Motivator", parentAgentId: null, tools: [], trailHref: `/runs/${runId}` });
-    expect(await getDb().select().from(agents)).toHaveLength(1);
+    expect(await (await getDb()).select().from(agents)).toHaveLength(1);
     expect(await run(runId)).toMatchObject({ status: "succeeded", summary: final, inputTokens: 27 });
   });
 
@@ -122,7 +122,7 @@ describe("orchestrator and motivator", () => {
     expect(question).toMatchObject({ callId: "stuck_report", question: "Which course should I include?" });
     expect((await run(runId)).status).toBe("awaiting_input");
     expect(reviews).toHaveLength(1);
-    answerInput(question!.id, workspaceId, "CS 314", "operator");
+    (await answerInput(question!.id, workspaceId, "CS 314", "operator"));
     await executeRun(runId);
     expect(requests[2]!.messages).toContainEqual(expect.objectContaining({ role: "tool", toolName: "motivator.report", toolCallId: "stuck_report", content: expect.stringContaining("Operator reply: CS 314") }));
     expect(reviews.map((review) => review.proposal)).toEqual(["stuck", "finish"]);
@@ -151,7 +151,7 @@ describe("orchestrator and motivator", () => {
     expect((await run(runId)).status).toBe("awaiting_input");
     const [question] = await listPendingInputs(workspaceId);
     expect(question?.question).toBe("Which course should I include?");
-    answerInput(question!.id, workspaceId, "CS 314", "operator");
+    (await answerInput(question!.id, workspaceId, "CS 314", "operator"));
     await executeRun(runId);
     expect(await run(runId)).toMatchObject({ status: "succeeded", summary: final });
     expect(reviews).toHaveLength(2);

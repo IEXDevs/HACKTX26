@@ -14,7 +14,7 @@
  *   findings, connectors. Tests and the smoke script use it. Nothing calls it
  *   on boot.
  */
-import { and, eq, ne, or } from "drizzle-orm";
+import { and, eq, ne, or, sql } from "drizzle-orm";
 import {
   appendEvent,
   computeMetrics,
@@ -26,7 +26,7 @@ import {
   type RunEventPayload,
 } from "@agent-os/core";
 import { seedPopularCatalog } from "../connectors";
-import { getDb } from "./client";
+import { getDb, type AppDatabase } from "./client";
 import {
   agents,
   approvals,
@@ -468,8 +468,8 @@ const LATER_TEMPLATES: Array<typeof templates.$inferInsert> = [
 ];
 
 /** Insert platform templates a database does not have yet. Safe to run on every boot. */
-export async function ensurePlatformTemplates(): Promise<void> {
-  await getDb().insert(templates).values(LATER_TEMPLATES).onConflictDoNothing();
+export async function ensurePlatformTemplates(database?: AppDatabase): Promise<void> {
+  await (database ?? await getDb()).insert(templates).values(LATER_TEMPLATES).onConflictDoNothing();
 }
 
 /** The red and blue team leads are platform infrastructure; every other seeded agent is sample data. */
@@ -486,7 +486,9 @@ export function seedDatabase(): Promise<void> {
 }
 
 async function seed(demo: boolean): Promise<void> {
-  const db = getDb();
+  const database = await getDb();
+  await database.transaction(async (db) => {
+  await db.execute(sql`select pg_advisory_xact_lock(746973761347)`);
   const existing = await db.select({ id: workspaces.id }).from(workspaces).limit(1);
   if (existing.length > 0) return;
 
@@ -962,9 +964,7 @@ async function seed(demo: boolean): Promise<void> {
       createdAt: new Date(now - 62 * 24 * HOUR),
     },
   ]);
-  await ensurePlatformTemplates();
-
-  await seedPopularCatalog();
+  await ensurePlatformTemplates(db);
 
   if (!demo) {
     await db.insert(budgetPolicies).values([
@@ -1268,6 +1268,8 @@ async function seed(demo: boolean): Promise<void> {
     },
   ];
   await db.insert(auditLog).values(audit);
+  });
+  await seedPopularCatalog();
 }
 
 /* Allow `tsx src/lib/db/seed.ts` to run this directly. */
@@ -1281,12 +1283,12 @@ if (isDirectRun) {
   const sample = process.argv.includes("--sample");
   (sample ? seedDatabase() : seedPlatform())
     .then(() => {
-
+       
       console.log(sample ? "[seed] sample workspace seeded" : "[seed] platform config seeded");
       process.exit(0);
     })
     .catch((error) => {
-
+       
       console.error("[seed] failed", error);
       process.exit(1);
     });

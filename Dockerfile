@@ -5,7 +5,7 @@ RUN corepack enable
 WORKDIR /app
 
 FROM base AS builder
-# Build tools required: better-sqlite3 compiles a native addon via node-gyp.
+# Drizzle tooling still resolves optional native peers during dependency install.
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
 # Copy the full source BEFORE install: pnpm links workspace binaries
@@ -15,7 +15,7 @@ RUN pnpm install --frozen-lockfile
 RUN pnpm -r typecheck
 RUN pnpm --filter @agent-os/web build
 
-# Runner: same Debian base so the better-sqlite3 binary built above loads.
+# Production database is remote Postgres; no native database addon is needed.
 FROM node:24-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
@@ -29,6 +29,6 @@ USER node
 WORKDIR /app/apps/web
 EXPOSE 3000
 # Cloud Run injects $PORT; default to 3000 locally. Run from apps/web so
-# relative paths (SQLite file, sandbox root) resolve exactly like local dev.
+# relative paths resolve exactly like local dev.
 # Starts the standalone server; no package manager is needed at runtime.
 CMD ["node", "server.js"]

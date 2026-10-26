@@ -28,7 +28,7 @@ describe("Home", () => {
   beforeEach(freshDb);
 
   it("leaves test runs off the finished and running lists but keeps real runs", async () => {
-    await getDb().insert(runs).values([
+    await (await getDb()).insert(runs).values([
       run("run_real_done", "Summarise yesterday's incidents", "standard"),
       run("run_test_done", `${TEST_DATA_LABEL}\nTask: summarise`, "retest"),
       run("run_test_live", `${TEST_DATA_LABEL}\nTask: summarise`, "retest", "running"),
@@ -43,14 +43,14 @@ describe("Home", () => {
   });
 
   it("does not let a burst of test runs push real finished runs out of the window", async () => {
-    await getDb().insert(runs).values([
+    await (await getDb()).insert(runs).values([
       run("run_real_done", "Summarise yesterday's incidents", "standard"),
       ...Array.from({ length: 80 }, (_, i) =>
         run(`run_test_${i}`, `${TEST_DATA_LABEL}\nTask ${i}`, "retest"),
       ),
     ]);
     // The real run is older than every test run, as when a security check has just finished.
-    await getDb().update(runs).set({ startedAt: new Date(Date.now() - 60_000) }).where(
+    await (await getDb()).update(runs).set({ startedAt: new Date(Date.now() - 60_000) }).where(
       (await import("drizzle-orm")).eq(runs.id, "run_real_done"),
     );
 

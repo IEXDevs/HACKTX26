@@ -81,19 +81,19 @@ export async function audit(
 }
 
 export async function loadFinding(findingId: string): Promise<SecurityFindingRow> {
-  const [row] = await getDb().select().from(securityFindings).where(eq(securityFindings.id, findingId)).limit(1);
+  const [row] = await (await getDb()).select().from(securityFindings).where(eq(securityFindings.id, findingId)).limit(1);
   if (!row) throw new Error("Finding not found.");
   return row;
 }
 
 export async function loadCase(caseId: string): Promise<FindingCaseRow> {
-  const [row] = await getDb().select().from(findingCases).where(eq(findingCases.id, caseId)).limit(1);
+  const [row] = await (await getDb()).select().from(findingCases).where(eq(findingCases.id, caseId)).limit(1);
   if (!row) throw new Error("Case not found.");
   return row;
 }
 
 export async function loadAgent(agentId: string): Promise<AgentRow> {
-  const [row] = await getDb().select().from(agents).where(eq(agents.id, agentId)).limit(1);
+  const [row] = await (await getDb()).select().from(agents).where(eq(agents.id, agentId)).limit(1);
   if (!row) throw new Error("Agent not found.");
   return row;
 }
@@ -106,7 +106,7 @@ export async function moveFinding(
   detail: Record<string, unknown> = {},
 ) {
   assertTransition(finding.status, to);
-  await getDb().update(securityFindings).set({ status: to }).where(eq(securityFindings.id, finding.id));
+  await (await getDb()).update(securityFindings).set({ status: to }).where(eq(securityFindings.id, finding.id));
   await audit(finding.workspaceId, actor, "finding.status_changed", "security_finding", finding.id, {
     from: finding.status,
     to,
@@ -116,7 +116,7 @@ export async function moveFinding(
 }
 
 export async function updateCase(id: string, patch: Partial<FindingCaseRow>) {
-  await getDb()
+  await (await getDb())
     .update(findingCases)
     .set({ ...patch, updatedAt: new Date() })
     .where(eq(findingCases.id, id));
@@ -143,7 +143,7 @@ export function isRedAgent(agent: Pick<AgentRow, "role" | "team">): boolean {
  * person this app treats as the operator everywhere else.
  */
 async function workspacePerson(workspaceId: string): Promise<string> {
-  const [user] = await getDb()
+  const [user] = await (await getDb())
     .select({ email: users.email })
     .from(users)
     .where(eq(users.workspaceId, workspaceId))
@@ -205,7 +205,7 @@ export async function openCase(
   actor: Actor,
   options: { budgetCapUsd?: number; maxRounds?: number } = {},
 ): Promise<FindingCaseRow> {
-  const db = getDb();
+  const db = await getDb();
   const finding = await acceptFinding(findingId, actor);
   const [existing] = await db.select().from(findingCases).where(eq(findingCases.findingId, findingId)).limit(1);
   if (existing) return existing;
@@ -515,7 +515,7 @@ export async function approveFix(caseId: string, proposalHashToApprove: string, 
 }
 
 async function snapshot(target: AgentRow, createdBy: string, reason: string) {
-  const db = getDb();
+  const db = await getDb();
   const [has] = await db
     .select({ id: agentVersions.id })
     .from(agentVersions)
@@ -543,7 +543,7 @@ async function snapshot(target: AgentRow, createdBy: string, reason: string) {
  * to the target.
  */
 export async function applyFix(caseId: string): Promise<FindingCaseRow> {
-  const db = getDb();
+  const db = await getDb();
   const row = await loadCase(caseId);
   caseOpen(row);
   const { proposal, approval } = row;
@@ -648,7 +648,7 @@ export async function retireCrew(row: FindingCaseRow) {
     (id): id is string => Boolean(id),
   );
   if (ids.length === 0) return;
-  await getDb()
+  await (await getDb())
     .update(agents)
     .set({ status: "archived", updatedAt: new Date() })
     .where(and(inArray(agents.id, ids), eq(agents.rank, "grunt"), ne(agents.status, "archived")));
@@ -660,7 +660,7 @@ export async function retireCrew(row: FindingCaseRow) {
  * case for the same target becomes active. Returns its id, if any.
  */
 export async function releaseTarget(workspaceId: string, targetAgentId: string): Promise<string | null> {
-  const db = getDb();
+  const db = await getDb();
   const sameTarget = await db
     .select()
     .from(findingCases)
@@ -682,7 +682,7 @@ export async function releaseTarget(workspaceId: string, targetAgentId: string):
  * grunts, and let the next case for the same agent go ahead.
  */
 export async function closeDismissedCase(findingId: string, actor: string): Promise<FindingCaseRow | null> {
-  const [row] = await getDb().select().from(findingCases).where(eq(findingCases.findingId, findingId)).limit(1);
+  const [row] = await (await getDb()).select().from(findingCases).where(eq(findingCases.findingId, findingId)).limit(1);
   if (!row || row.state === "closed" || row.state === "verified") return null;
   await updateCase(row.id, {
     state: "closed",
@@ -696,7 +696,7 @@ export async function closeDismissedCase(findingId: string, actor: string): Prom
 
 /** What the red and blue teams spent today against the swarm's cap. Never raised here. */
 export async function swarmBudget(workspaceId: string): Promise<{ capUsd: number; spentUsd: number }> {
-  const db = getDb();
+  const db = await getDb();
   const [workspace] = await db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
   const [day] = await db
     .select({ limitUsd: budgetPolicies.limitUsd })
@@ -738,7 +738,7 @@ export async function startRetest(
   runner: RetestRunner = engineRunner,
   options: { runBudgetUsd?: number; syntheticCount?: number; verifierId?: string; requestedBy?: string } = {},
 ): Promise<FindingCaseRow> {
-  const db = getDb();
+  const db = await getDb();
   const row = await loadCase(caseId);
   caseOpen(row);
   const finding = await loadFinding(row.findingId);
@@ -840,7 +840,7 @@ export async function startRetest(
 }
 
 async function evidenceFor(row: FindingCaseRow, retest: CaseRetest): Promise<{ evidence: RetestEvidence[]; costUsd: number }> {
-  const db = getDb();
+  const db = await getDb();
   const ids = retest.runs.map((r) => r.runId);
   const runRows = ids.length ? await db.select().from(runs).where(inArray(runs.id, ids)) : [];
   const eventRows = ids.length ? await db.select().from(runEvents).where(inArray(runEvents.runId, ids)) : [];
@@ -1027,7 +1027,7 @@ async function stepRetest(caseId: string, runner: RetestRunner): Promise<Finding
 
 /** Called by the run engine when any run ends. Cheap when the run is not a retest. */
 export async function noteRunFinished(runId: string): Promise<void> {
-  const db = getDb();
+  const db = await getDb();
   const [run] = await db.select({ purpose: runs.purpose, workspaceId: runs.workspaceId }).from(runs).where(eq(runs.id, runId)).limit(1);
   if (!run || run.purpose !== "retest") return;
   const open = await db

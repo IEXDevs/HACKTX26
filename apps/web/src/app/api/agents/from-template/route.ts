@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "Expected { templateId, name?, dataClass? }." }, { status: 400 });
   }
   const workspace = await requireWorkspace();
-  const [template] = await getDb().select().from(templates).where(eq(templates.id, parsed.data.templateId)).limit(1);
+  const [template] = await (await getDb()).select().from(templates).where(eq(templates.id, parsed.data.templateId)).limit(1);
   if (!template) return Response.json({ error: "Template not found." }, { status: 404 });
   const { user } = await getWorkspaceUser();
   const result = await createAgentGraph({

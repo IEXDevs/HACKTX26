@@ -29,7 +29,7 @@ describe("persistent agent execution", () => {
   afterEach(() => vi.restoreAllMocks());
 
   async function run(maxSteps = 6) {
-    const db = getDb();
+    const db = await getDb();
     const workspaceId = newId("ws_execution_test");
     const [workspace] = await db.insert(workspaces).values({ id: workspaceId, name: "Execution test", slug: workspaceId, createdAt: new Date() }).returning();
     const created = await createAgentGraph({ workspace: workspace!, actor: "test", auditAction: "agent.created", canSpawnSubagents: false, spec: {
@@ -104,7 +104,7 @@ describe("persistent agent execution", () => {
     const result = await run(2);
     expect(result.status).toBe("failed");
     expect(result.summary).toContain("step limit");
-    const events = await getDb().select().from(runEvents).where(eq(runEvents.runId, result.id));
+    const events = await (await getDb()).select().from(runEvents).where(eq(runEvents.runId, result.id));
     expect(events.filter((event) => event.type === "file.changed").some((event) => JSON.stringify(event.payload).includes("extra.md"))).toBe(false);
   });
 });

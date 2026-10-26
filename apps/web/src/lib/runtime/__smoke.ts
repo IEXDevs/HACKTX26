@@ -24,7 +24,7 @@ import { env } from "../env";
 const TERMINAL = new Set<RunStatus>(["succeeded", "failed", "halted", "cancelled"]);
 
 async function waitForRun(runId: string, timeoutMs = 180_000): Promise<void> {
-  const db = getDb();
+  const db = await getDb();
   const deadline = Date.now() + timeoutMs;
   let approvalsHandled = 0;
 
@@ -63,7 +63,7 @@ async function waitForRun(runId: string, timeoutMs = 180_000): Promise<void> {
 }
 
 async function inspect(runId: string, workspaceId: string, agentIds: string[]) {
-  const db = getDb();
+  const db = await getDb();
   const rows = await db.select().from(runEvents).where(eq(runEvents.runId, runId));
   const events: RunEvent[] = rows.map((row) => ({
     id: row.id,
@@ -107,7 +107,7 @@ async function inspect(runId: string, workspaceId: string, agentIds: string[]) {
 async function main() {
   // The smoke runs name sample agents, so it seeds the sample company. Boot does not.
   await seedDatabase();
-  const db = getDb();
+  const db = await getDb();
   const [workspace] = await db.select().from(workspaces).limit(1);
   if (!workspace) throw new Error("No workspace; seed failed.");
 

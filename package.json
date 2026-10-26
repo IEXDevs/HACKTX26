@@ -17,6 +17,8 @@
     "db:seed": "pnpm --filter @agent-os/web db:seed",
     "db:reset": "pnpm --filter @agent-os/web db:reset",
     "db:purge-sample": "pnpm --filter @agent-os/web db:purge-sample",
+    "db:import-sqlite": "pnpm --filter @agent-os/web db:import-sqlite",
+    "db:migrate": "pnpm --filter @agent-os/web db:migrate",
     "lint": "eslint . --max-warnings=0",
     "sandbox:build": "docker build -t astronom-sandbox:local sandbox",
     "sandbox:verify": "node scripts/verify-sandbox.mjs",

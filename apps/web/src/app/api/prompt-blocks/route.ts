@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
   }
 
   const workspace = await requireWorkspace();
-  const db = getDb();
+  const db = await getDb();
   const id = newId("pb");
 
   await db.insert(promptBlocks).values({

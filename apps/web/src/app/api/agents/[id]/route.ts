@@ -56,7 +56,7 @@ export async function PATCH(
   }
 
   const workspace = await requireWorkspace();
-  const db = getDb();
+  const db = await getDb();
   const [agent] = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
   if (!agent || agent.workspaceId !== workspace.id) {
     return Response.json({ error: "Agent not found." }, { status: 404 });

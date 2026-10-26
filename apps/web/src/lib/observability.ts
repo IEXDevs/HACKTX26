@@ -94,7 +94,7 @@ export function costForModel(modelId: string, inputTokens: number, outputTokens:
 }
 
 function warn(scope: string, error: unknown): void {
-
+   
   console.warn(`[observability] ${scope}:`, error instanceof Error ? error.message : error);
 }
 

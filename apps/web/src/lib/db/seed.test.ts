@@ -26,7 +26,7 @@ import { eq } from "drizzle-orm";
 async function freshPlatform() {
   const g = globalThis as unknown as { __agentOsDb?: unknown };
   delete g.__agentOsDb;
-  const db = getDb();
+  const db = await getDb();
   await seedPlatform();
   return db;
 }
@@ -82,7 +82,7 @@ describe("platform templates on an existing database", () => {
   });
 
   it("ships the dealership receptionist template once, however often boot runs", async () => {
-    const db = getDb();
+    const db = await getDb();
     await ensurePlatformTemplates();
     await ensurePlatformTemplates();
     const rows = await db.select().from(templates).where(eq(templates.id, DEALERSHIP_TEMPLATE_ID));
@@ -92,7 +92,7 @@ describe("platform templates on an existing database", () => {
   });
 
   it("adds a missing template at boot without reseeding anything else", async () => {
-    const db = getDb();
+    const db = await getDb();
     await db.delete(templates).where(eq(templates.id, DEALERSHIP_TEMPLATE_ID));
     const before = (await db.select().from(templates)).length;
     await ensureBootstrapped();

@@ -29,7 +29,7 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
   if (error || !data.user || !email) {
     // "Auth session missing!" is the signed-out case, not a failure.
     if (error && !/session missing/i.test(error.message)) {
-
+       
       console.warn("[auth] getSessionUser:", error.message);
     }
     return null;
@@ -64,7 +64,7 @@ export async function upsertLocalUser(
     (typeof metadata?.name === "string" && metadata.name) ||
     ("name" in authUser && typeof authUser.name === "string" ? authUser.name : email.split("@")[0]!) ||
     "Operator";
-  const db = getDb();
+  const db = await getDb();
   const [existing] = await db.select().from(users).where(eq(users.email, email)).limit(1);
   if (existing) return existing;
 
@@ -82,8 +82,11 @@ export async function upsertLocalUser(
     avatarHue: Math.abs(hashHue(email)) % 360,
     createdAt: now(),
   };
-  await db.insert(users).values(row);
-  return row;
+  const [inserted] = await db.insert(users).values(row).onConflictDoNothing({ target: users.email }).returning();
+  if (inserted) return inserted;
+  const [concurrent] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  if (!concurrent) throw new Error("The signed-in user could not be saved.");
+  return concurrent;
 }
 
 export async function acceptSignedInUser(authUser: AuthUser): Promise<User> {
@@ -107,7 +110,7 @@ export function ensureDemoUser(): Promise<void> {
   if (!demoUserPromise) {
     demoUserPromise = provisionDemoUser().catch((error) => {
       demoUserPromise = null;
-
+       
       console.warn("[auth] demo user:", error instanceof Error ? error.message : error);
     });
   }

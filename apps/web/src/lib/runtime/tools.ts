@@ -8,7 +8,7 @@
  * reach the event log.
  */
 import type { DataClass, RunEventPayload } from "@agent-os/core";
-import { and, desc, eq, like, or } from "drizzle-orm";
+import { and, desc, eq, ilike, or } from "drizzle-orm";
 import { executeComposioAction, normalizeToolkit, SERPAPI_TOOLKIT } from "@/lib/composio";
 import { persistContextFile } from "@/lib/connectors";
 import { githubPathFromSandbox, isGithubSandboxPath } from "@/lib/github-repo";
@@ -276,7 +276,7 @@ async function httpFetch(ctx: ToolContext, args: Record<string, unknown>): Promi
 }
 
 async function isRedTeamAgent(agentId: string): Promise<boolean> {
-  const [row] = await getDb().select({ team: agents.team }).from(agents).where(eq(agents.id, agentId)).limit(1);
+  const [row] = await (await getDb()).select({ team: agents.team }).from(agents).where(eq(agents.id, agentId)).limit(1);
   return row?.team === "red";
 }
 
@@ -316,7 +316,7 @@ async function memoryWrite(ctx: ToolContext, args: Record<string, unknown>): Pro
     ? (args.kind as (typeof allowedKinds)[number])
     : "fact";
 
-  const db = getDb();
+  const db = await getDb();
   const id = newId("mem");
   await db.insert(memories).values({
     id,
@@ -343,7 +343,7 @@ async function memoryWrite(ctx: ToolContext, args: Record<string, unknown>): Pro
 
 async function memorySearch(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   const query = str(args, "query") ?? "";
-  const db = getDb();
+  const db = await getDb();
   const term = `%${query.split(/\s+/).filter(Boolean)[0] ?? ""}%`;
   const rows = await db
     .select()
@@ -351,7 +351,7 @@ async function memorySearch(ctx: ToolContext, args: Record<string, unknown>): Pr
     .where(
       and(
         eq(memories.workspaceId, ctx.workspaceId),
-        query.length > 1 ? like(memories.content, term) : undefined,
+        query.length > 1 ? ilike(memories.content, term) : undefined,
         or(eq(memories.scope, "workspace"), eq(memories.agentId, ctx.agentId)),
       ),
     )
@@ -371,7 +371,7 @@ async function secretUse(ctx: ToolContext, args: Record<string, unknown>): Promi
   const name = str(args, "credential");
   if (!name) return fail("secret.use requires a credential name or id.");
 
-  const db = getDb();
+  const db = await getDb();
   const rows = await db
     .select()
     .from(credentials)
@@ -477,7 +477,7 @@ async function mcpCall(ctx: ToolContext, args: Record<string, unknown>): Promise
   const tool = str(args, "tool");
   if (!server || !tool) return fail("mcp.call requires server and tool.");
 
-  const db = getDb();
+  const db = await getDb();
   const [connector] = await db
     .select()
     .from(connectors)

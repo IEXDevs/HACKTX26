@@ -13,7 +13,7 @@ export interface SealedSecret {
 }
 
 /**
- * AES-256-GCM. The plaintext is never written to SQLite, never logged, and
+ * AES-256-GCM. The plaintext is never written to the database, never logged, and
  * never returned to a client — only decrypted in-process for the duration of a
  * single tool call.
  */

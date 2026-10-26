@@ -130,7 +130,7 @@ export async function createAgentGraph(options: {
   } catch (error) {
     return { ok: false, error: (error as Error).message };
   }
-  const db = getDb();
+  const db = await getDb();
   const dataClass = options.dataClass ?? workspace.defaultDataClass;
   const apps = parseConnectorList(spec.apps ?? []);
   const now = new Date();
@@ -260,23 +260,23 @@ export async function createAgentGraph(options: {
   const warnings = issues
     .filter((issue) => issue.severity === "warning")
     .map((issue) => issue.message);
-  db.transaction((transaction) => {
-    transaction.insert(agents).values([orchestrator, ...workerRows]).run();
-    transaction.insert(budgetPolicies).values({
+  await db.transaction(async (transaction) => {
+    await transaction.insert(agents).values([orchestrator, ...workerRows]);
+    await transaction.insert(budgetPolicies).values({
       id: newId("bp"), workspaceId: workspace.id, agentId: orchestratorId,
       period: "run", limitUsd: workspace.defaultRunBudgetUsd, warnAt: 0.8, hardStop: true, createdAt: now,
-    }).run();
-    transaction.insert(auditLog).values({
+    });
+    await transaction.insert(auditLog).values({
       id: newId("aud"), workspaceId: workspace.id, actor: options.actor, action: options.auditAction,
       targetType: "agent", targetId: orchestratorId,
       detail: { ...options.auditDetail, ...(options.template ? { templateId: options.template.id, templateKey: options.template.key } : {}), createdAgents: agentIds, status: "draft", dataClass, warnings, builderContextSaved: Boolean(context) }, at: now,
-    }).run();
+    });
     if (context) {
-      transaction.insert(workspaceContexts).values({
+      await transaction.insert(workspaceContexts).values({
         workspaceId: workspace.id, content: context.content, updatedBy: options.contextUpdatedBy ?? null, updatedAt: now,
       }).onConflictDoUpdate({ target: workspaceContexts.workspaceId,
         set: { content: context.content, updatedBy: options.contextUpdatedBy ?? null, updatedAt: now },
-      }).run();
+      });
       context.file.write(context.content);
     }
   });

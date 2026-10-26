@@ -1,40 +1,26 @@
-/**
- * `pnpm db:reset` — delete the SQLite file and the sandbox tree, then seed the
- * platform configuration (no sample data).
- * Used in development only; refuses to run against production.
- */
+/** Reset only the explicit local Postgres database. Remote resets are refused. */
 import fs from "node:fs";
 import path from "node:path";
+import { sql } from "drizzle-orm";
 import { env } from "@/lib/env";
-import { getDb } from "./client";
+import { applyPendingMigrations, closeDatabase, getDb } from "./client";
 import { seedPlatform } from "./seed";
 
 async function main() {
-  if (env.isProduction) {
-    throw new Error("db:reset is disabled in production.");
+  if (env.isProduction || !env.databaseUrl.startsWith("pglite://")) {
+    throw new Error("db:reset is allowed only for a local PGlite database in development.");
   }
-  const raw = env.databaseUrl.replace(/^file:/, "");
-  const file = path.isAbsolute(raw) ? raw : path.resolve(process.cwd(), raw);
-
-  for (const suffix of ["", "-wal", "-shm"]) {
-    const target = `${file}${suffix}`;
-    if (fs.existsSync(target)) fs.rmSync(target);
-  }
-  if (fs.existsSync(env.sandboxRoot)) {
-    fs.rmSync(env.sandboxRoot, { recursive: true, force: true });
-  }
-
-  // A fresh client recreates the schema through migrations on first access.
-  const g = globalThis as unknown as { __agentOsDb?: unknown };
-  delete g.__agentOsDb;
-  getDb();
+  const sandbox = path.resolve(env.sandboxRoot);
+  if (sandbox === path.parse(sandbox).root) throw new Error("Refusing to reset a filesystem root.");
+  const db = await getDb();
+  await db.execute(sql`drop schema astronom cascade`);
+  await applyPendingMigrations();
+  if (fs.existsSync(sandbox)) fs.rmSync(sandbox, { recursive: true, force: true });
   await seedPlatform();
-
   console.log("[db] reset + platform config seeded");
 }
 
 main().catch((error) => {
-
-  console.error(error);
-  process.exit(1);
-});
+  console.error(error instanceof Error ? error.message : "Reset failed.");
+  process.exitCode = 1;
+}).finally(closeDatabase);

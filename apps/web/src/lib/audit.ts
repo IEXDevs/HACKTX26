@@ -12,7 +12,7 @@ export async function writeAudit(input: {
   detail?: Record<string, unknown>;
   userId?: string | null;
 }): Promise<void> {
-  await getDb().insert(auditLog).values({
+  await (await getDb()).insert(auditLog).values({
     id: newId("aud"),
     workspaceId: input.workspaceId,
     actor: input.actor,

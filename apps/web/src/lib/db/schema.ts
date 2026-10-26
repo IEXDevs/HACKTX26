@@ -19,41 +19,46 @@ import { FINDING_STATUSES } from "../loop/lifecycle";
 import {
   index,
   integer,
-  real,
-  sqliteTable,
+  doublePrecision,
+  boolean,
+  jsonb,
+  timestamp,
+  pgSchema,
   text,
   uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+} from "drizzle-orm/pg-core";
 
 /* -------------------------------------------------------------------------- */
 /* Tenancy                                                                    */
 /* -------------------------------------------------------------------------- */
 
-export const workspaces = sqliteTable("workspaces", {
+export const appSchema = pgSchema("astronom");
+
+export const workspaces = appSchema.table("workspaces", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   /** Default classification applied to new agents and runs. */
   defaultDataClass: text("default_data_class").$type<DataClass>().notNull().default("internal"),
   /** Models the org forbids the router from selecting. */
-  deniedModelIds: text("denied_model_ids", { mode: "json" })
+  deniedModelIds: jsonb("denied_model_ids")
     .$type<string[]>()
     .notNull()
     .default(sql`'[]'`),
-  defaultRunBudgetUsd: real("default_run_budget_usd").notNull().default(2.5),
+  defaultRunBudgetUsd: doublePrecision("default_run_budget_usd").notNull().default(2.5),
   approvalMode: text("approval_mode").$type<ApprovalMode>().notNull().default("request"),
   /**
    * Operator-set access levels for the six named actions (fs.read, fs.write,
    * http.fetch, shell.exec, secret.use, cli:prod-deploy). Empty means defaults.
    */
-  actionEffects: text("action_effects", { mode: "json" })
+  actionEffects: jsonb("action_effects")
     .$type<Record<string, "allow" | "allow_with_log" | "require_approval" | "deny">>()
     .notNull()
     .default(sql`'{}'`),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-});
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
+}).enableRLS();
 
-export const users = sqliteTable(
+export const users = appSchema.table(
   "users",
   {
     id: text("id").primaryKey(),
@@ -66,16 +71,16 @@ export const users = sqliteTable(
       .notNull()
       .default("engineer"),
     avatarHue: integer("avatar_hue").notNull().default(90),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
   },
   (t) => [uniqueIndex("users_email_idx").on(t.email)],
-);
+).enableRLS();
 
 /* -------------------------------------------------------------------------- */
 /* Builder: templates, prompts, agents                                        */
 /* -------------------------------------------------------------------------- */
 
-export const templates = sqliteTable(
+export const templates = appSchema.table(
   "templates",
   {
     id: text("id").primaryKey(),
@@ -85,7 +90,7 @@ export const templates = sqliteTable(
     description: text("description").notNull(),
     /** What the template actually does, in one line, for the gallery card. */
     outcome: text("outcome").notNull(),
-    graph: text("graph", { mode: "json" })
+    graph: jsonb("graph")
       .$type<{
         orchestrator: { name: string; instructions: string; complexity: TaskComplexity };
         workers: Array<{
@@ -97,19 +102,19 @@ export const templates = sqliteTable(
         }>;
       }>()
       .notNull(),
-    requiredConnectors: text("required_connectors", { mode: "json" })
+    requiredConnectors: jsonb("required_connectors")
       .$type<string[]>()
       .notNull()
       .default(sql`'[]'`),
-    tags: text("tags", { mode: "json" }).$type<string[]>().notNull().default(sql`'[]'`),
+    tags: jsonb("tags").$type<string[]>().notNull().default(sql`'[]'`),
     estimatedMinutes: integer("estimated_minutes").notNull().default(5),
-    builtin: integer("builtin", { mode: "boolean" }).notNull().default(true),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    builtin: boolean("builtin").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
   },
   (t) => [uniqueIndex("templates_key_idx").on(t.key)],
-);
+).enableRLS();
 
-export const templateProposals = sqliteTable(
+export const templateProposals = appSchema.table(
   "template_proposals",
   {
     id: text("id").primaryKey(),
@@ -121,7 +126,7 @@ export const templateProposals = sqliteTable(
     name: text("name").notNull(),
     summary: text("summary").notNull(),
     instructions: text("instructions").notNull(),
-    tools: text("tools", { mode: "json" }).$type<string[]>().notNull().default(sql`'[]'`),
+    tools: jsonb("tools").$type<string[]>().notNull().default(sql`'[]'`),
     role: text("role").$type<AgentRole>().notNull(),
     complexity: text("complexity").$type<TaskComplexity>().notNull().default("standard"),
     reason: text("reason").notNull(),
@@ -129,12 +134,12 @@ export const templateProposals = sqliteTable(
       .notNull()
       .default("pending"),
     templateId: text("template_id"),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
   },
   (t) => [index("template_proposals_parent_idx").on(t.parentAgentId)],
-);
+).enableRLS();
 
-export const promptBlocks = sqliteTable("prompt_blocks", {
+export const promptBlocks = appSchema.table("prompt_blocks", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
@@ -143,11 +148,11 @@ export const promptBlocks = sqliteTable("prompt_blocks", {
   level: text("level").$type<PromptBlock["level"]>().notNull(),
   content: text("content").notNull(),
   version: integer("version").notNull().default(1),
-  locked: integer("locked", { mode: "boolean" }).notNull().default(false),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-});
+  locked: boolean("locked").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
+}).enableRLS();
 
-export const agents = sqliteTable(
+export const agents = appSchema.table(
   "agents",
   {
     id: text("id").primaryKey(),
@@ -159,20 +164,20 @@ export const agents = sqliteTable(
     role: text("role").$type<AgentRole>().notNull(),
     rank: text("rank").$type<AgentRank>().notNull().default("grunt"),
     /** When set, this agent may create a child one rank below. Grunts cannot. */
-    canSpawnSubagents: integer("can_spawn_subagents", { mode: "boolean" }).notNull().default(false),
+    canSpawnSubagents: boolean("can_spawn_subagents").notNull().default(false),
     parentAgentId: text("parent_agent_id"),
     summary: text("summary").notNull().default(""),
     instructions: text("instructions").notNull(),
-    inheritedPromptBlockIds: text("inherited_prompt_block_ids", { mode: "json" })
+    inheritedPromptBlockIds: jsonb("inherited_prompt_block_ids")
       .$type<string[]>()
       .notNull()
       .default(sql`'[]'`),
-    modelPolicy: text("model_policy", { mode: "json" }).$type<ModelPolicy>().notNull(),
-    grants: text("grants", { mode: "json" })
+    modelPolicy: jsonb("model_policy").$type<ModelPolicy>().notNull(),
+    grants: jsonb("grants")
       .$type<PermissionGrant[]>()
       .notNull()
       .default(sql`'[]'`),
-    allowedTools: text("allowed_tools", { mode: "json" })
+    allowedTools: jsonb("allowed_tools")
       .$type<string[]>()
       .notNull()
       .default(sql`'[]'`),
@@ -186,15 +191,15 @@ export const agents = sqliteTable(
     templateId: text("template_id"),
     /** Library agent used by this workflow instance. Library definitions stay unchanged. */
     sourceAgentId: text("source_agent_id"),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull(),
     /**
      * First-run goal drafted from the builder use case. Empty for agents that
      * were seeded or instantiated from a template. Dispatch prefills from this.
      */
     defaultGoal: text("default_goal").notNull().default(""),
     /** When set, reusable children are filed as templates the operator must approve. */
-    proposeTemplates: integer("propose_templates", { mode: "boolean" }).notNull().default(false),
+    proposeTemplates: boolean("propose_templates").notNull().default(false),
     /**
      * Red attacks agents, blue repairs them (lib/loop/blue-team.ts). One value
      * per agent, so a blue agent and a red agent are never the same instance.
@@ -205,7 +210,7 @@ export const agents = sqliteTable(
      * ignore this and receive every app the current operator has linked.
      * Grunts only get what the parent passed on `agent.delegate`.
      */
-    allowedConnectors: text("allowed_connectors", { mode: "json" })
+    allowedConnectors: jsonb("allowed_connectors")
       .$type<string[]>()
       .notNull()
       .default(sql`'[]'`),
@@ -214,13 +219,13 @@ export const agents = sqliteTable(
     uniqueIndex("agents_workspace_slug_idx").on(t.workspaceId, t.slug),
     index("agents_parent_idx").on(t.parentAgentId),
   ],
-);
+).enableRLS();
 
 /* -------------------------------------------------------------------------- */
 /* Connectors + credential vault                                              */
 /* -------------------------------------------------------------------------- */
 
-export const connectors = sqliteTable("connectors", {
+export const connectors = appSchema.table("connectors", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
@@ -229,18 +234,18 @@ export const connectors = sqliteTable("connectors", {
   kind: text("kind", { enum: ["mcp", "api", "cli", "rag", "web"] }).notNull(),
   provider: text("provider").notNull(),
   description: text("description").notNull().default(""),
-  config: text("config", { mode: "json" })
+  config: jsonb("config")
     .$type<Record<string, unknown>>()
     .notNull()
     .default(sql`'{}'`),
   status: text("status", { enum: ["connected", "degraded", "disconnected"] })
     .notNull()
     .default("disconnected"),
-  lastSyncAt: integer("last_sync_at", { mode: "timestamp_ms" }),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-});
+  lastSyncAt: timestamp("last_sync_at", { withTimezone: true, mode: "date" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
+}).enableRLS();
 
-export const connectedAccounts = sqliteTable(
+export const connectedAccounts = appSchema.table(
   "connected_accounts",
   {
     id: text("id").primaryKey(),
@@ -255,19 +260,19 @@ export const connectedAccounts = sqliteTable(
     status: text("status", { enum: ["connected", "pending", "disconnected", "error"] })
       .notNull()
       .default("disconnected"),
-    scopes: text("scopes", { mode: "json" }).$type<string[]>().notNull().default(sql`'[]'`),
-    metadata: text("metadata", { mode: "json" })
+    scopes: jsonb("scopes").$type<string[]>().notNull().default(sql`'[]'`),
+    metadata: jsonb("metadata")
       .$type<Record<string, unknown>>()
       .notNull()
       .default(sql`'{}'`),
-    lastSyncAt: integer("last_sync_at", { mode: "timestamp_ms" }),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+    lastSyncAt: timestamp("last_sync_at", { withTimezone: true, mode: "date" }),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull(),
   },
   (t) => [uniqueIndex("connected_accounts_user_toolkit_idx").on(t.workspaceId, t.userId, t.toolkit)],
-);
+).enableRLS();
 
-export const connectorGrants = sqliteTable(
+export const connectorGrants = appSchema.table(
   "connector_grants",
   {
     id: text("id").primaryKey(),
@@ -277,36 +282,36 @@ export const connectorGrants = sqliteTable(
     agentId: text("agent_id").notNull(),
     toolkit: text("toolkit").notNull(),
     grantedBy: text("granted_by"),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
   },
   (t) => [uniqueIndex("connector_grants_agent_toolkit_idx").on(t.agentId, t.toolkit)],
-);
+).enableRLS();
 
-export const workspaceContexts = sqliteTable("workspace_contexts", {
+export const workspaceContexts = appSchema.table("workspace_contexts", {
   workspaceId: text("workspace_id")
     .primaryKey()
     .references(() => workspaces.id, { onDelete: "cascade" }),
   content: text("content").notNull(),
   updatedBy: text("updated_by"),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
-});
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull(),
+}).enableRLS();
 
-export const connectorCatalog = sqliteTable("connector_catalog", {
+export const connectorCatalog = appSchema.table("connector_catalog", {
   toolkit: text("toolkit").primaryKey(),
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
   logoUrl: text("logo_url"),
   category: text("category"),
-  authSchemes: text("auth_schemes", { mode: "json" }).$type<string[]>().notNull().default(sql`'[]'`),
-  popular: integer("popular", { mode: "boolean" }).notNull().default(false),
-  metadata: text("metadata", { mode: "json" })
+  authSchemes: jsonb("auth_schemes").$type<string[]>().notNull().default(sql`'[]'`),
+  popular: boolean("popular").notNull().default(false),
+  metadata: jsonb("metadata")
     .$type<Record<string, unknown>>()
     .notNull()
     .default(sql`'{}'`),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
-});
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull(),
+}).enableRLS();
 
-export const credentials = sqliteTable("credentials", {
+export const credentials = appSchema.table("credentials", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
@@ -319,15 +324,15 @@ export const credentials = sqliteTable("credentials", {
   authTag: text("auth_tag").notNull(),
   /** Non-secret display hint, e.g. `ghp_…4f2a`. */
   hint: text("hint").notNull(),
-  scopes: text("scopes", { mode: "json" }).$type<string[]>().notNull().default(sql`'[]'`),
+  scopes: jsonb("scopes").$type<string[]>().notNull().default(sql`'[]'`),
   createdBy: text("created_by").notNull(),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-  lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }),
-  rotatedAt: integer("rotated_at", { mode: "timestamp_ms" }),
-});
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true, mode: "date" }),
+  rotatedAt: timestamp("rotated_at", { withTimezone: true, mode: "date" }),
+}).enableRLS();
 
 /** Documents people add for agents to search. Nothing is preloaded. */
-export const kbDocuments = sqliteTable(
+export const kbDocuments = appSchema.table(
   "kb_documents",
   {
     id: text("id").primaryKey(),
@@ -338,16 +343,16 @@ export const kbDocuments = sqliteTable(
     dataClass: text("data_class").$type<DataClass>().notNull().default("internal"),
     body: text("body").notNull(),
     addedBy: text("added_by").notNull(),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
   },
   (t) => [index("kb_documents_workspace_idx").on(t.workspaceId)],
-);
+).enableRLS();
 
 /* -------------------------------------------------------------------------- */
 /* Execution: runs + append-only event log                                    */
 /* -------------------------------------------------------------------------- */
 
-export const runs = sqliteTable(
+export const runs = appSchema.table(
   "runs",
   {
     id: text("id").primaryKey(),
@@ -359,8 +364,8 @@ export const runs = sqliteTable(
     goal: text("goal").notNull(),
     status: text("status").$type<RunStatus>().notNull().default("queued"),
     dataClass: text("data_class").$type<DataClass>().notNull().default("internal"),
-    budgetUsd: real("budget_usd").notNull(),
-    costUsd: real("cost_usd").notNull().default(0),
+    budgetUsd: doublePrecision("budget_usd").notNull(),
+    costUsd: doublePrecision("cost_usd").notNull().default(0),
     inputTokens: integer("input_tokens").notNull().default(0),
     outputTokens: integer("output_tokens").notNull().default(0),
     summary: text("summary"),
@@ -371,24 +376,25 @@ export const runs = sqliteTable(
     purpose: text("purpose", { enum: ["standard", "retest"] }).notNull().default("standard"),
     /** Composio / SerpAPI identity for this run (Supabase user id or `local:…`). */
     operatorUserId: text("operator_user_id"),
-    startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
-    endedAt: integer("ended_at", { mode: "timestamp_ms" }),
+    startedAt: timestamp("started_at", { withTimezone: true, mode: "date" }).notNull(),
+    endedAt: timestamp("ended_at", { withTimezone: true, mode: "date" }),
     eventCount: integer("event_count").notNull().default(0),
     /** Written every few seconds while a server process runs this run. See lib/runtime/reaper.ts. */
-    heartbeatAt: integer("heartbeat_at", { mode: "timestamp_ms" }),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true, mode: "date" }),
+    cancelRequested: boolean("cancel_requested").notNull().default(false),
   },
   (t) => [
     index("runs_workspace_started_idx").on(t.workspaceId, t.startedAt),
     index("runs_agent_idx").on(t.agentId),
   ],
-);
+).enableRLS();
 
 /**
  * Append-only. No UPDATE or DELETE is ever issued against this table: the
  * `hash` chain makes an out-of-band mutation detectable, and `seq` is unique
  * per run so a replay is a simple ordered read.
  */
-export const runEvents = sqliteTable(
+export const runEvents = appSchema.table(
   "run_events",
   {
     id: text("id").primaryKey(),
@@ -396,20 +402,20 @@ export const runEvents = sqliteTable(
       .notNull()
       .references(() => runs.id, { onDelete: "cascade" }),
     seq: integer("seq").notNull(),
-    ts: integer("ts", { mode: "timestamp_ms" }).notNull(),
+    ts: timestamp("ts", { withTimezone: true, mode: "date" }).notNull(),
     type: text("type").notNull(),
     agentId: text("agent_id"),
     hash: text("hash").notNull(),
     prevHash: text("prev_hash").notNull(),
-    payload: text("payload", { mode: "json" }).$type<RunEventPayload>().notNull(),
+    payload: jsonb("payload").$type<RunEventPayload>().notNull(),
   },
   (t) => [
     uniqueIndex("run_events_run_seq_idx").on(t.runId, t.seq),
     index("run_events_type_idx").on(t.type),
   ],
-);
+).enableRLS();
 
-export const inputRequests = sqliteTable("input_requests", {
+export const inputRequests = appSchema.table("input_requests", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id").notNull(),
   runId: text("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
@@ -420,17 +426,17 @@ export const inputRequests = sqliteTable("input_requests", {
   status: text("status", { enum: ["pending", "answered", "cancelled"] }).notNull().default("pending"),
   answer: text("answer"),
   answeredBy: text("answered_by"),
-  requestedAt: integer("requested_at", { mode: "timestamp_ms" }).notNull(),
-  answeredAt: integer("answered_at", { mode: "timestamp_ms" }),
-}, (t) => [index("input_requests_workspace_status_idx").on(t.workspaceId, t.status), uniqueIndex("input_requests_run_call_idx").on(t.runId, t.callId)]);
+  requestedAt: timestamp("requested_at", { withTimezone: true, mode: "date" }).notNull(),
+  answeredAt: timestamp("answered_at", { withTimezone: true, mode: "date" }),
+}, (t) => [index("input_requests_workspace_status_idx").on(t.workspaceId, t.status), uniqueIndex("input_requests_run_call_idx").on(t.runId, t.callId)]).enableRLS();
 
-export const runCheckpoints = sqliteTable("run_checkpoints", {
+export const runCheckpoints = appSchema.table("run_checkpoints", {
   runId: text("run_id").primaryKey().references(() => runs.id, { onDelete: "cascade" }),
-  state: text("state", { mode: "json" }).$type<import("../runtime/run-input").RunContinuation>().notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
-});
+  state: jsonb("state").$type<import("../runtime/run-input").RunContinuation>().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull(),
+}).enableRLS();
 
-export const approvals = sqliteTable(
+export const approvals = appSchema.table(
   "approvals",
   {
     id: text("id").primaryKey(),
@@ -439,7 +445,7 @@ export const approvals = sqliteTable(
     agentId: text("agent_id").notNull(),
     callId: text("call_id"),
     resource: text("resource").notNull(),
-    scopes: text("scopes", { mode: "json" }).$type<string[]>().notNull(),
+    scopes: jsonb("scopes").$type<string[]>().notNull(),
     risk: text("risk").$type<Risk>().notNull(),
     reason: text("reason").notNull(),
     status: text("status", { enum: ["pending", "approved", "denied", "expired"] })
@@ -447,17 +453,17 @@ export const approvals = sqliteTable(
       .default("pending"),
     decidedBy: text("decided_by"),
     note: text("note"),
-    requestedAt: integer("requested_at", { mode: "timestamp_ms" }).notNull(),
-    resolvedAt: integer("resolved_at", { mode: "timestamp_ms" }),
+    requestedAt: timestamp("requested_at", { withTimezone: true, mode: "date" }).notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true, mode: "date" }),
   },
   (t) => [index("approvals_status_idx").on(t.workspaceId, t.status)],
-);
+).enableRLS();
 
 /* -------------------------------------------------------------------------- */
 /* Memory + workspace task log                                                */
 /* -------------------------------------------------------------------------- */
 
-export const memories = sqliteTable(
+export const memories = appSchema.table(
   "memories",
   {
     id: text("id").primaryKey(),
@@ -469,19 +475,19 @@ export const memories = sqliteTable(
     kind: text("kind", { enum: ["fact", "decision", "preference", "artifact"] }).notNull(),
     content: text("content").notNull(),
     /** 0–1, bumped when an agent recalls it. Drives eviction. */
-    importance: real("importance").notNull().default(0.5),
+    importance: doublePrecision("importance").notNull().default(0.5),
     sourceRunId: text("source_run_id"),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-    lastRecalledAt: integer("last_recalled_at", { mode: "timestamp_ms" }),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
+    lastRecalledAt: timestamp("last_recalled_at", { withTimezone: true, mode: "date" }),
   },
   (t) => [index("memories_workspace_idx").on(t.workspaceId, t.scope)],
-);
+).enableRLS();
 
 /**
  * The human-readable task ledger for a workspace. Written when a run
  * terminates; complements (never replaces) the raw event log.
  */
-export const taskLog = sqliteTable(
+export const taskLog = appSchema.table(
   "task_log",
   {
     id: text("id").primaryKey(),
@@ -493,17 +499,17 @@ export const taskLog = sqliteTable(
     title: text("title").notNull(),
     summary: text("summary").notNull(),
     status: text("status").$type<RunStatus>().notNull(),
-    costUsd: real("cost_usd").notNull().default(0),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    costUsd: doublePrecision("cost_usd").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
   },
   (t) => [index("task_log_workspace_idx").on(t.workspaceId, t.createdAt)],
-);
+).enableRLS();
 
 /* -------------------------------------------------------------------------- */
 /* Security + evaluations                                                     */
 /* -------------------------------------------------------------------------- */
 
-export const securityFindings = sqliteTable(
+export const securityFindings = appSchema.table(
   "security_findings",
   {
     id: text("id").primaryKey(),
@@ -519,16 +525,16 @@ export const securityFindings = sqliteTable(
     remediation: text("remediation"),
     /** See lib/loop/lifecycle.ts. Only a passing retest may lead to "fixed". */
     status: text("status", { enum: FINDING_STATUSES }).notNull().default("open"),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
   },
   (t) => [index("findings_workspace_idx").on(t.workspaceId, t.severity)],
-);
+).enableRLS();
 
 /**
  * Immutable snapshots of an agent's behavior-defining fields. Rows are only
  * inserted, never updated: a fix creates a new version instead of editing one.
  */
-export const agentVersions = sqliteTable(
+export const agentVersions = appSchema.table(
   "agent_versions",
   {
     id: text("id").primaryKey(),
@@ -536,20 +542,20 @@ export const agentVersions = sqliteTable(
     agentId: text("agent_id").notNull(),
     version: integer("version").notNull(),
     instructions: text("instructions").notNull(),
-    allowedTools: text("allowed_tools", { mode: "json" }).$type<string[]>().notNull(),
-    grants: text("grants", { mode: "json" }).$type<PermissionGrant[]>().notNull(),
-    inheritedPromptBlockIds: text("inherited_prompt_block_ids", { mode: "json" })
+    allowedTools: jsonb("allowed_tools").$type<string[]>().notNull(),
+    grants: jsonb("grants").$type<PermissionGrant[]>().notNull(),
+    inheritedPromptBlockIds: jsonb("inherited_prompt_block_ids")
       .$type<string[]>()
       .notNull(),
     createdBy: text("created_by").notNull(),
     reason: text("reason").notNull(),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
   },
   (t) => [uniqueIndex("agent_versions_agent_version_idx").on(t.agentId, t.version)],
-);
+).enableRLS();
 
 /** One feedback-loop case per accepted finding. See lib/loop/README.md. */
-export const findingCases = sqliteTable(
+export const findingCases = appSchema.table(
   "finding_cases",
   {
     id: text("id").primaryKey(),
@@ -562,16 +568,16 @@ export const findingCases = sqliteTable(
     /** Plain-language account of what the red team saw. */
     observed: text("observed").notNull(),
     proposedRemediation: text("proposed_remediation").notNull().default(""),
-    reproduction: text("reproduction", { mode: "json" }).$type<CaseReproduction>().notNull(),
+    reproduction: jsonb("reproduction").$type<CaseReproduction>().notNull(),
     /** One entry per chain-of-command level the case passed through. */
-    hops: text("hops", { mode: "json" }).$type<CaseHop[]>().notNull().default(sql`'[]'`),
-    deliveredTo: text("delivered_to", { mode: "json" }).$type<CaseDelivery | null>(),
-    conversation: text("conversation", { mode: "json" })
+    hops: jsonb("hops").$type<CaseHop[]>().notNull().default(sql`'[]'`),
+    deliveredTo: jsonb("delivered_to").$type<CaseDelivery | null>(),
+    conversation: jsonb("conversation")
       .$type<CaseMessage[]>()
       .notNull()
       .default(sql`'[]'`),
-    proposal: text("proposal", { mode: "json" }).$type<CaseProposal | null>(),
-    approval: text("approval", { mode: "json" }).$type<CaseApproval | null>(),
+    proposal: jsonb("proposal").$type<CaseProposal | null>(),
+    approval: jsonb("approval").$type<CaseApproval | null>(),
     /**
      * open (active), queued (behind another case for the same target),
      * escalated (waiting on a person), verified (three clean retests), or
@@ -583,27 +589,27 @@ export const findingCases = sqliteTable(
     escalationReason: text("escalation_reason"),
     round: integer("round").notNull().default(0),
     maxRounds: integer("max_rounds").notNull().default(3),
-    budgetCapUsd: real("budget_cap_usd").notNull(),
-    spentUsd: real("spent_usd").notNull().default(0),
+    budgetCapUsd: doublePrecision("budget_cap_usd").notNull(),
+    spentUsd: doublePrecision("spent_usd").notNull().default(0),
     appliedVersion: integer("applied_version"),
     latestRetestRunId: text("latest_retest_run_id"),
-    retests: text("retests", { mode: "json" }).$type<CaseRetest[]>().notNull().default(sql`'[]'`),
+    retests: jsonb("retests").$type<CaseRetest[]>().notNull().default(sql`'[]'`),
     /** The blue-team agents working this case. */
-    crew: text("crew", { mode: "json" }).$type<CaseCrew>().notNull().default(sql`'{}'`),
-    triage: text("triage", { mode: "json" }).$type<CaseTriage | null>(),
+    crew: jsonb("crew").$type<CaseCrew>().notNull().default(sql`'{}'`),
+    triage: jsonb("triage").$type<CaseTriage | null>(),
     /** Duplicate findings Triage folded into this case. */
-    mergedFindingIds: text("merged_finding_ids", { mode: "json" })
+    mergedFindingIds: jsonb("merged_finding_ids")
       .$type<string[]>()
       .notNull()
       .default(sql`'[]'`),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull(),
   },
   (t) => [
     uniqueIndex("finding_cases_finding_idx").on(t.findingId),
     index("finding_cases_target_idx").on(t.targetAgentId),
   ],
-);
+).enableRLS();
 
 export interface CaseProbe {
   /** Labeled test input sent to the target as the run goal. */
@@ -697,7 +703,7 @@ export interface CaseRetest {
   finishedAt?: string;
 }
 
-export const evalSuites = sqliteTable("eval_suites", {
+export const evalSuites = appSchema.table("eval_suites", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
@@ -705,14 +711,14 @@ export const evalSuites = sqliteTable("eval_suites", {
   agentId: text("agent_id").notNull(),
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
-  cases: text("cases", { mode: "json" })
+  cases: jsonb("cases")
     .$type<Array<{ id: string; name: string; input: string; expectedTools: string[] }>>()
     .notNull()
     .default(sql`'[]'`),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-});
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
+}).enableRLS();
 
-export const evalRuns = sqliteTable(
+export const evalRuns = appSchema.table(
   "eval_runs",
   {
     id: text("id").primaryKey(),
@@ -721,22 +727,22 @@ export const evalRuns = sqliteTable(
     /** Optional link to the production run that triggered the eval. */
     runId: text("run_id"),
     status: text("status", { enum: ["running", "passed", "failed"] }).notNull(),
-    toolCallAccuracy: real("tool_call_accuracy").notNull().default(0),
-    taskSuccess: real("task_success").notNull().default(0),
-    interventionRate: real("intervention_rate").notNull().default(0),
+    toolCallAccuracy: doublePrecision("tool_call_accuracy").notNull().default(0),
+    taskSuccess: doublePrecision("task_success").notNull().default(0),
+    interventionRate: doublePrecision("intervention_rate").notNull().default(0),
     casesPassed: integer("cases_passed").notNull().default(0),
     casesTotal: integer("cases_total").notNull().default(0),
-    startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
-    endedAt: integer("ended_at", { mode: "timestamp_ms" }),
+    startedAt: timestamp("started_at", { withTimezone: true, mode: "date" }).notNull(),
+    endedAt: timestamp("ended_at", { withTimezone: true, mode: "date" }),
   },
   (t) => [index("eval_runs_suite_idx").on(t.suiteId, t.startedAt)],
-);
+).enableRLS();
 
 /* -------------------------------------------------------------------------- */
 /* Triggers, budgets, audit                                                   */
 /* -------------------------------------------------------------------------- */
 
-export const triggers = sqliteTable("triggers", {
+export const triggers = appSchema.table("triggers", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
@@ -745,12 +751,12 @@ export const triggers = sqliteTable("triggers", {
   kind: text("kind").$type<Trigger["kind"]>().notNull(),
   cron: text("cron"),
   eventFilter: text("event_filter"),
-  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
-  lastFiredAt: integer("last_fired_at", { mode: "timestamp_ms" }),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-});
+  enabled: boolean("enabled").notNull().default(true),
+  lastFiredAt: timestamp("last_fired_at", { withTimezone: true, mode: "date" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
+}).enableRLS();
 
-export const budgetPolicies = sqliteTable("budget_policies", {
+export const budgetPolicies = appSchema.table("budget_policies", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
@@ -758,18 +764,18 @@ export const budgetPolicies = sqliteTable("budget_policies", {
   /** null = workspace-wide policy. */
   agentId: text("agent_id"),
   period: text("period").$type<BudgetPolicy["period"]>().notNull(),
-  limitUsd: real("limit_usd").notNull(),
-  warnAt: real("warn_at").notNull().default(0.8),
-  hardStop: integer("hard_stop", { mode: "boolean" }).notNull().default(true),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-});
+  limitUsd: doublePrecision("limit_usd").notNull(),
+  warnAt: doublePrecision("warn_at").notNull().default(0.8),
+  hardStop: boolean("hard_stop").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
+}).enableRLS();
 
 /**
  * Configuration changes, credential access and approval decisions land here.
  * Run execution goes to `run_events`; everything that *mutates the platform*
  * goes here. Together they cover the audit surface.
  */
-export const auditLog = sqliteTable(
+export const auditLog = appSchema.table(
   "audit_log",
   {
     id: text("id").primaryKey(),
@@ -778,14 +784,14 @@ export const auditLog = sqliteTable(
     action: text("action").notNull(),
     targetType: text("target_type").notNull(),
     targetId: text("target_id").notNull(),
-    detail: text("detail", { mode: "json" })
+    detail: jsonb("detail")
       .$type<Record<string, unknown>>()
       .notNull()
       .default(sql`'{}'`),
-    at: integer("at", { mode: "timestamp_ms" }).notNull(),
+    at: timestamp("at", { withTimezone: true, mode: "date" }).notNull(),
   },
   (t) => [index("audit_workspace_idx").on(t.workspaceId, t.at)],
-);
+).enableRLS();
 
 /* -------------------------------------------------------------------------- */
 /* Inferred types                                                             */

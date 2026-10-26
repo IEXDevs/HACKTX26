@@ -59,7 +59,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     const body = parsed.data;
     if (body.action === "message" || body.action === "propose") {
       const current = body.action === "message" ? await addPersonMessage(row.id, actor, body.text) : row;
-      const db = getDb();
+      const db = await getDb();
       const [target] = await db.select().from(agents).where(eq(agents.id, current.targetAgentId)).limit(1);
       const [finding] = await db.select().from(securityFindings).where(eq(securityFindings.id, current.findingId)).limit(1);
       if (!target || !finding) throw new Error("The case's agent or finding is gone.");

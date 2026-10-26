@@ -45,7 +45,7 @@ export async function PATCH(request: NextRequest) {
   }
   const effects = resolveActionEffects({ ...workspace.actionEffects, ...patch });
   const approvalMode = mode?.success ? mode.data : workspace.approvalMode;
-  await getDb()
+  await (await getDb())
     .update(workspaces)
     .set({ ...(patch ? { actionEffects: effects } : {}), ...(mode?.success ? { approvalMode } : {}) })
     .where(eq(workspaces.id, workspace.id));

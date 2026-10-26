@@ -47,12 +47,12 @@ const TABLES = {
 async function freshDb(seed: () => Promise<void>) {
   const g = globalThis as unknown as { __agentOsDb?: unknown };
   delete g.__agentOsDb;
-  const db = getDb();
+  const db = await getDb();
   await seed();
   return db;
 }
 
-async function idsOf(db: ReturnType<typeof getDb>) {
+async function idsOf(db: Awaited<ReturnType<typeof getDb>>) {
   const out: Record<string, string[]> = {};
   for (const [name, table] of Object.entries(TABLES)) {
     const rows = (await db.select().from(table)) as Array<{ id: string }>;
@@ -70,7 +70,7 @@ describe("purging the sample company", () => {
 
   it("leaves exactly the platform seed behind", async () => {
     const db = await freshDb(seedDatabase);
-    const report = purgeSample(db.$client, { apply: true });
+    const report = await purgeSample(db, { apply: true });
     expect(report.applied).toBe(true);
     expect(await idsOf(db)).toEqual(platformIds);
   });
@@ -78,7 +78,7 @@ describe("purging the sample company", () => {
   it("changes nothing on a dry run", async () => {
     const db = await freshDb(seedDatabase);
     const before = await idsOf(db);
-    const report = purgeSample(db.$client, { apply: false });
+    const report = await purgeSample(db, { apply: false });
     expect(report.removed.agents).toBeGreaterThan(0);
     expect(await idsOf(db)).toEqual(before);
   });
@@ -121,11 +121,11 @@ describe("purging the sample company", () => {
       { id: "run_on_sample", workspaceId: "ws_astronom", agentId: "agt_incident_commander", goal: "live", status: "succeeded", budgetUsd: 1, costUsd: 0.2, mode: "live", startedAt: now },
     ]);
 
-    const dry = purgeSample(db.$client, { apply: false });
+    const dry = await purgeSample(db, { apply: false });
     expect(dry.runs.live).toBe(1);
     expect(dry.runs.liveCostUsd).toBeCloseTo(0.2);
 
-    purgeSample(db.$client, { apply: true });
+    await purgeSample(db, { apply: true });
 
     const agentIds = (await db.select().from(agents)).map((a) => a.id);
     expect(agentIds).toContain("agt_mine");

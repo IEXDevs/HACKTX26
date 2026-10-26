@@ -23,7 +23,7 @@ export async function waitForApprovalDecision(
   approvalId: string,
   opts: { timeoutMs?: number } = {},
 ): Promise<ApprovalDecision> {
-  const db = getDb();
+  const db = await getDb();
   const deadline = Date.now() + (opts.timeoutMs ?? 15 * 60 * 1000);
 
   for (;;) {
@@ -77,7 +77,7 @@ export interface ApprovalRequestInput {
 }
 
 export async function createApprovalRequest(input: ApprovalRequestInput): Promise<void> {
-  await getDb().insert(approvals).values({
+  await (await getDb()).insert(approvals).values({
     id: input.id,
     workspaceId: input.workspaceId,
     runId: input.runId,

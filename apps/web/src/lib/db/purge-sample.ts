@@ -11,7 +11,8 @@
  * Stop the dev server before applying. Live runs that were made against a sample
  * agent go with that agent, and the dry run says how much real spend that is.
  */
-import type Database from "better-sqlite3";
+import type { AppDatabase } from "./client";
+import { queryRows } from "./raw";
 
 /** The ids only the sample seed creates. A test keeps this list equal to seedDatabase() minus seedPlatform(). */
 export const SAMPLE_IDS = {
@@ -61,17 +62,18 @@ function marks(count: number): string {
   return Array.from({ length: count }, () => "?").join(",");
 }
 
-export function purgeSample(sqlite: Database.Database, options: { apply: boolean }): PurgeReport {
-  const column = (sql: string, ...params: unknown[]) =>
-    (sqlite.prepare(sql).all(...params) as Array<Record<string, string>>).map((row) => Object.values(row)[0]!);
+export async function purgeSample(database: AppDatabase, options: { apply: boolean }): Promise<PurgeReport> {
+  return database.transaction(async (db) => {
+  const column = async (statement: string, ...params: unknown[]) =>
+    (await queryRows<Record<string, string>>(db, statement, params)).map((row) => Object.values(row)[0]!);
   const inList = (ids: readonly string[]) => (ids.length ? `in (${marks(ids.length)})` : "in (null)");
 
   // Agents: the sample ones, plus anything they spawned. The team leads are never removed.
   const agentIds = new Set<string>(SAMPLE_IDS.agents);
   for (let grew = true; grew; ) {
     const known = [...agentIds];
-    const children = column(
-      `select id from agents where parent_agent_id ${inList(known)} and id not ${inList(PROTECTED_AGENTS)}`,
+    const children = await column(
+      `select id from astronom.agents where parent_agent_id ${inList(known)} and id not ${inList(PROTECTED_AGENTS)}`,
       ...known,
       ...PROTECTED_AGENTS,
     );
@@ -87,47 +89,47 @@ export function purgeSample(sqlite: Database.Database, options: { apply: boolean
 
   // Runs: the sample ones, every replay, and anything run against a doomed agent.
   const runIds = new Set<string>([
-    ...column(`select id from runs where id ${inList(SAMPLE_IDS.runs)}`, ...SAMPLE_IDS.runs),
-    ...column(`select id from runs where mode = 'replay'`),
-    ...column(`select id from runs where agent_id ${inList(agents)}`, ...agents),
+    ...await column(`select id from astronom.runs where id ${inList(SAMPLE_IDS.runs)}`, ...SAMPLE_IDS.runs),
+    ...await column(`select id from astronom.runs where mode = 'replay'`),
+    ...await column(`select id from astronom.runs where agent_id ${inList(agents)}`, ...agents),
   ]);
   const runs = [...runIds];
 
   const suites = new Set<string>([
-    ...column(`select id from eval_suites where id ${inList(SAMPLE_IDS.evalSuites)}`, ...SAMPLE_IDS.evalSuites),
-    ...column(`select id from eval_suites where agent_id ${inList(agents)}`, ...agents),
+    ...await column(`select id from astronom.eval_suites where id ${inList(SAMPLE_IDS.evalSuites)}`, ...SAMPLE_IDS.evalSuites),
+    ...await column(`select id from astronom.eval_suites where agent_id ${inList(agents)}`, ...agents),
   ]);
   const suiteIds = [...suites];
 
   const findings = [
     ...new Set<string>([
-      ...column(`select id from security_findings where id ${inList(SAMPLE_IDS.findings)}`, ...SAMPLE_IDS.findings),
-      ...column(`select id from security_findings where run_id ${inList(runs)}`, ...runs),
-      ...column(`select id from security_findings where target_agent_id ${inList(agents)}`, ...agents),
+      ...await column(`select id from astronom.security_findings where id ${inList(SAMPLE_IDS.findings)}`, ...SAMPLE_IDS.findings),
+      ...await column(`select id from astronom.security_findings where run_id ${inList(runs)}`, ...runs),
+      ...await column(`select id from astronom.security_findings where target_agent_id ${inList(agents)}`, ...agents),
     ]),
   ];
 
   const cases = [
     ...new Set<string>([
-      ...column(`select id from finding_cases where finding_id ${inList(findings)}`, ...findings),
-      ...column(`select id from finding_cases where target_agent_id ${inList(agents)}`, ...agents),
-      ...column(`select id from finding_cases where source_run_id ${inList(runs)}`, ...runs),
+      ...await column(`select id from astronom.finding_cases where finding_id ${inList(findings)}`, ...findings),
+      ...await column(`select id from astronom.finding_cases where target_agent_id ${inList(agents)}`, ...agents),
+      ...await column(`select id from astronom.finding_cases where source_run_id ${inList(runs)}`, ...runs),
     ]),
   ];
 
   const approvals = [
     ...new Set<string>([
-      ...column(`select id from approvals where id ${inList(SAMPLE_IDS.approvals)}`, ...SAMPLE_IDS.approvals),
-      ...column(`select id from approvals where run_id ${inList(runs)}`, ...runs),
-      ...column(`select id from approvals where agent_id ${inList(agents)}`, ...agents),
+      ...await column(`select id from astronom.approvals where id ${inList(SAMPLE_IDS.approvals)}`, ...SAMPLE_IDS.approvals),
+      ...await column(`select id from astronom.approvals where run_id ${inList(runs)}`, ...runs),
+      ...await column(`select id from astronom.approvals where agent_id ${inList(agents)}`, ...agents),
     ]),
   ];
 
   const memories = [
     ...new Set<string>([
-      ...column(`select id from memories where id ${inList(SAMPLE_IDS.memories)}`, ...SAMPLE_IDS.memories),
-      ...column(`select id from memories where agent_id ${inList(agents)}`, ...agents),
-      ...column(`select id from memories where source_run_id ${inList(runs)}`, ...runs),
+      ...await column(`select id from astronom.memories where id ${inList(SAMPLE_IDS.memories)}`, ...SAMPLE_IDS.memories),
+      ...await column(`select id from astronom.memories where agent_id ${inList(agents)}`, ...agents),
+      ...await column(`select id from astronom.memories where source_run_id ${inList(runs)}`, ...runs),
     ]),
   ];
 
@@ -173,53 +175,41 @@ export function purgeSample(sqlite: Database.Database, options: { apply: boolean
     { table: "users", where: `id ${inList(SAMPLE_IDS.users)}`, params: SAMPLE_IDS.users },
   ];
 
-  const present = new Set(column(`select name from sqlite_master where type = 'table'`));
-  const costRow = sqlite
-    .prepare(
-      `select count(*) total,
-              sum(case when mode = 'replay' then 1 else 0 end) replay,
-              sum(case when mode != 'replay' then 1 else 0 end) live,
-              coalesce(sum(case when mode != 'replay' then cost_usd else 0 end), 0) liveCostUsd
-         from runs where id ${inList(runs)}`,
-    )
-    .get(...runs) as { total: number; replay: number | null; live: number | null; liveCostUsd: number };
-
+  const present = new Set(await column(`select tablename from pg_tables where schemaname = 'astronom'`));
+  const [costRow] = await queryRows<{ total: number; replay: number; live: number; liveCostUsd: number }>(db,
+    `select count(*)::int total,
+      coalesce(sum(case when mode = 'replay' then 1 else 0 end), 0)::int replay,
+      coalesce(sum(case when mode != 'replay' then 1 else 0 end), 0)::int live,
+      coalesce(sum(case when mode != 'replay' then cost_usd else 0 end), 0) as "liveCostUsd"
+      from astronom.runs where id ${inList(runs)}`, runs);
   const removed: Record<string, number> = {};
   const orphanedLeads = `id ${inList(PROTECTED_AGENTS)} and parent_agent_id ${inList(agents)}`;
   const orphanedParams = [...PROTECTED_AGENTS, ...agents];
-  const reparented = (
-    sqlite.prepare(`select count(*) c from agents where ${orphanedLeads}`).get(...orphanedParams) as { c: number }
-  ).c;
-  const run = sqlite.transaction(() => {
-    if (options.apply && reparented > 0) {
-      sqlite.prepare(`update agents set parent_agent_id = null where ${orphanedLeads}`).run(...orphanedParams);
+  const reparented = (await queryRows<{ c: number }>(db, `select count(*)::int c from astronom.agents where ${orphanedLeads}`, orphanedParams))[0]!.c;
+  if (options.apply && reparented > 0) {
+    await queryRows(db, `update astronom.agents set parent_agent_id = null where ${orphanedLeads}`, orphanedParams);
+  }
+  for (const step of steps) {
+    if (!present.has(step.table)) continue;
+    const count = (await queryRows<{ c: number }>(db, `select count(*)::int c from astronom.${step.table} where ${step.where}`, step.params))[0]!.c;
+    removed[step.table] = count;
+    if (options.apply && count > 0) {
+      await queryRows(db, `delete from astronom.${step.table} where ${step.where}`, step.params);
     }
-    for (const step of steps) {
-      if (!present.has(step.table)) continue;
-      const count = (
-        sqlite.prepare(`select count(*) c from ${step.table} where ${step.where}`).get(...step.params) as {
-          c: number;
-        }
-      ).c;
-      removed[step.table] = count;
-      if (options.apply && count > 0) {
-        sqlite.prepare(`delete from ${step.table} where ${step.where}`).run(...step.params);
-      }
-    }
-  });
-  run();
+  }
 
   return {
     applied: options.apply,
     removed,
     reparented,
     runs: {
-      total: costRow.total,
-      replay: costRow.replay ?? 0,
-      live: costRow.live ?? 0,
-      liveCostUsd: Number(costRow.liveCostUsd.toFixed(4)),
+      total: costRow!.total,
+      replay: costRow!.replay ?? 0,
+      live: costRow!.live ?? 0,
+      liveCostUsd: Number(costRow!.liveCostUsd.toFixed(4)),
     },
   };
+  });
 }
 
 async function main() {
@@ -227,26 +217,26 @@ async function main() {
   if (env.isProduction) throw new Error("db:purge-sample is disabled in production.");
   const { getDb } = await import("./client");
   const apply = process.argv.includes("--apply");
-  const report = purgeSample(getDb().$client, { apply });
+  const report = await purgeSample(await getDb(), { apply });
 
   const rows = Object.entries(report.removed).filter(([, count]) => count > 0);
-
+   
   console.log(apply ? "[purge] removed:" : "[purge] dry run, would remove:");
   for (const [table, count] of rows) {
-
+     
     console.log(`  ${table.padEnd(20)} ${count}`);
   }
-
+   
   if (report.reparented > 0) {
-
+     
     console.log(`[purge] ${report.reparented} team lead(s) lose their sample parent and stand alone`);
   }
-
+   
   console.log(
     `[purge] runs: ${report.runs.total} (${report.runs.replay} sample replays, ${report.runs.live} live runs that cost $${report.runs.liveCostUsd.toFixed(2)})`,
   );
   if (!apply) {
-
+     
     console.log("[purge] nothing was deleted. Re-run with `-- --apply` after stopping the dev server.");
   }
 }
@@ -260,7 +250,7 @@ if (isDirectRun) {
   main()
     .then(() => process.exit(0))
     .catch((error) => {
-
+       
       console.error(error);
       process.exit(1);
     });

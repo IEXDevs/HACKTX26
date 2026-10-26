@@ -9,6 +9,7 @@ import { ComposerAttach, ComposerChips } from "./composer-attach";
 import type { CaseHop, CaseMessage, CaseProposal, CaseRetest } from "@/lib/db/schema";
 import { RichText } from "./rich-text";
 import { useAutoRefresh } from "./use-auto-refresh";
+import { useTabDraft } from "@/lib/use-tab-draft";
 
 export interface CaseView {
   id: string;
@@ -49,7 +50,7 @@ const statusWord: Record<string, string> = {
  */
 export function CaseReview({ view }: { view: CaseView }) {
   const router = useRouter();
-  const [input, setInput] = useState(""),
+  const [input, setInput, clearInput] = useTabDraft(`astronom.case-review-input.${view.id}`),
     [busy, setBusy] = useState<string | null>(null),
     [error, setError] = useState("");
   const open = view.state === "open";
@@ -70,7 +71,7 @@ export function CaseReview({ view }: { view: CaseView }) {
       });
       const value = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(value.error ?? "That did not work.");
-      if (name === "message") setInput("");
+      if (name === "message") clearInput();
       router.refresh();
     } catch (e) {
       setError((e as Error).message);

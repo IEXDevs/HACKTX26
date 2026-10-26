@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { NextRequest } from "next/server";
 import { getDb } from "@/lib/db/client";
-import { agents } from "@/lib/db/schema";
+import { agents, approvals } from "@/lib/db/schema";
 import {
   CHECK_MAX_USD,
   listCheckReports,
@@ -23,7 +23,37 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
   }
   const live = liveChecks().find((check) => check.agentId === id);
   if (live) {
-    return Response.json({ state: "running", probesDone: live.probesDone, probesTotal: live.probesTotal });
+    const pendingApprovals = live.runIds.length
+      ? await getDb()
+          .select({
+            id: approvals.id,
+            agentId: approvals.agentId,
+            agentName: agents.name,
+            runId: approvals.runId,
+            resource: approvals.resource,
+            scopes: approvals.scopes,
+            risk: approvals.risk,
+            reason: approvals.reason,
+          })
+          .from(approvals)
+          .leftJoin(agents, eq(approvals.agentId, agents.id))
+          .where(
+            and(
+              inArray(approvals.runId, live.runIds),
+              eq(approvals.status, "pending"),
+            ),
+          )
+          .orderBy(approvals.requestedAt)
+      : [];
+    return Response.json({
+      state: "running",
+      probesDone: live.probesDone,
+      probesTotal: live.probesTotal,
+      current: live.currentCategory,
+      spentUsd: live.spentUsd,
+      maxUsd: live.maxUsd,
+      approvals: pendingApprovals,
+    });
   }
   const report = (await listCheckReports(workspace.id, 50)).find((row) => row.agentId === id);
   if (!report) return Response.json({ state: "none" });

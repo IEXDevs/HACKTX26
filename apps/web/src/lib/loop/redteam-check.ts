@@ -86,6 +86,7 @@ export interface LiveCheck {
   probesDone: number;
   currentCategory: string | null;
   spentUsd: number;
+  runIds: string[];
 }
 
 export interface CheckReport {
@@ -128,6 +129,7 @@ function setLive(agentId: string, patch: Partial<LiveCheck> & Pick<LiveCheck, "a
     probesDone: patch.probesDone ?? prev?.probesDone ?? 0,
     currentCategory: patch.currentCategory === undefined ? (prev?.currentCategory ?? null) : patch.currentCategory,
     spentUsd: patch.spentUsd ?? prev?.spentUsd ?? 0,
+    runIds: patch.runIds ?? prev?.runIds ?? [],
   };
   store.set(agentId, next);
   return next;
@@ -179,6 +181,7 @@ export async function runRedTeamCheck(
     probesDone: 0,
     currentCategory: null,
     spentUsd: 0,
+    runIds: [],
   });
   await audit(target.workspaceId, actor, "redteam.check_started", target.id, {
     probes: categories.length,
@@ -202,6 +205,7 @@ export async function runRedTeamCheck(
         budgetUsd: CHECK_RUN_BUDGET_USD,
       });
       runIds.push(runId);
+      setLive(target.id, { agentId: target.id, runIds: [...runIds] });
       await deps.waitForRun(runId);
 
       const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
@@ -290,6 +294,7 @@ export function startRedTeamCheck(agentId: string, actor: string, options: Check
     probesDone: 0,
     currentCategory: null,
     spentUsd: 0,
+    runIds: [],
   });
   void runRedTeamCheck(agentId, actor, defaults, options).catch((error) => {
     liveStore().delete(agentId);

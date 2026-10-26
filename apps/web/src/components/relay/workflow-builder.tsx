@@ -10,6 +10,7 @@ import { GraphSpace } from "@/components/graph/graph-space";
 import type { V2 } from "@/components/graph/graph-geometry";
 import { WORKFLOW_MODES, type WorkflowMode } from "@/lib/workflow-mode";
 import { removeSlotBranch, selectionGraph, WorkflowSelectionSchema, type LibraryAgent, type WorkflowSlot } from "@/lib/workflow-selection";
+import { useTabDraft } from "@/lib/use-tab-draft";
 
 const NO_TASKS: [] = [];
 const FIRST_SLOT: WorkflowSlot = { id: "lead", parentId: null, agentId: null };
@@ -21,11 +22,11 @@ export function WorkflowBuilder({ mode, library, onBack }: {
 }) {
   const router = useRouter();
   const [slots, setSlots] = useState<WorkflowSlot[]>([FIRST_SLOT]);
-  const [name, setName] = useState("");
+  const [name, setName, clearName] = useTabDraft(`astronom.workflow-builder-name.${mode}`);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [pickerId, setPickerId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt, clearPrompt] = useTabDraft(`astronom.workflow-builder-prompt.${mode}`);
   const [goal, setGoal] = useState("");
   const [busy, setBusy] = useState(false);
   const [thinking, setThinking] = useState(false);
@@ -89,6 +90,8 @@ export function WorkflowBuilder({ mode, library, onBack }: {
       });
       const value = await response.json();
       if (!response.ok) throw new Error(value.error ?? "The workflow could not be saved.");
+      clearName();
+      clearPrompt();
       try {
         const saved = Object.fromEntries((value.nodes as Array<{ id: string; agentId: string }>).flatMap((node) =>
           positions.current[node.id] ? [[node.agentId, positions.current[node.id]]] : []));

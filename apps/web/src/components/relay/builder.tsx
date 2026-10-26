@@ -18,9 +18,10 @@ import {
 import { VoiceSphere, type VoiceSphereState } from "@/components/voice/voice-sphere";
 import { useLiveSession, type LiveStatus, type LiveToolCall } from "@/components/voice/use-live-session";
 import { applyAttachments, type ComposerAttachment } from "@/lib/composer-attachments";
-import { CHECK_MAX_USD, RED_TEAM_CATEGORIES } from "@/lib/loop/redteam-limits";
+import { CATEGORY_LABELS, CHECK_MAX_USD, RED_TEAM_CATEGORIES } from "@/lib/loop/redteam-limits";
 import { DraftSchema, type BuilderDraft } from "@/lib/runtime/builder-parse";
 import { plainText } from "@/lib/plain-text";
+import { useTabDraft } from "@/lib/use-tab-draft";
 import { RichText } from "./rich-text";
 import { ComposerAttach, ComposerChips } from "./composer-attach";
 import { WORKFLOW_MODES, type WorkflowMode } from "@/lib/workflow-mode";
@@ -49,8 +50,26 @@ interface SpokenLine {
   from: "you" | "builder";
   text: string;
 }
+interface TeamApproval {
+  id: string;
+  agentId: string;
+  agentName: string | null;
+  runId: string;
+  resource: string;
+  scopes: string[];
+  risk: string;
+  reason: string;
+}
 type Check =
-  | { state: "running"; done: number; total: number }
+  | {
+      state: "running";
+      done: number;
+      total: number;
+      current: string | null;
+      spentUsd: number;
+      maxUsd: number;
+      approvals: TeamApproval[];
+    }
   | { state: "finished"; findings: number };
 
 /**
@@ -67,7 +86,7 @@ export function Builder({ templates, workflowMode, onBack }: {
   const router = useRouter();
   const workflow = Boolean(workflowMode);
   const mode = WORKFLOW_MODES.find((option) => option.id === workflowMode);
-  const [input, setInput] = useState(""),
+  const [input, setInput, clearInput] = useTabDraft(`astronom.builder-input.${workflowMode ?? "agent"}`),
     [messages, setMessages] = useState<Message[]>([]),
     [draft, setDraft] = useState<BuilderDraft | null>(null),
     [canSpawnSubagents, setCanSpawnSubagents] = useState(true),
@@ -79,10 +98,13 @@ export function Builder({ templates, workflowMode, onBack }: {
     // Set after publishing: offers a red-team check, then follows it.
     [published, setPublished] = useState<{ id: string; name: string } | null>(null),
     [check, setCheck] = useState<Check | null>(null),
+    [approvalAction, setApprovalAction] = useState<string | null>(null),
+    [approvalError, setApprovalError] = useState(""),
     [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const end = useRef<HTMLDivElement>(null);
   const videoInput = useRef<HTMLInputElement>(null);
   const nextId = useRef(0);
+  const lastVoiceError = useRef("");
   // Voice callbacks outlive renders; they read the latest state through these.
   const latest = useRef({ messages, draft });
   latest.current = { messages, draft };
@@ -92,8 +114,10 @@ export function Builder({ templates, workflowMode, onBack }: {
   const append = (message: Omit<Message, "id">) => setMessages((all) => [...all, { ...message, id: id() }]);
 
   useEffect(() => {
-    if (messages.length || spoken.length) end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, spoken, thinking]);
+    if (messages.length || spoken.length || published) {
+      end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+  }, [messages, spoken, thinking, published, check?.state]);
 
   const live = useLiveSession({
     start: async () => {
@@ -115,13 +139,27 @@ export function Builder({ templates, workflowMode, onBack }: {
     onClose: () => setSpoken([]),
   });
   const talking = !["idle", "error"].includes(live.status);
+  const voiceError = live.error;
+
+  useEffect(() => {
+    if (!voiceError) {
+      lastVoiceError.current = "";
+      return;
+    }
+    if (lastVoiceError.current === voiceError) return;
+    lastVoiceError.current = voiceError;
+    const message = /voice is not (?:set up|enabled)/i.test(voiceError)
+      ? "Voice is not enabled yet. Add a Gemini API key to enable it."
+      : voiceError;
+    append({ from: "builder", text: message });
+  }, [voiceError]);
 
   async function send(raw = input.trim(), afterVideo = false) {
     if (!raw || (thinking && !afterVideo)) return;
     const text = afterVideo ? raw : applyAttachments(raw, attachments);
     const history: Message[] = [...messages, { id: id(), from: "you", text }];
     setMessages(history);
-    setInput("");
+    clearInput();
     setThinking("Thinking…");
     setDraft(null);
     setError("");
@@ -280,7 +318,38 @@ export function Builder({ templates, workflowMode, onBack }: {
       const value = await response.json().catch(() => ({}));
       throw new Error(value.error ?? "The red-team tests did not start.");
     }
-    setCheck({ state: "running", done: 0, total: RED_TEAM_CATEGORIES.length });
+    setCheck({
+      state: "running",
+      done: 0,
+      total: RED_TEAM_CATEGORIES.length,
+      current: null,
+      spentUsd: 0,
+      maxUsd: CHECK_MAX_USD,
+      approvals: [],
+    });
+  }
+
+  async function decideTeamApproval(id: string, decision: "approved" | "denied") {
+    setApprovalAction(id);
+    setApprovalError("");
+    try {
+      const response = await fetch(`/api/approvals/${id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision }),
+      });
+      const value = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(value.error ?? "The permission decision was not saved.");
+      setCheck((current) =>
+        current?.state === "running"
+          ? { ...current, approvals: current.approvals.filter((approval) => approval.id !== id) }
+          : current,
+      );
+    } catch (e) {
+      setApprovalError((e as Error).message);
+    } finally {
+      setApprovalAction(null);
+    }
   }
 
   // Follow a running check until it reports.
@@ -289,7 +358,17 @@ export function Builder({ templates, workflowMode, onBack }: {
     const timer = setInterval(async () => {
       const response = await fetch(`/api/agents/${published.id}/redteam`);
       const value = await response.json().catch(() => null);
-      if (value?.state === "running") setCheck({ state: "running", done: value.probesDone, total: value.probesTotal });
+      if (value?.state === "running") {
+        setCheck({
+          state: "running",
+          done: value.probesDone,
+          total: value.probesTotal,
+          current: value.current,
+          spentUsd: value.spentUsd,
+          maxUsd: value.maxUsd,
+          approvals: value.approvals ?? [],
+        });
+      }
       if (value?.state === "finished") setCheck({ state: "finished", findings: value.findings });
     }, 2500);
     return () => clearInterval(timer);
@@ -324,10 +403,9 @@ export function Builder({ templates, workflowMode, onBack }: {
     void live.connect();
   }
 
-  const chatting = messages.length > 0 || spoken.length > 0;
+  const chatting = messages.length > 0 || spoken.length > 0 || Boolean(published);
   const latestDraft = [...messages].reverse().find((m) => m.draft)?.id;
   const sphere: VoiceSphereState = talking ? sphereState(live.status) : thinking ? "thinking" : "idle";
-  const voiceError = live.error;
   const tools = (
     <div className="composer-voice-tools">
       <button type="button" className={"glass-pill" + (talking ? " on" : "")} onClick={toggleAstro}>
@@ -474,7 +552,101 @@ export function Builder({ templates, workflowMode, onBack }: {
                 <p className="chat-thinking">{thinking}</p>
               </div>
             )}
-            {(error || voiceError) && <p className="error-text">{error || voiceError}</p>}
+            {check?.state === "running" && (
+              <div className="chat-builder" role="status" aria-live="polite">
+                <span className="chat-avatar" aria-hidden />
+                <div className="builder-security-progress">
+                  <p>Red-team checks are running on <b>{published?.name}</b>. You can keep chatting while they run.</p>
+                  <article className="run-bar">
+                    <div
+                      className="run-bar-track"
+                      role="progressbar"
+                      aria-label={`Red-team checks for ${published?.name}`}
+                      aria-valuemin={0}
+                      aria-valuemax={check.total}
+                      aria-valuenow={check.done}
+                    >
+                      <span className="run-bar-label">
+                        <span className="run-bar-title">
+                          <b>{published?.name}</b>
+                          <small>
+                            {check.done} of {check.total} probes
+                            {check.current && check.current in CATEGORY_LABELS
+                              ? ` · ${CATEGORY_LABELS[check.current as keyof typeof CATEGORY_LABELS]}`
+                              : check.current ? ` · ${check.current}` : ""}
+                          </small>
+                        </span>
+                        <span className="run-bar-meta">${check.spentUsd.toFixed(2)} of ${check.maxUsd.toFixed(2)}</span>
+                      </span>
+                      <span
+                        className="run-bar-fill"
+                        style={{ width: `${Math.max(4, Math.round((check.done / Math.max(check.total, 1)) * 100))}%` }}
+                        aria-hidden="true"
+                      >
+                        <span className="run-bar-label">
+                          <span className="run-bar-title">
+                            <b>{published?.name}</b>
+                            <small>{check.done} of {check.total} probes</small>
+                          </span>
+                          <span className="run-bar-meta">${check.spentUsd.toFixed(2)} of ${check.maxUsd.toFixed(2)}</span>
+                        </span>
+                      </span>
+                    </div>
+                  </article>
+                </div>
+              </div>
+            )}
+            {check?.state === "finished" && published && (
+              <div className="chat-builder">
+                <span className="chat-avatar" aria-hidden />
+                <div>
+                  <p>
+                    {check.findings === 0
+                      ? `${published.name} passed its red-team checks.`
+                      : `The red team found ${check.findings} ${check.findings === 1 ? "problem" : "problems"} in ${published.name}.`}
+                  </p>
+                  <p className="builder-check-links">
+                    {check.findings > 0 && <Link href="/security">Review security findings</Link>}
+                    {check.findings > 0 && " · "}
+                    <Link href={`/agents/${published.id}`}>Open agent</Link>
+                  </p>
+                </div>
+              </div>
+            )}
+            {check?.state === "running" && check.approvals.map((approval) => (
+              <div key={approval.id} className="chat-builder">
+                <span className="chat-avatar" aria-hidden />
+                <div className="builder-team-approval">
+                  <b>Permission request from {approval.agentName ?? "the test team"}</b>
+                  <p>{approval.reason}</p>
+                  <p className="builder-approval-detail">
+                    <code>{approval.resource}</code>
+                    {approval.scopes.length ? ` · ${approval.scopes.join(", ")}` : ""}
+                    {` · ${approval.risk} risk`}
+                  </p>
+                  <div className="builder-team-approval-actions">
+                    <button
+                      type="button"
+                      className="btn primary small"
+                      disabled={approvalAction !== null}
+                      onClick={() => void decideTeamApproval(approval.id, "approved")}
+                    >
+                      {approvalAction === approval.id ? "Saving…" : "Approve"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn small"
+                      disabled={approvalAction !== null}
+                      onClick={() => void decideTeamApproval(approval.id, "denied")}
+                    >
+                      Deny
+                    </button>
+                  </div>
+                  {approvalError && <p className="error-text">{approvalError}</p>}
+                </div>
+              </div>
+            ))}
+            {error && <p className="error-text">{error}</p>}
             <div ref={end} className="chat-end" />
           </div>
           <div className="composer-dock">
@@ -521,7 +693,7 @@ export function Builder({ templates, workflowMode, onBack }: {
           />
           {tools}
           {thinking && <p className="chat-thinking composer-status">{thinking}</p>}
-          {(error || voiceError) && <p className="error-text" style={{ marginTop: 12 }}>{error || voiceError}</p>}
+          {error && <p className="error-text" style={{ marginTop: 12 }}>{error}</p>}
           <div className="composer-templates">
             {templates.slice(0, 6).map((t) => (
               <button key={t.id} className="composer-card" onClick={() => setInput(t.description)}>
@@ -539,66 +711,33 @@ export function Builder({ templates, workflowMode, onBack }: {
         </>
       )}
 
-      {published && (
+      {published && !check && (
         <div className="dialog-backdrop">
           <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="redteam-title">
-            {check?.state === "running" ? (
-              <>
-                <div className="toolbar">
-                  <h2 id="redteam-title">Testing {published.name}</h2>
-                </div>
-                <p className="redteam-copy">
-                  <LoaderCircle size={15} className="animate-spin" aria-hidden /> Red-team test {Math.min(check.done + 1, check.total)} of {check.total}
-                </p>
-              </>
-            ) : check?.state === "finished" ? (
-              <>
-                <div className="toolbar">
-                  <h2 id="redteam-title">
-                    {check.findings === 0
-                      ? `${published.name} passed its red-team tests`
-                      : `The red team found ${check.findings} ${check.findings === 1 ? "problem" : "problems"}`}
-                  </h2>
-                </div>
-                <div className="dialog-actions">
-                  {check.findings > 0 ? (
-                    <Link href="/security" className="btn">See what failed</Link>
-                  ) : (
-                    <a href={`/voice/${published.id}`} target="_blank" rel="noopener" className="btn">
-                      Open voice line <ArrowUpRight size={14} aria-hidden />
-                    </a>
-                  )}
-                  <Link href={`/agents/${published.id}`} className="btn primary">Open agent</Link>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="toolbar">
-                  <h2 id="redteam-title">Run red-team tests on {published.name}?</h2>
-                </div>
-                <p className="redteam-copy">
-                  The red team sends {published.name} {RED_TEAM_CATEGORIES.length} labeled test attacks, such
-                  as hidden instructions and fake credentials, and records any that work so you can fix them.
-                </p>
-                <div className="redteam-warning" role="note">
-                  <ShieldCheck size={18} aria-hidden />
-                  <p>
-                    This uses tokens, up to about ${CHECK_MAX_USD.toFixed(2)}, but it improves the agent&apos;s safety
-                    significantly.
-                  </p>
-                </div>
-                {error && <p className="error-text">{error}</p>}
-                <div className="dialog-actions">
-                  <button type="button" className="btn" disabled={busy} onClick={() => void finish(false)}>
-                    No
-                  </button>
-                  <button type="button" className="btn primary" disabled={busy} onClick={() => void finish(true)}>
-                    {busy && <LoaderCircle size={15} className="animate-spin" aria-hidden />}
-                    Yes, run tests
-                  </button>
-                </div>
-              </>
-            )}
+            <div className="toolbar">
+              <h2 id="redteam-title">Run red-team tests on {published.name}?</h2>
+            </div>
+            <p className="redteam-copy">
+              The red team sends {published.name} {RED_TEAM_CATEGORIES.length} labeled test attacks, such
+              as hidden instructions and fake credentials, and records any that work so you can fix them.
+            </p>
+            <div className="redteam-warning" role="note">
+              <ShieldCheck size={18} aria-hidden />
+              <p>
+                This uses tokens, up to about ${CHECK_MAX_USD.toFixed(2)}, but it improves the agent&apos;s safety
+                significantly.
+              </p>
+            </div>
+            {error && <p className="error-text">{error}</p>}
+            <div className="dialog-actions">
+              <button type="button" className="btn" disabled={busy} onClick={() => void finish(false)}>
+                No
+              </button>
+              <button type="button" className="btn primary" disabled={busy} onClick={() => void finish(true)}>
+                {busy && <LoaderCircle size={15} className="animate-spin" aria-hidden />}
+                Yes, run tests
+              </button>
+            </div>
           </div>
         </div>
       )}

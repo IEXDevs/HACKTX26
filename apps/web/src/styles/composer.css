@@ -534,17 +534,23 @@ button.glass-pill:hover:not(:disabled) {
 .composer.chatting {
   display: flex;
   flex-direction: column;
-  min-height: calc(100dvh - 84px);
-  padding-bottom: 20px;
+  height: calc(100dvh - 100px);
+  min-height: 320px;
+  overflow: hidden;
 }
 .chat {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 18px;
   width: 100%;
   max-width: none;
-  margin: 24px 0;
+  margin: 24px 0 12px;
+  padding: 0 4px 16px 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 .chat p {
   margin: 0;
@@ -712,13 +718,55 @@ button.glass-pill:hover:not(:disabled) {
   border: 1px dashed var(--green);
 }
 .composer-dock {
-  position: sticky;
-  bottom: 16px;
+  position: relative;
+  flex: 0 0 auto;
   width: 100%;
   max-width: none;
   margin: 0;
   display: grid;
   gap: 8px;
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+}
+.builder-security-progress {
+  width: min(100%, 620px);
+}
+.builder-security-progress > p {
+  margin-bottom: 12px;
+}
+.builder-security-progress .run-bar-track {
+  height: 62px;
+}
+.builder-security-progress .run-bar-label {
+  gap: 10px;
+  padding-inline: 14px;
+}
+.builder-security-progress .run-bar-title b {
+  font-size: 14px;
+}
+.builder-security-progress .run-bar-title small,
+.builder-security-progress .run-bar-meta {
+  font-size: 12px;
+}
+.builder-check-links {
+  margin-top: 10px !important;
+  font-size: 13px !important;
+}
+.builder-team-approval {
+  width: min(100%, 620px);
+}
+.builder-team-approval > b {
+  font-size: 14px;
+}
+.builder-team-approval .builder-approval-detail {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.builder-team-approval-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
 }
 .chat-end {
   scroll-margin-bottom: 140px;

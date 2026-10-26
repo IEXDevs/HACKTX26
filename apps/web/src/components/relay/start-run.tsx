@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { LoaderCircle, Play, X } from "@/components/icons";
 import { applyAttachments, type ComposerAttachment } from "@/lib/composer-attachments";
+import { useTabDraft } from "@/lib/use-tab-draft";
 import { ComposerAttach, ComposerChips } from "./composer-attach";
 
 export interface RunnableAgent {
@@ -32,7 +33,7 @@ export function StartRun({
   const firstId = initialAgentId ?? ready[0]?.id ?? "";
   const [open, setOpen] = useState(false),
     [agentId, setAgentId] = useState(firstId),
-    [goal, setGoal] = useState(goalFor(firstId)),
+    [goal, setGoal, clearGoal] = useTabDraft("astronom.start-run-goal", goalFor(firstId)),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
@@ -50,7 +51,7 @@ export function StartRun({
       const value = await response.json();
       if (!response.ok) throw new Error(value.error ?? "The run could not start.");
       setOpen(false);
-      setGoal(goalFor(agentId));
+      clearGoal(goalFor(agentId));
       router.push(`/workflows/${agentId}`);
       router.refresh();
     } catch (e) {

@@ -324,6 +324,10 @@ async function executeRunOnce(runId: string): Promise<void> {
   }
 }
 
+function stepLimitFor(agent: AgentRow): number {
+  return Math.max(agent.maxSteps, env.defaults.maxStepsPerAgent);
+}
+
 class RunEngine {
   readonly #ledger: BudgetLedger;
   readonly #runKey: string;
@@ -710,7 +714,10 @@ class RunEngine {
       agent.id,
     );
 
-    for (let step = restored?.nextStep ?? 0; step < agent.maxSteps; step++) {
+    // Keep a generous iteration floor so existing agents are not cut off by
+    // the older per-agent defaults. The run dollar ceiling remains the hard stop.
+    const stepLimit = stepLimitFor(agent);
+    for (let step = restored?.nextStep ?? 0; step < stepLimit; step++) {
       if (this.#isCancelled()) {
         this.#status = "cancelled";
         return { status: "failed", summary: "Stopped by the operator." };
@@ -812,7 +819,7 @@ class RunEngine {
       let usage: { inputTokens: number; outputTokens: number } | null = null;
       const calls: Array<{ id: string; name: string; args: Record<string, unknown> }> = [];
       // Reserve the last step for findings instead of ending on a tool's progress message.
-      const reportOnly = agent.maxSteps > 1 && step === agent.maxSteps - 1;
+      const reportOnly = stepLimit > 1 && step === stepLimit - 1;
       if (reportOnly) messages.push({ role: "system", content: LAST_TURN_GUIDANCE });
 
       for await (const chunk of gateway.complete({
@@ -921,7 +928,7 @@ class RunEngine {
       if (calls.length === 0) {
         if (text.trim()) {
           if (cutOff) {
-            if (!reportRetry && step < agent.maxSteps - 1) {
+            if (!reportRetry && step < stepLimit - 1) {
               reportRetry = true;
               messages.push({ role: "assistant", content: text.trim() }, { role: "system", content: REPORT_RETRY_GUIDANCE });
               continue;
@@ -929,13 +936,13 @@ class RunEngine {
             return { status: "failed", summary: `${text.trim()}\n\n---\n\n**Incomplete report:** The model reached its output limit. The ending is missing; completion is unverified.` };
           }
           if (depth === 0 && agent.id === this.run.agentId) {
-            const decision = await this.#reviewMotivator(agent, "finish", text.trim(), messages, agent.maxSteps - step - 1);
-            if (decision.verdict === "continue" && step < agent.maxSteps - 1 && !this.#isHalted() && !this.#isCancelled()) {
+            const decision = await this.#reviewMotivator(agent, "finish", text.trim(), messages, stepLimit - step - 1);
+            if (decision.verdict === "continue" && step < stepLimit - 1 && !this.#isHalted() && !this.#isCancelled()) {
               messages.push({ role: "assistant", content: text.trim() }, { role: "system", content: motivatorFeedback(decision) });
               reportRetry = false;
               continue;
             }
-            if (decision.verdict === "ask_user" && step < agent.maxSteps - 1 && !this.#isHalted() && !this.#isCancelled()) {
+            if (decision.verdict === "ask_user" && step < stepLimit - 1 && !this.#isHalted() && !this.#isCancelled()) {
               const call = { id: newId("call"), name: "user.ask", args: { question: decision.question!, reason: decision.reason } };
               this.#motivator!.approvedQuestions.push(call.id);
               messages.push({ role: "assistant", content: text.trim(), toolCalls: [call] });
@@ -944,12 +951,12 @@ class RunEngine {
               await this.#executeCalls(agent, sandbox, depth, frame);
             }
             if (decision.verdict !== "complete") {
-              return { status: "failed", summary: `${text.trim()}\n\n## Motivator review\n${decision.reason}\n${decision.nextSteps.length ? `\nRemaining options:\n${decision.nextSteps.map((action) => `- ${action}`).join("\n")}` : ""}${step === agent.maxSteps - 1 && decision.verdict !== "blocked" ? "\nThe step limit prevents further work on this run." : ""}` };
+              return { status: "failed", summary: `${text.trim()}\n\n## Motivator review\n${decision.reason}\n${decision.nextSteps.length ? `\nRemaining options:\n${decision.nextSteps.map((action) => `- ${action}`).join("\n")}` : ""}${step === stepLimit - 1 && decision.verdict !== "blocked" ? "\nThe step limit prevents further work on this run." : ""}` };
             }
           }
           return { status: "succeeded", summary: text.trim() };
         }
-        if (++emptyTurns < 2 && step < agent.maxSteps - 1) {
+        if (++emptyTurns < 2 && step < stepLimit - 1) {
           messages.push({ role: "system", content: EMPTY_RESPONSE_GUIDANCE });
           continue;
         }
@@ -980,7 +987,7 @@ class RunEngine {
 
     return {
       status: "failed",
-      summary: "# Findings\n\n## Outcome\nThe agent reached its step limit before returning a final report.\n\n## Findings\n" +
+      summary: `# Findings\n\n## Outcome\nThe agent reached its ${stepLimit}-step limit before returning a final report.\n\n## Findings\n` +
         (lastText ? `Last progress message (completion is unverified):\n\n${lastText}` : "No findings were returned.") +
         "\n\n## Verification\nThe goal was not verified as complete.\n\n## Remaining work\nReview the tool results and resume the unfinished work.",
     };
@@ -1121,7 +1128,7 @@ class RunEngine {
     const report = MotivatorReportSchema.safeParse(call.args);
     if (!report.success) return { ok: false, preview: "", error: "motivator.report requires an exact blocker and at least one concrete attempt. Include the evidence and remaining options." };
     const frame = this.#frames.get(this.#frameKey(agent.id, taskId));
-    const decision = await this.#reviewMotivator(agent, "stuck", JSON.stringify(report.data), frame?.messages ?? [], Math.max(0, agent.maxSteps - (frame?.nextStep ?? 0)));
+    const decision = await this.#reviewMotivator(agent, "stuck", JSON.stringify(report.data), frame?.messages ?? [], Math.max(0, stepLimitFor(agent) - (frame?.nextStep ?? 0)));
     if (decision.verdict === "ask_user" && !this.#isHalted() && !this.#isCancelled()) {
       this.#motivator!.approvedQuestions.push(call.id);
       return this.#askUser(agent, taskId, { id: call.id, args: { question: decision.question!, reason: decision.reason } });
@@ -1152,7 +1159,7 @@ class RunEngine {
     if (!request) {
       if (agent.id === this.run.agentId && this.#motivator && !this.#motivator.approvedQuestions.includes(call.id)) {
         const frame = this.#frames.get(this.#frameKey(agent.id, taskId));
-        const decision = await this.#reviewMotivator(agent, "ask_user", `${parsed.data.question}\n${parsed.data.reason}`, frame?.messages ?? [], Math.max(0, agent.maxSteps - (frame?.nextStep ?? 0)));
+        const decision = await this.#reviewMotivator(agent, "ask_user", `${parsed.data.question}\n${parsed.data.reason}`, frame?.messages ?? [], Math.max(0, stepLimitFor(agent) - (frame?.nextStep ?? 0)));
         if (decision.verdict !== "ask_user" || this.#isHalted() || this.#isCancelled()) {
           return { ok: false, preview: motivatorFeedback(decision), error: decision.verdict === "continue" ? "The motivator found useful options before asking the user. Try the listed permitted actions." : "The motivator did not confirm a need for user input. Return an honest Markdown report if no useful work remains." };
         }
@@ -1324,7 +1331,7 @@ class RunEngine {
         if (policy.approvalMode === "motivator") {
           const frame = this.#frames.get(this.#frameKey(agent.id, taskId));
           review = await this.#reviewMotivator(agent, "permission", `Permission required for ${call.name}: ${decision.reason}`, frame?.messages ?? [],
-            Math.max(0, agent.maxSteps - (frame?.nextStep ?? 0)), {
+            Math.max(0, stepLimitFor(agent) - (frame?.nextStep ?? 0)), {
               agentId: agent.id, agentName: agent.name, callId: call.id, tool: call.name,
               args: JSON.parse(redactSecrets(JSON.stringify(call.args))), scopes, risk, policyReason: decision.reason,
             });

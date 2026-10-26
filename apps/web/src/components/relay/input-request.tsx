@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useTabDraft } from "@/lib/use-tab-draft";
 
 export interface InputRequestData {
   id: string; runId: string; workflow: string; ask: string; preview: string; waiting: string;
@@ -10,7 +11,7 @@ export interface InputRequestData {
 
 export function InputRequest({ request }: { request: InputRequestData }) {
   const router = useRouter();
-  const [answer, setAnswer] = useState("");
+  const [answer, setAnswer, clearAnswer] = useTabDraft(`astronom.input-request.${request.id}`);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function submit() {
@@ -21,6 +22,7 @@ export function InputRequest({ request }: { request: InputRequestData }) {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answer: answer.trim() }),
       });
       if (!response.ok) throw new Error((await response.json()).error ?? "The answer could not be sent.");
+      clearAnswer();
       router.refresh();
     } catch (cause) { setError((cause as Error).message); setBusy(false); }
   }

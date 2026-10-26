@@ -11,6 +11,7 @@ import type { GraphSnapshot } from "@/lib/graph-data";
 import type { WorkflowView } from "@/lib/views";
 import { canArchiveAgent } from "@/lib/required-agents";
 import { WorkspaceContextPanel } from "./workspace-context";
+import { useTabDraft } from "@/lib/use-tab-draft";
 
 /**
  * One workflow page. The map stays on screen while a run is live so the team
@@ -31,7 +32,7 @@ export function Workflow({
   run: ReactNode;
 }) {
   const router = useRouter();
-  const [task, setTask] = useState(workflow.task || ""),
+  const [task, setTask, clearTask] = useTabDraft(`astronom.workflow-task.${workflow.id}`, workflow.task || ""),
     [runningGoal, setRunningGoal] = useState(""),
     [startedRunId, setStartedRunId] = useState<string | null>(null),
     [busy, setBusy] = useState(false),
@@ -79,7 +80,7 @@ export function Workflow({
     if (!response.ok) throw new Error(value.error ?? "The run could not start.");
     setStartedRunId(value.runId);
     setRunningGoal(goal);
-    setTask("");
+    clearTask();
     router.refresh();
   }
   async function stop() {

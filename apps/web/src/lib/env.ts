@@ -49,7 +49,7 @@ export const env = {
 
   defaults: {
     runBudgetUsd: num(process.env.RUN_BUDGET_USD, 2.5),
-    maxStepsPerAgent: num(process.env.MAX_STEPS_PER_AGENT, 12),
+    maxStepsPerAgent: num(process.env.MAX_STEPS_PER_AGENT, 32),
     maxConcurrentSubagents: num(process.env.MAX_CONCURRENT_SUBAGENTS, 4),
     hardStopBudgets: bool(process.env.HARD_STOP_BUDGETS, true),
   },

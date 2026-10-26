@@ -22,9 +22,11 @@ add_secret CREDENTIAL_ENCRYPTION_KEY astronom-credential-encryption-key
 add_secret NEXT_PUBLIC_SUPABASE_URL astronom-supabase-url
 add_secret NEXT_PUBLIC_SUPABASE_ANON_KEY astronom-supabase-anon-key
 add_secret SUPABASE_SERVICE_ROLE_KEY astronom-supabase-service-role-key
-add_secret /run/docker/ca.pem astronom-docker-ca
-add_secret /run/docker/cert.pem astronom-docker-cert
-add_secret /run/docker/key.pem astronom-docker-key
+# Cloud Run gives each secret its own mount directory. The image links them
+# into Docker's conventional certificate directory without copying key values.
+add_secret /run/docker-ca/ca.pem astronom-docker-ca
+add_secret /run/docker-cert/cert.pem astronom-docker-cert
+add_secret /run/docker-key/key.pem astronom-docker-key
 
 # These keys are optional. The local Meta key is deliberately excluded.
 for pair in GEMINI_API_KEY:gemini COMPOSIO_API_KEY:composio SERPAPI_API_KEY:serpapi ANTHROPIC_API_KEY:anthropic; do

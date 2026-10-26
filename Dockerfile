@@ -24,7 +24,11 @@ COPY --from=builder --chown=node:node /app/apps/web/.next/standalone ./
 COPY --from=builder --chown=node:node /app/apps/web/.next/static ./apps/web/.next/static
 COPY --from=docker:28-cli /usr/local/bin/docker /usr/local/bin/docker
 RUN mkdir -p /app/.runtime/workspaces /app/apps/web/.data \
-  && chown -R node:node /app/.runtime /app/apps/web/.data
+  && chown -R node:node /app/.runtime /app/apps/web/.data \
+  && mkdir -p /run/docker \
+  && ln -s /run/docker-ca/ca.pem /run/docker/ca.pem \
+  && ln -s /run/docker-cert/cert.pem /run/docker/cert.pem \
+  && ln -s /run/docker-key/key.pem /run/docker/key.pem
 USER node
 WORKDIR /app/apps/web
 EXPOSE 3000

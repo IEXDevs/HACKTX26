@@ -93,9 +93,12 @@ with the previous release.
 | `astronom-supabase-url` | `NEXT_PUBLIC_SUPABASE_URL` |
 | `astronom-supabase-anon-key` | `NEXT_PUBLIC_SUPABASE_ANON_KEY` |
 | `astronom-supabase-service-role-key` | `SUPABASE_SERVICE_ROLE_KEY` |
-| `astronom-docker-ca` | `/run/docker/ca.pem` |
-| `astronom-docker-cert` | `/run/docker/cert.pem` |
-| `astronom-docker-key` | `/run/docker/key.pem` |
+| `astronom-docker-ca` | `/run/docker-ca/ca.pem` |
+| `astronom-docker-cert` | `/run/docker-cert/cert.pem` |
+| `astronom-docker-key` | `/run/docker-key/key.pem` |
+
+Each secret uses its own mount directory. The image provides fixed symlinks
+under `/run/docker`, which is the Docker client's certificate directory.
 
 The deploy script resolves and pins enabled secret versions for each revision.
 Optional Gemini, Composio, SerpAPI, and Anthropic keys can use the matching

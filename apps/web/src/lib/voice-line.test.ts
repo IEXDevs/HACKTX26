@@ -8,6 +8,7 @@ import { listRuns } from "@/lib/queries";
 import { liveRuns } from "@/lib/runtime/reaper";
 import {
   CREATE_EVENT,
+  describeFreeSlots,
   FIND_FREE_SLOTS,
   endVoiceCall,
   executeVoiceAction,
@@ -111,7 +112,8 @@ describe("voice line apps and session", () => {
     const find = translateVoiceCall("find_open_times", { date: "2026-10-27", duration_minutes: 30 }, TZ, "R");
     expect(find).toMatchObject({
       action: FIND_FREE_SLOTS,
-      arguments: { time_min: "2026-10-27T00:00:00", time_max: "2026-10-28T00:00:00", timezone: TZ, items: ["primary"] },
+      // Midnight in Chicago (CDT, UTC-5) as exact instants; Google reads offset-less times as UTC.
+      arguments: { time_min: "2026-10-27T05:00:00.000Z", time_max: "2026-10-28T05:00:00.000Z", timezone: TZ, items: ["primary"] },
     });
     const book = translateVoiceCall(
       "book_appointment",
@@ -169,7 +171,8 @@ describe("voice line permissions", () => {
     );
     expect(outcome).toMatchObject({ ok: true });
     if (outcome.ok) expect(outcome.result).toContain("Tuesday, October 27");
-    expect(calls[0]?.action).toBe(CREATE_EVENT);
+    // The calendar is checked for a clash, then the event is created.
+    expect(calls.map((c) => c.action)).toEqual([FIND_FREE_SLOTS, CREATE_EVENT]);
     const audits = await getDb()
       .select()
       .from(auditLog)
@@ -290,5 +293,75 @@ describe("voice call lifecycle", () => {
     const before = (await eventsOf(runId)).length;
     await endVoiceCall(runId, [{ role: "caller", text: "bye" }]);
     expect((await eventsOf(runId)).length).toBe(before);
+  });
+});
+
+describe("voice line double-booking", () => {
+  beforeEach(freshDb);
+
+  // What Composio returned on a real call: Monday 10:00–11:30 taken.
+  const monday = JSON.stringify({
+    response_data: {
+      calendars: {
+        primary: {
+          busy: [{ start: "2026-10-26T10:00:00-05:00", end: "2026-10-26T11:30:00-05:00" }],
+          free: [
+            { start: "2026-10-26T05:00:00Z", end: "2026-10-26T10:00:00-05:00" },
+            { start: "2026-10-26T11:30:00-05:00", end: "2026-10-27T05:00:00Z" },
+          ],
+        },
+      },
+    },
+  });
+
+  it("lists exact start times and what is taken, never a start inside a busy block", () => {
+    const text = describeFreeSlots(monday, 30, TZ);
+    expect(text).toContain("9:30 AM");
+    expect(text).toContain("11:30 AM");
+    expect(text).not.toMatch(/: [^\n]*\b10:00 AM/);
+    expect(text).toContain("Already taken:");
+    expect(text).toContain("10:00 AM to 11:30 AM");
+  });
+
+  it("refuses a booking that overlaps an existing event, without creating it", async () => {
+    const agent = await insertAgent();
+    const runId = await openCall(agent, true);
+    const { calls, deps } = fakeComposio(monday);
+    const outcome = await executeVoiceAction(
+      {
+        runId,
+        agent,
+        operatorUserId: "local:usr_test",
+        name: "book_appointment",
+        args: { start: "2026-10-26T10:00", customer_name: "David", phone: "737-555-0100", reason: "Service" },
+        allowBooking: true,
+      },
+      deps,
+    );
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.error).toContain("already taken");
+      expect(outcome.error).toContain("11:30 AM");
+    }
+    expect(calls.map((c) => c.action)).toEqual([FIND_FREE_SLOTS]);
+  });
+
+  it("books a free time on the same busy day", async () => {
+    const agent = await insertAgent();
+    const runId = await openCall(agent, true);
+    const { calls, deps } = fakeComposio(monday);
+    const outcome = await executeVoiceAction(
+      {
+        runId,
+        agent,
+        operatorUserId: "local:usr_test",
+        name: "book_appointment",
+        args: { start: "2026-10-26T11:30", customer_name: "David", phone: "737-555-0100", reason: "Service" },
+        allowBooking: true,
+      },
+      deps,
+    );
+    expect(outcome.ok).toBe(true);
+    expect(calls.map((c) => c.action)).toEqual([FIND_FREE_SLOTS, CREATE_EVENT]);
   });
 });

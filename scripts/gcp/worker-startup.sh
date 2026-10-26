@@ -27,7 +27,9 @@ cat > /etc/nfs.conf.d/astronom.conf <<'EOF'
 [mountd]
 port=20048
 EOF
-printf '/srv/astronom/workspaces 10.42.0.0/26(rw,sync,no_subtree_check,root_squash)\n' > /etc/exports.d/astronom.exports
+# Cloud Run checks the mount as root before starting the unprivileged app.
+# Squash that identity to the app UID, never to root or an inaccessible nobody.
+printf '/srv/astronom/workspaces 10.42.0.0/26(rw,sync,no_subtree_check,root_squash,anonuid=1000,anongid=1000)\n' > /etc/exports.d/astronom.exports
 exportfs -ra
 systemctl enable --now nfs-server
 

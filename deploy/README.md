@@ -69,8 +69,9 @@ at cutover, as confirmed by the operator.
    or a Meta key in that copy.
 5. Disable the existing Astronom Cloud Build auto-deploy trigger
    `aa505d2e-3adc-4930-9566-75c914afdd89` after checking its source settings. This
-   prevents it from bypassing CI or racing the new job. Leave the other service
-   `hacktx26` unchanged.
+   prevents it from bypassing CI or racing the new job. The duplicate `hacktx26`
+   trigger `1df21322-1c5c-4f08-9b14-651aa5730641` is also disabled with operator
+   approval. Its service is pinned to the prior revision `hacktx26-00029-gk5`.
 6. Merge the prepared code only after the runtime dependencies are ready. Set
    the **repository** Actions variable `GCP_DEPLOY_ENABLED` to `true`. Keep
    `SUPABASE_SERVICE_ROLE_KEY` in the GitHub `main` environment. Run the main

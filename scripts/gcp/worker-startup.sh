@@ -22,6 +22,7 @@ install -d -o 1000 -g 1000 -m 0750 /srv/astronom/workspaces
 install -d -m 0700 /srv/astronom/tls /srv/astronom/docker
 
 # Fixed NFS v3 ports, plus v4. Only the private Cloud Run subnet may reach them.
+mkdir -p /etc/exports.d /etc/nfs.conf.d
 cat > /etc/nfs.conf.d/astronom.conf <<'EOF'
 [mountd]
 port=20048

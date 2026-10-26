@@ -25,7 +25,7 @@ async function create(body: Record<string, unknown>) {
 describe("workflow creation modes", () => {
   beforeEach(() => {
     vi.mocked(createAgentGraph).mockReset().mockResolvedValue({
-      ok: true, orchestratorId: "lead", agentIds: ["lead"], warnings: [],
+      ok: true, orchestratorId: "lead", agentIds: ["lead"], warnings: [], issues: [],
     });
   });
 

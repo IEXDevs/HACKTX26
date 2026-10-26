@@ -11,6 +11,7 @@ import {
   type TaskComplexity,
 } from "@agent-os/core";
 import type { AgentRow } from "./db/schema";
+import { descendantsOf } from "./agent-tree";
 import { motivatorPreview } from "./graph-motivator";
 import { foldRunHistory, type HistoryItem } from "./views";
 import {
@@ -86,15 +87,7 @@ export interface GraphSnapshot {
 }
 
 function teamIds(all: AgentRow[], rootId: string): Set<string> {
-  const ids = new Set<string>([rootId]);
-  const walk = (id: string) => {
-    for (const child of all.filter((a) => a.parentAgentId === id)) {
-      ids.add(child.id);
-      walk(child.id);
-    }
-  };
-  walk(rootId);
-  return ids;
+  return new Set([rootId, ...descendantsOf(all, rootId).map((agent) => agent.id)]);
 }
 
 const FALLBACK_MODEL = "muse-spark-1.3";

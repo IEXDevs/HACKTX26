@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -111,7 +111,10 @@ export function Builder({ templates, workflowMode, onBack }: {
   const linkedApps = useRef<Map<string, string> | null>(null);
 
   const id = () => `m${nextId.current++}`;
-  const append = (message: Omit<Message, "id">) => setMessages((all) => [...all, { ...message, id: id() }]);
+  const append = useCallback((message: Omit<Message, "id">) => {
+    const messageId = `m${nextId.current++}`;
+    setMessages((all) => [...all, { ...message, id: messageId }]);
+  }, []);
 
   useEffect(() => {
     if (messages.length || spoken.length || published) {
@@ -152,7 +155,7 @@ export function Builder({ templates, workflowMode, onBack }: {
       ? "Voice is not enabled yet. Add a Gemini API key to enable it."
       : voiceError;
     append({ from: "builder", text: message });
-  }, [voiceError]);
+  }, [voiceError, append]);
 
   async function send(raw = input.trim(), afterVideo = false) {
     if (!raw || (thinking && !afterVideo)) return;

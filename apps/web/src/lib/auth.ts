@@ -29,7 +29,7 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
   if (error || !data.user || !email) {
     // "Auth session missing!" is the signed-out case, not a failure.
     if (error && !/session missing/i.test(error.message)) {
-      // eslint-disable-next-line no-console
+
       console.warn("[auth] getSessionUser:", error.message);
     }
     return null;
@@ -107,7 +107,7 @@ export function ensureDemoUser(): Promise<void> {
   if (!demoUserPromise) {
     demoUserPromise = provisionDemoUser().catch((error) => {
       demoUserPromise = null;
-      // eslint-disable-next-line no-console
+
       console.warn("[auth] demo user:", error instanceof Error ? error.message : error);
     });
   }

@@ -298,7 +298,7 @@ export function startRedTeamCheck(agentId: string, actor: string, options: Check
   });
   void runRedTeamCheck(agentId, actor, defaults, options).catch((error) => {
     liveStore().delete(agentId);
-    // eslint-disable-next-line no-console
+
     console.error(`[red-team check ${agentId}] stopped`, error);
   });
 }

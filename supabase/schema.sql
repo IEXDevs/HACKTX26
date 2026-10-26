@@ -8,6 +8,11 @@
 
 create extension if not exists pgcrypto;
 
+-- Keep the auth trigger outside the API-exposed public schema. The function
+-- runs as its owner, so callers must not be able to replace it or invoke it.
+create schema if not exists app_private;
+revoke all on schema app_private from public, anon, authenticated, service_role;
+
 create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   email text not null,
@@ -124,11 +129,11 @@ create policy profiles_update_own
   using (auth.uid() = id)
   with check (auth.uid() = id);
 
-create or replace function public.handle_new_user()
+create or replace function app_private.handle_new_user()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 begin
   insert into public.profiles (id, email, full_name, avatar_url)
@@ -149,11 +154,12 @@ begin
   return new;
 end;
 $$;
+revoke all on function app_private.handle_new_user() from public, anon, authenticated, service_role;
 
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
-  for each row execute function public.handle_new_user();
+  for each row execute function app_private.handle_new_user();
 
 -- Connector catalog, per-user Composio links, grants, and CONTEXT.md.
 create table if not exists public.connector_catalog (

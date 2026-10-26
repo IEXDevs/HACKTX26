@@ -131,7 +131,7 @@ export function parseRepoRef(value: string, branch = "main"): GithubWorkingRepo 
       branchName = parts[3];
     }
   }
-  if (!/^[A-Za-z0-9._/\-]+$/.test(branchName)) return null;
+  if (!/^[A-Za-z0-9._/-]+$/.test(branchName)) return null;
   return { repo: `${owner}/${name}`, owner, name, branch: branchName };
 }
 

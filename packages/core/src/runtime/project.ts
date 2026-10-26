@@ -204,8 +204,7 @@ export function applyEvent(
   state: RunProjection,
   event: RunEvent,
 ): RunProjection {
-  // Reducer is copy-on-write at the top level; nested maps are mutated in place
-  // for speed, so callers get a fresh object identity per event.
+  // Copy the collections; the reducer replaces changed entries to preserve earlier state.
   const next: RunProjection = {
     ...state,
     agents: new Map(state.agents),
@@ -234,7 +233,7 @@ function applyEventInPlace(next: RunProjection, event: RunEvent): void {
     case "input.requested": {
       next.status = "awaiting_input";
       const agent = next.agents.get(p.agentId);
-      if (agent) agent.status = "blocked";
+      if (agent) next.agents.set(p.agentId, { ...agent, status: "blocked" });
       break;
     }
     case "input.answered": {

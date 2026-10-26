@@ -230,23 +230,23 @@ async function main() {
   const report = purgeSample(getDb().$client, { apply });
 
   const rows = Object.entries(report.removed).filter(([, count]) => count > 0);
-  // eslint-disable-next-line no-console
+
   console.log(apply ? "[purge] removed:" : "[purge] dry run, would remove:");
   for (const [table, count] of rows) {
-    // eslint-disable-next-line no-console
+
     console.log(`  ${table.padEnd(20)} ${count}`);
   }
-  // eslint-disable-next-line no-console
+
   if (report.reparented > 0) {
-    // eslint-disable-next-line no-console
+
     console.log(`[purge] ${report.reparented} team lead(s) lose their sample parent and stand alone`);
   }
-  // eslint-disable-next-line no-console
+
   console.log(
     `[purge] runs: ${report.runs.total} (${report.runs.replay} sample replays, ${report.runs.live} live runs that cost $${report.runs.liveCostUsd.toFixed(2)})`,
   );
   if (!apply) {
-    // eslint-disable-next-line no-console
+
     console.log("[purge] nothing was deleted. Re-run with `-- --apply` after stopping the dev server.");
   }
 }
@@ -260,7 +260,7 @@ if (isDirectRun) {
   main()
     .then(() => process.exit(0))
     .catch((error) => {
-      // eslint-disable-next-line no-console
+
       console.error(error);
       process.exit(1);
     });

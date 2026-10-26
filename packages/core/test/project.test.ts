@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeMetrics, projectRun } from "../src/runtime/project";
+import { applyEvent, computeMetrics, projectRun } from "../src/runtime/project";
 import { appendEvent, GENESIS_HASH } from "../src/runtime/hash";
 import type { RunEvent, RunEventPayload } from "../src/protocol/events";
 
@@ -129,6 +129,25 @@ describe("run projection", () => {
     expect(partial.status).toBe("awaiting_approval");
     const resumed = projectRun(events.slice(0, 7));
     expect(resumed.status).toBe("running");
+  });
+
+  it("preserves the earlier agent state when pausing for input", () => {
+    const before = projectRun(events.slice(0, 2));
+    const pause = appendEvent("run_1", 2, "2026-10-24T12:00:02.000Z", {
+      type: "input.requested",
+      requestId: "question_1",
+      agentId: "root",
+      callId: "ask_1",
+      question: "Which course?",
+      reason: "Two courses match.",
+    }, events[1]!.hash);
+    const after = applyEvent(before, pause);
+
+    expect(before.status).toBe("running");
+    expect(before.agents.get("root")?.status).toBe("idle");
+    expect(after.status).toBe("awaiting_input");
+    expect(after.agents.get("root")?.status).toBe("blocked");
+    expect(after).toEqual(projectRun([...events.slice(0, 2), pause]));
   });
 
   it("is order-independent for the final status flag", () => {

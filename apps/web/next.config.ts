@@ -8,6 +8,11 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["better-sqlite3", "@composio/core"],
   // @agent-os/core ships TypeScript source, not a build artifact.
   transpilePackages: ["@agent-os/core"],
+  output: "standalone",
+  outputFileTracingIncludes: { "/*": ["./src/lib/db/migrations/**/*"] },
+  outputFileTracingExcludes: {
+    "/*": ["./.data/**/*", "../../.runtime/**/*", "./.env*"],
+  },
   turbopack: {
     // The monorepo root: the pnpm store and the `next` package both live above
     // `apps/web`. Pointing at `process.cwd()` puts them outside the root and

@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAgentGraph } from "../agent-factory";
 import { getDb } from "../db/client";
-import { agents, inputRequests, runCheckpoints, runEvents, runs, workspaces } from "../db/schema";
+import { agents, runCheckpoints, runEvents, runs, workspaces } from "../db/schema";
 import { env, newId } from "../env";
 import * as connectors from "../connectors";
 import * as githubSync from "../github-sync";

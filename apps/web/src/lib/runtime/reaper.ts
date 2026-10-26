@@ -120,7 +120,7 @@ export function startRunReaper(): void {
   if (g.__agentOsReaper) return;
   const sweep = () =>
     reapStaleRuns().catch((error) => {
-      // eslint-disable-next-line no-console
+
       console.error("[reaper] sweep failed", error);
     });
   void sweep();

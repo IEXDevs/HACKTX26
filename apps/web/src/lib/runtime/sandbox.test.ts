@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AgentSandbox, formatTreeListing, stripSandboxPrefix, visibleSandboxEntry } from "./sandbox";
+import { SandboxViolation } from "@agent-os/core";
 
 const tmpRoots: string[] = [];
 
@@ -30,6 +31,32 @@ describe("stripSandboxPrefix", () => {
 });
 
 describe("sandbox listing", () => {
+  it("rejects traversal and symlinks to files outside the sandbox", () => {
+    const box = sandbox();
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "astronom-outside-"));
+    tmpRoots.push(outside);
+    fs.writeFileSync(path.join(outside, "private.txt"), "outside data");
+    fs.symlinkSync(outside, path.join(box.root, "escape"), process.platform === "win32" ? "junction" : "dir");
+    expect(() => box.read("../private.txt")).toThrow(SandboxViolation);
+    expect(() => box.read("escape/private.txt")).toThrow(SandboxViolation);
+    expect(() => box.write("escape/new/file.txt", "blocked")).toThrow(SandboxViolation);
+    expect(() => box.remove("escape/private.txt")).toThrow(SandboxViolation);
+    expect(fs.readFileSync(path.join(outside, "private.txt"), "utf8")).toBe("outside data");
+    expect(fs.existsSync(path.join(outside, "new"))).toBe(false);
+  });
+
+  it("allows a symlink that stays inside the sandbox", () => {
+    const box = sandbox();
+    box.write("notes/result.txt", "safe");
+    fs.symlinkSync(path.join(box.root, "notes"), path.join(box.root, "linked"), process.platform === "win32" ? "junction" : "dir");
+    expect(box.read("linked/result.txt")).toBe("safe");
+  });
+
+  it("rejects malformed agent ids and deletion of the sandbox root", () => {
+    expect(() => new AgentSandbox(os.tmpdir(), "ws", "../escape")).toThrow(SandboxViolation);
+    expect(() => sandbox().remove(".")).toThrow(SandboxViolation);
+  });
+
   it("starts empty and lists the root as . not the agent id", () => {
     const box = sandbox();
     const tree = box.tree();

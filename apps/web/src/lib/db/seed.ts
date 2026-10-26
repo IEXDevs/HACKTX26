@@ -1281,12 +1281,12 @@ if (isDirectRun) {
   const sample = process.argv.includes("--sample");
   (sample ? seedDatabase() : seedPlatform())
     .then(() => {
-      // eslint-disable-next-line no-console
+
       console.log(sample ? "[seed] sample workspace seeded" : "[seed] platform config seeded");
       process.exit(0);
     })
     .catch((error) => {
-      // eslint-disable-next-line no-console
+
       console.error("[seed] failed", error);
       process.exit(1);
     });

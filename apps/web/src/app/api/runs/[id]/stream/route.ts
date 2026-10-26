@@ -1,15 +1,14 @@
-import { isTerminalStatus, type RunEvent, type RunEventPayload } from "@agent-os/core";
+import { isTerminalStatus, type RunEvent } from "@agent-os/core";
 import { NextRequest } from "next/server";
-import { getRun, getRunEvents } from "@/lib/queries";
+import { getRun, getRunEvents, requireWorkspace } from "@/lib/queries";
 import { runBus } from "@/lib/runtime/emitter";
 
 export const dynamic = "force-dynamic";
 
 const HEARTBEAT_MS = 15_000;
 
-function frame(event: RunEvent, includeId: boolean): string {
-  const id = includeId ? `id: ${event.seq}\n` : "";
-  return `${id}event: run-event\ndata: ${JSON.stringify(event)}\n\n`;
+function frame(event: RunEvent): string {
+  return `id: ${event.seq}\nevent: run-event\ndata: ${JSON.stringify(event)}\n\n`;
 }
 
 /**
@@ -22,16 +21,21 @@ export async function GET(
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params;
-  const sinceRaw = new URL(request.url).searchParams.get("since");
+  // EventSource sends the latest id on reconnect, even when the URL has an older cursor.
+  const sinceRaw = request.headers.get("last-event-id") ?? new URL(request.url).searchParams.get("since");
   const since = sinceRaw === null ? -1 : Number(sinceRaw);
-  if (!Number.isFinite(since) || since < -1) {
+  if (!Number.isSafeInteger(since) || since < -1 || sinceRaw?.trim() === "") {
     return Response.json({ error: "`since` must be an integer >= -1." }, { status: 400 });
   }
 
+  const workspace = await requireWorkspace();
   const run = await getRun(id);
-  if (!run) return Response.json({ error: "Run not found." }, { status: 404 });
+  if (!run || run.workspaceId !== workspace.id) {
+    return Response.json({ error: "Run not found." }, { status: 404 });
+  }
 
   const encoder = new TextEncoder();
+  let cleanup = () => {};
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -40,35 +44,38 @@ export async function GET(
       let buffered = false;
       const backlog: RunEvent[] = [];
 
+      const stop = (error?: unknown) => {
+        if (closed) return;
+        cleanup();
+        try {
+          if (error === undefined) controller.close();
+          else controller.error(error);
+        } catch {
+          // The reader may have already cancelled the stream.
+        }
+      };
+
       const write = (chunk: string) => {
         if (closed) return;
         try {
           controller.enqueue(encoder.encode(chunk));
         } catch {
-          closed = true;
+          stop();
         }
       };
 
       const close = (status: string) => {
         if (closed) return;
         write(`event: end\ndata: ${JSON.stringify({ kind: "end", status })}\n\n`);
-        closed = true;
-        cleanup();
-        try {
-          controller.close();
-        } catch {
-          // already closed by the client
-        }
+        stop();
       };
 
       const deliver = (event: RunEvent) => {
-        if (event.seq <= lastSeq) return;
+        if (closed || event.seq <= lastSeq) return;
         lastSeq = event.seq;
-        write(frame(event, true));
+        write(frame(event));
         if (event.payload.type === "run.completed") {
-          const status = (event.payload as Extract<RunEventPayload, { type: "run.completed" }>)
-            .status;
-          close(status);
+          close(event.payload.status);
         }
       };
 
@@ -84,13 +91,10 @@ export async function GET(
         write(`: keep-alive ${Date.now()}\n\n`);
       }, HEARTBEAT_MS);
 
-      const onAbort = () => {
-        if (closed) return;
-        closed = true;
-        cleanup();
-      };
+      const onAbort = () => stop();
 
-      const cleanup = () => {
+      cleanup = () => {
+        closed = true;
         clearInterval(heartbeat);
         runBus().off(id, listener);
         request.signal.removeEventListener("abort", onAbort);
@@ -98,25 +102,36 @@ export async function GET(
 
       request.signal.addEventListener("abort", onAbort);
       runBus().on(id, listener);
+      if (request.signal.aborted) {
+        stop();
+        return;
+      }
 
       // Subscribe first, replay second: an event written between the two steps
       // lands in `backlog` instead of being lost.
-      const history = await getRunEvents(id, since);
-      for (const event of history) deliver(event);
+      try {
+        const history = await getRunEvents(id, since);
+        for (const event of history) deliver(event);
 
-      buffered = true;
-      for (const event of backlog.sort((a, b) => a.seq - b.seq)) deliver(event);
-      backlog.length = 0;
+        buffered = true;
+        for (const event of backlog.sort((a, b) => a.seq - b.seq)) deliver(event);
+        backlog.length = 0;
 
-      if (!closed) {
-        if (isTerminalStatus(run.status)) {
-          close(run.status);
-        } else {
-          write(
-            `event: ready\ndata: ${JSON.stringify({ lastSeq, status: run.status })}\n\n`,
-          );
+        if (!closed) {
+          if (isTerminalStatus(run.status)) {
+            close(run.status);
+          } else {
+            write(
+              `event: ready\ndata: ${JSON.stringify({ lastSeq, status: run.status })}\n\n`,
+            );
+          }
         }
+      } catch (error) {
+        stop(error);
       }
+    },
+    cancel() {
+      cleanup();
     },
   });
 

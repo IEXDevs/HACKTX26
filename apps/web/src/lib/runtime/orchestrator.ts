@@ -17,20 +17,14 @@ import {
   resolveActionEffects,
   hardwareForComplexity,
   isMetaModelId,
-  nextAgentRank,
   provisionMetaModel,
   resolvePrompt,
-  routeModel,
   type AgentConfig,
-  type AgentRank,
   type AgentRole,
   type DataClass,
-  type ModelPolicy,
-  type PermissionGrant,
   type RunEventPayload,
   type RunStatus,
   type Scope,
-  type TaskComplexity,
 } from "@agent-os/core";
 import { and, eq, gte } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
@@ -75,13 +69,11 @@ import {
   BLUE_TEAM_SPECIALISTS,
   blueTeamSpecialist,
   caseIdFromGoal,
-  DELEGATION_GUIDANCE,
   detectScenario,
   gruntTools,
   redTeamSpecialist,
   RED_TEAM_SPECIALISTS,
   scriptFor,
-  SEVERITY_RUBRIC,
   shouldSpawnAdversarialSwarm,
   wantsDeploy,
   type Scenario,
@@ -90,7 +82,6 @@ import {
 import {
   closedRosterNames,
   delegateAgentName,
-  delegateToolDescription,
   heldToolNames,
   isBlueLead,
   isProbeLead,
@@ -100,12 +91,15 @@ import { insertHelperAgent, reactivateHelper } from "./helper-agents";
 import { AgentLifecycle, type AgentOutcome } from "./lifecycle";
 import { cancelledRuns, HEARTBEAT_MS, liveRuns } from "./reaper";
 import { AgentSandbox } from "./sandbox";
+import { childRank, complexityForTask, delegationGuidance, grantsForSpecialist, pinnedMetaPolicy, specialistRoster, specialistTools } from "./delegation";
+import { routeForAgent } from "./routing";
+import { toolSpecsFor } from "./tool-specs";
 import { fileChildTemplateProposal } from "./template-proposals";
-import { InputPause, QuestionSchema, type AgentContinuation, type RunContinuation } from "./run-input";
+import { InputPause, QuestionSchema, saveRunContinuation, type AgentContinuation, type RunContinuation } from "./run-input";
 import { MotivatorReportSchema, motivatorFeedback, motivatorMessages, reviewWithMotivator, type MotivatorDecision, type MotivatorState, type MotivatorReviewInput } from "./motivator";
 import { executeTool, type ToolContext } from "./tools";
 import { parseContextDirectives, WorkspaceContextFile } from "./workspace-context";
-import type { ModelGateway, ModelMessage, ToolSpec } from "./types";
+import type { ModelGateway, ModelMessage } from "./types";
 
 const MAX_DELEGATION_DEPTH = 3;
 
@@ -232,7 +226,7 @@ export async function createRun(options: RunnerOptions): Promise<string> {
   // and the client follows the event stream. The promise is kept alive by this
   // process, which is the same process that serves the stream.
   void executeRun(runId).catch((error) => {
-    // eslint-disable-next-line no-console
+
     console.error(`[run ${runId}] engine crashed`, error);
   });
 
@@ -322,10 +316,6 @@ async function executeRunOnce(runId: string): Promise<void> {
   } finally {
     clearInterval(timer);
   }
-}
-
-function stepLimitFor(agent: AgentRow): number {
-  return Math.max(agent.maxSteps, env.defaults.maxStepsPerAgent);
 }
 
 class RunEngine {
@@ -474,11 +464,7 @@ class RunEngine {
           connectors: [...this.#runConnectors], budgetWrapUp: [...this.#budgetWrapUp],
         };
         if (this.#motivator) await this.logger.emit({ type: "agent.status", agentId: this.#motivator.id, status: "blocked" }, this.#motivator.id);
-        getDb().transaction((tx) => {
-          tx.insert(runCheckpoints).values({ runId: this.run.id, state, updatedAt: new Date() })
-            .onConflictDoUpdate({ target: runCheckpoints.runId, set: { state, updatedAt: new Date() } }).run();
-          tx.update(runs).set({ status: "awaiting_input", heartbeatAt: new Date() }).where(eq(runs.id, this.run.id)).run();
-        });
+        saveRunContinuation(this.run.id, state);
         return;
       }
       const message = (error as Error).message;
@@ -572,23 +558,7 @@ class RunEngine {
     const config = asAgentConfig(agent);
     const prompt = resolvePrompt(config, this.blocks);
 
-    const route = routeModel({
-      complexity: agent.complexity,
-      dataClass,
-      requiredCapabilities: ["tool_calling"],
-      estimatedInputTokens: Math.max(3_000, Math.ceil(prompt.text.length / 4) + 2_000),
-      estimatedOutputTokens: 900,
-      costSensitivity: agent.modelPolicy.costSensitivity,
-      latencySensitivity: agent.modelPolicy.latencySensitivity,
-      pinnedModelId:
-        agent.modelPolicy.mode === "pinned"
-          ? (agent.modelPolicy.pinnedModelId ?? undefined)
-          : undefined,
-      deniedModelIds: [
-        ...this.workspace.deniedModelIds,
-        ...agent.modelPolicy.deniedModelIds,
-      ],
-    });
+    const route = routeForAgent(agent, dataClass, prompt.text, this.workspace.deniedModelIds);
 
     const model = route.chosenModel;
 
@@ -687,7 +657,7 @@ class RunEngine {
       },
     ];
 
-    const tools = this.#toolSpecs(agent);
+    const tools = toolSpecsFor(agent, this.#connectorsFor(agent), this.run.dataClass, this.run.agentId);
     let lastText = restored?.lastText ?? "";
     let emptyTurns = restored?.emptyTurns ?? 0;
     let reportRetry = restored?.reportRetry ?? false;
@@ -714,9 +684,7 @@ class RunEngine {
       agent.id,
     );
 
-    // Keep a generous iteration floor so existing agents are not cut off by
-    // the older per-agent defaults. The run dollar ceiling remains the hard stop.
-    const stepLimit = stepLimitFor(agent);
+    const stepLimit = agent.maxSteps;
     for (let step = restored?.nextStep ?? 0; step < stepLimit; step++) {
       if (this.#isCancelled()) {
         this.#status = "cancelled";
@@ -993,68 +961,6 @@ class RunEngine {
     };
   }
 
-  #toolSpecs(agent: AgentRow): ToolSpec[] {
-    const names = heldToolNames(agent, this.#connectorsFor(agent), this.run.dataClass);
-    if (agent.id === this.run.agentId) names.add("motivator.report");
-    else names.delete("motivator.report");
-
-    return [...names]
-      .map((name) => TOOL_BY_NAME.get(name) ?? CASE_TOOL_BY_NAME.get(name))
-      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
-      .map((entry) => ({
-        name: entry.name,
-        description:
-          entry.name === "agent.delegate" ? delegateToolDescription(agent) : entry.description,
-        parameters: {
-          type: "object",
-          properties: {
-            path: { type: "string" },
-            content: { type: "string" },
-            command: { type: "string" },
-            url: { type: "string" },
-            query: { type: "string" },
-            question: { type: "string" },
-            reason: { type: "string" },
-            blocker: { type: "string" },
-            attempts: { type: "array", items: { type: "string" } },
-            evidence: { type: "string" },
-            remainingOptions: { type: "array", items: { type: "string" } },
-            credential: { type: "string" },
-            agent: { type: "string" },
-            title: { type: "string" },
-            task: { type: "string" },
-            model: { type: "string" },
-            complexity: { type: "string" },
-            include: { type: "string" },
-            remove: { type: "string" },
-            summary: { type: "string" },
-            scope: { type: "string" },
-            kind: { type: "string" },
-            severity: { type: "string" },
-            category: { type: "string" },
-            detail: { type: "string" },
-            remediation: { type: "string" },
-            case: { type: "string" },
-            note: { type: "string" },
-            instructions: { type: "string" },
-            rule: { type: "string" },
-            reply: { type: "string" },
-            removeTools: { type: "array", items: { type: "string" } },
-            toolkit: { type: "string" },
-            action: { type: "string" },
-            arguments: { type: "object" },
-            connectors: { type: "array", items: { type: "string" } },
-            engine: { type: "string" },
-            num: { type: "number" },
-          },
-          additionalProperties: true,
-          ...(entry.name === "agent.delegate" ? { required: ["agent", "task"] } : entry.name === "user.ask" ? { required: ["question", "reason"] } : entry.name === "motivator.report" ? { required: ["blocker", "attempts"] } : {}),
-        },
-      }));
-  }
-
-  /* ------------------------------------------------------------------- tool */
-
   async #startMotivator(model: string): Promise<void> {
     this.#motivator ??= { id: `mot_${this.run.id}`, model, reviews: [], approvedQuestions: [] };
     this.#motivator.model = model;
@@ -1128,7 +1034,7 @@ class RunEngine {
     const report = MotivatorReportSchema.safeParse(call.args);
     if (!report.success) return { ok: false, preview: "", error: "motivator.report requires an exact blocker and at least one concrete attempt. Include the evidence and remaining options." };
     const frame = this.#frames.get(this.#frameKey(agent.id, taskId));
-    const decision = await this.#reviewMotivator(agent, "stuck", JSON.stringify(report.data), frame?.messages ?? [], Math.max(0, stepLimitFor(agent) - (frame?.nextStep ?? 0)));
+    const decision = await this.#reviewMotivator(agent, "stuck", JSON.stringify(report.data), frame?.messages ?? [], Math.max(0, agent.maxSteps - (frame?.nextStep ?? 0)));
     if (decision.verdict === "ask_user" && !this.#isHalted() && !this.#isCancelled()) {
       this.#motivator!.approvedQuestions.push(call.id);
       return this.#askUser(agent, taskId, { id: call.id, args: { question: decision.question!, reason: decision.reason } });
@@ -1159,7 +1065,7 @@ class RunEngine {
     if (!request) {
       if (agent.id === this.run.agentId && this.#motivator && !this.#motivator.approvedQuestions.includes(call.id)) {
         const frame = this.#frames.get(this.#frameKey(agent.id, taskId));
-        const decision = await this.#reviewMotivator(agent, "ask_user", `${parsed.data.question}\n${parsed.data.reason}`, frame?.messages ?? [], Math.max(0, stepLimitFor(agent) - (frame?.nextStep ?? 0)));
+        const decision = await this.#reviewMotivator(agent, "ask_user", `${parsed.data.question}\n${parsed.data.reason}`, frame?.messages ?? [], Math.max(0, agent.maxSteps - (frame?.nextStep ?? 0)));
         if (decision.verdict !== "ask_user" || this.#isHalted() || this.#isCancelled()) {
           return { ok: false, preview: motivatorFeedback(decision), error: decision.verdict === "continue" ? "The motivator found useful options before asking the user. Try the listed permitted actions." : "The motivator did not confirm a need for user input. Return an honest Markdown report if no useful work remains." };
         }
@@ -1331,7 +1237,7 @@ class RunEngine {
         if (policy.approvalMode === "motivator") {
           const frame = this.#frames.get(this.#frameKey(agent.id, taskId));
           review = await this.#reviewMotivator(agent, "permission", `Permission required for ${call.name}: ${decision.reason}`, frame?.messages ?? [],
-            Math.max(0, stepLimitFor(agent) - (frame?.nextStep ?? 0)), {
+            Math.max(0, agent.maxSteps - (frame?.nextStep ?? 0)), {
               agentId: agent.id, agentName: agent.name, callId: call.id, tool: call.name,
               args: JSON.parse(redactSecrets(JSON.stringify(call.args))), scopes, risk, policyReason: decision.reason,
             });
@@ -2339,110 +2245,9 @@ class RunEngine {
         const { noteRunFinished } = await import("@/lib/loop/blue-team");
         await noteRunFinished(this.run.id);
       } catch (error) {
-        // eslint-disable-next-line no-console
+
         console.error(`[run ${this.run.id}] feedback-loop check failed`, error);
       }
     }
   }
-}
-
-function childRank(parent: AgentRow): AgentRank {
-  return nextAgentRank(parent.rank) ?? "grunt";
-}
-
-function delegationGuidance(agent: AgentRow): string {
-  if (agent.rank === "grunt") {
-    return "\n\nYou are a grunt. Do the assigned task and report upward. You cannot create subagents or propose templates.";
-  }
-  // Team leads already get a closed roster in specialistRoster. Generic
-  // "name a grunt" guidance made Red Team invent extra workers the platform
-  // then refused.
-  if (isProbeLead(agent) || isBlueLead(agent)) return "";
-  const spawn = agent.canSpawnSubagents
-    ? " Dynamic subagent creation is on: a missing child is created one rank below you."
-    : " Dynamic subagent creation is off: you can only delegate to a child that already exists.";
-  const approval = agent.proposeTemplates
-    ? " Template proposal is on: a reusable child is filed for the operator to approve."
-    : "";
-  return `\n\n${DELEGATION_GUIDANCE}${spawn}${approval}`;
-}
-
-function specialistRoster(agent: AgentRow): string {
-  if (isBlueLead(agent)) {
-    const names = BLUE_TEAM_SPECIALISTS.map((spec) => spec.name).join(", ");
-    return [
-      "",
-      "",
-      "You lead the blue team. Do not triage, draft, or verify yourself.",
-      `Delegate each step with agent.delegate, passing agent as one of: ${names}, and pass the case id as "case". Each is created for one case (a Verifier for one round) and retires when the case closes. Do not invent other agents.`,
-      "The Verifier is never the Fix Drafter. A person approves every change; the platform applies it. Start a retest only with case.start_retest, after a Verifier has the round.",
-    ].join("\n");
-  }
-  if (!isProbeLead(agent)) return "";
-  const names = RED_TEAM_SPECIALISTS.map((spec) => spec.name).join(", ");
-  return [
-    "",
-    "",
-    "You lead the probe. Plan the probes from the run goal. Do not run the vectors yourself.",
-    `Delegate each one with agent.delegate, passing agent as one of: ${names}. A specialist is created on first use and reused after that. Do not invent other agents or extra workers.`,
-    "Each specialist files its own finding. A denied credential request is the control working, not a finding.",
-    "Accept a finding only when its reproduction is exact: the input, the output or action observed, and the steps to repeat it.",
-    SEVERITY_RUBRIC,
-    "Test data is synthetic and labeled as test data, and stays in sandbox corpora. Use canary secrets only; a real secret never goes into a finding, a case, a diff, or a log.",
-  ].join("\n");
-}
-
-/**
- * A specialist holds low and medium tools from its roster entry, never
- * delegation. The one exception is the Egress Prober's secret.use: asking is
- * the probe, and the engine always denies it to security agents.
- */
-function specialistTools(tools: readonly string[]): string[] {
-  return tools.filter((name) => {
-    if (name === "agent.delegate" || name === "security.report") return false;
-    if (name === "secret.use") return true;
-    const entry = TOOL_BY_NAME.get(name) ?? CASE_TOOL_BY_NAME.get(name);
-    return entry?.risk === "low" || entry?.risk === "medium";
-  });
-}
-
-function complexityForTask(task: string, requested?: string | null): TaskComplexity {
-  if (
-    requested === "trivial" ||
-    requested === "standard" ||
-    requested === "complex" ||
-    requested === "critical"
-  ) {
-    return requested;
-  }
-  if (/(critical|production|security|exploit|red.?team)/i.test(task)) return "complex";
-  if (/(lookup|list|summar|triage|draft|status update)/i.test(task)) return "trivial";
-  return "standard";
-}
-
-function pinnedMetaPolicy(complexity: TaskComplexity, deniedModelIds: readonly string[]): ModelPolicy {
-  return {
-    mode: "pinned",
-    pinnedModelId: provisionMetaModel(complexity, deniedModelIds),
-    costSensitivity: complexity === "trivial" ? 0.75 : 0.2,
-    latencySensitivity: 0.15,
-    floorComplexity: complexity === "trivial" ? "standard" : complexity,
-    deniedModelIds: [],
-  };
-}
-
-function grantsForSpecialist(tools: readonly string[]): PermissionGrant[] {
-  const grants: PermissionGrant[] = [];
-  for (const tool of tools) {
-    const entry = TOOL_BY_NAME.get(tool);
-    if (!entry || (entry.risk !== "low" && entry.risk !== "medium")) continue;
-    grants.push({
-      resource: entry.name,
-      scopes: entry.scopes,
-      // From the roster a person approved, never from the lead that spawned it.
-      grantedBy: "team-roster",
-      note: "Standing grant for a team specialist.",
-    });
-  }
-  return grants;
 }

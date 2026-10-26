@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "packageManager": "pnpm@12.3.4",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13.0"
   },
   "scripts": {
     "dev": "pnpm --filter @agent-os/web dev",
@@ -17,6 +17,16 @@
     "db:seed": "pnpm --filter @agent-os/web db:seed",
     "db:reset": "pnpm --filter @agent-os/web db:reset",
     "db:purge-sample": "pnpm --filter @agent-os/web db:purge-sample",
-    "lint": "pnpm -r lint"
+    "lint": "eslint . --max-warnings=0",
+    "sandbox:build": "docker build -t astronom-sandbox:local sandbox",
+    "sandbox:verify": "node scripts/verify-sandbox.mjs",
+    "verify:package": "node scripts/verify-package.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.13.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.13.0",
+    "typescript-eslint": "^8.72.0"
   }
 }

@@ -13,6 +13,33 @@ export function workerDepths(workers: readonly { parentIndex?: number }[]): numb
   return depths;
 }
 
+/** Descendants in depth-first order. Index parents once and stop at cycles. */
+export function descendantsOf<T extends { id: string; parentAgentId: string | null }>(
+  rows: readonly T[],
+  rootId: string,
+): T[] {
+  const children = new Map<string, T[]>();
+  for (const row of rows) {
+    if (row.parentAgentId === null) continue;
+    const siblings = children.get(row.parentAgentId);
+    if (siblings) siblings.push(row);
+    else children.set(row.parentAgentId, [row]);
+  }
+
+  const found: T[] = [];
+  const visited = new Set([rootId]);
+  const pending = [...(children.get(rootId) ?? [])].reverse();
+  while (pending.length) {
+    const row = pending.pop()!;
+    if (visited.has(row.id)) continue;
+    visited.add(row.id);
+    found.push(row);
+    const nested = children.get(row.id) ?? [];
+    for (let index = nested.length - 1; index >= 0; index--) pending.push(nested[index]!);
+  }
+  return found;
+}
+
 /**
  * The agents that belong with `id`: its top-level agent and everything below it.
  * Publishing validates this team rather than unrelated teams in the workspace.
@@ -33,16 +60,6 @@ export function treeContaining<T extends { id: string; parentAgentId: string | n
     top = byId.get(top.parentAgentId)!;
   }
 
-  // Collect everything below it.
-  const members = new Set<string>([top.id]);
-  for (let grew = true; grew; ) {
-    grew = false;
-    for (const row of rows) {
-      if (!members.has(row.id) && row.parentAgentId && members.has(row.parentAgentId)) {
-        members.add(row.id);
-        grew = true;
-      }
-    }
-  }
+  const members = new Set([top.id, ...descendantsOf(rows, top.id).map((row) => row.id)]);
   return rows.filter((row) => members.has(row.id));
 }

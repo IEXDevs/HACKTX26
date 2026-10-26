@@ -64,7 +64,6 @@ const statusWord: Record<ConnectorView["status"], string> = {
 function KindIcon({ slug, logoUrl }: { slug: string; logoUrl: string | null }) {
   if (logoUrl) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
       <img src={logoUrl} alt="" width={18} height={18} className="conn-logo" />
     );
   }
@@ -662,7 +661,7 @@ function GitHubSettings({
   useEffect(() => {
     void loadRepos();
     // Load once when the GitHub settings modal opens.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, []);
 
   async function save() {

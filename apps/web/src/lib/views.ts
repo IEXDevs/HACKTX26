@@ -15,6 +15,7 @@ import {
   type TaskComplexity,
 } from "@agent-os/core";
 import { getDb } from "./db/client";
+import { descendantsOf } from "./agent-tree";
 import { runEvents, runs, type AgentRow } from "./db/schema";
 import { duration, relativeTime, usd } from "./format";
 import { listUsageEvents, type CloudUsageRow } from "./observability";
@@ -678,16 +679,8 @@ export interface WorkflowView {
 }
 
 function teamOf(all: AgentRow[], rootId: string): AgentRow[] {
-  const found: AgentRow[] = [];
-  const walk = (id: string) => {
-    // Retired helpers are not part of the team until they get work again.
-    for (const child of all.filter((a) => a.parentAgentId === id && a.status !== "archived")) {
-      found.push(child);
-      walk(child.id);
-    }
-  };
-  walk(rootId);
-  return found;
+  // Retired helpers and their descendants are not part of the active team.
+  return descendantsOf(all.filter((agent) => agent.status !== "archived"), rootId);
 }
 
 export async function workflowTiles(workspaceId: string): Promise<WorkflowTile[]> {

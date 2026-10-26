@@ -19,6 +19,16 @@ export interface RunContinuation {
   spawned: string[]; grunts: string[]; highRiskGrants: string[];
   connectors: Array<[string, string[]]>; budgetWrapUp: string[];
 }
+
+/** Persist the checkpoint and waiting status together before releasing the runner. */
+export function saveRunContinuation(runId: string, state: RunContinuation): void {
+  const updatedAt = new Date();
+  getDb().transaction((tx) => {
+    tx.insert(runCheckpoints).values({ runId, state, updatedAt })
+      .onConflictDoUpdate({ target: runCheckpoints.runId, set: { state, updatedAt } }).run();
+    tx.update(runs).set({ status: "awaiting_input", heartbeatAt: updatedAt }).where(eq(runs.id, runId)).run();
+  });
+}
 export class InputPause extends Error {
   constructor() { super("Waiting for user input."); }
 }

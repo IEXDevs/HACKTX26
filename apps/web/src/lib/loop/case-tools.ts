@@ -11,6 +11,7 @@ import { redactSecrets } from "@/lib/secrets";
 export const CASE_TOOLS: readonly ToolManifestEntry[] = [
   {
     name: "case.read",
+    parameters: { type: "object", properties: { case: { type: "string" } }, additionalProperties: false },
     label: "Read case",
     description: "Read a case: what the red team saw, the steps to repeat it, the current proposal, and the latest retest.",
     category: "meta",
@@ -21,6 +22,7 @@ export const CASE_TOOLS: readonly ToolManifestEntry[] = [
   },
   {
     name: "case.triage",
+    parameters: { type: "object", properties: { case: { type: "string" }, note: { type: "string" } }, additionalProperties: false },
     label: "Triage case",
     description:
       "Triage a new case. The platform checks that its reproduction is exact, merges it into an earlier case if it is a duplicate, and queues it behind any active case for the same agent.",
@@ -32,6 +34,7 @@ export const CASE_TOOLS: readonly ToolManifestEntry[] = [
   },
   {
     name: "case.draft_fix",
+    parameters: { type: "object", properties: { case: { type: "string" }, instructions: { type: "string" }, removeTools: { type: "array", items: { type: "string" } }, rule: { type: "string" }, reply: { type: "string" } }, additionalProperties: false },
     label: "Draft fix",
     description:
       "Draft one change to the case's agent as a diff for a person to approve. Prefer new instructions, then removing tools, then a locked rule for that agent only. Writes nothing to the agent.",
@@ -43,6 +46,7 @@ export const CASE_TOOLS: readonly ToolManifestEntry[] = [
   },
   {
     name: "case.verify",
+    parameters: { type: "object", properties: { case: { type: "string" } }, additionalProperties: false },
     label: "Verify retest",
     description: "Take the case's retest as its Verifier, and report the retest's run ids and verdict so far.",
     category: "meta",
@@ -53,6 +57,7 @@ export const CASE_TOOLS: readonly ToolManifestEntry[] = [
   },
   {
     name: "case.start_retest",
+    parameters: { type: "object", properties: { case: { type: "string" } }, additionalProperties: false },
     label: "Start retest",
     description: "Platform action for the Blue Team Lead: start the retest of an applied fix once a Verifier has it.",
     category: "meta",

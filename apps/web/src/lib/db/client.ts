@@ -22,19 +22,15 @@ const globalForDb = globalThis as unknown as { __agentOsDb?: DbCache };
 function resolveSqliteFile(url: string): string {
   const raw = url.startsWith("file:") ? url.slice("file:".length) : url;
   if (raw === ":memory:") return raw;
-  return path.isAbsolute(raw) ? raw : path.resolve(process.cwd(), raw);
+  // Operator-selected runtime data is not a build input.
+  return path.resolve(/* turbopackIgnore: true */ process.cwd(), raw);
 }
 
 function migrationsFolder(): string {
   // Works both from `next dev` (apps/web cwd) and the compiled server.
-  const candidates = [
-    path.resolve(process.cwd(), "src/lib/db/migrations"),
-    path.resolve(process.cwd(), "apps/web/src/lib/db/migrations"),
-  ];
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return candidate;
-  }
-  return candidates[0]!;
+  const appFolder = path.join(process.cwd(), "src/lib/db/migrations");
+  if (fs.existsSync(path.join(process.cwd(), "src/lib/db/migrations/meta/_journal.json"))) return appFolder;
+  return path.join(process.cwd(), "apps/web/src/lib/db/migrations");
 }
 
 interface JournalEntry {
@@ -167,9 +163,10 @@ function ensureCoreTables(sqlite: Database.Database) {
 
 function applyMigrations(db: AppDatabase, sqlite: Database.Database) {
   const folder = migrationsFolder();
-  if (!fs.existsSync(folder)) {
+  // next.config.ts explicitly includes the migration directory in the package.
+  if (!fs.existsSync(/* turbopackIgnore: true */ folder)) {
     if (!env.isProduction) {
-      // eslint-disable-next-line no-console
+
       console.warn(
         `[db] no migrations folder at ${folder}; run \`pnpm db:generate\` to create one.`,
       );

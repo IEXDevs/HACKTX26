@@ -36,7 +36,7 @@ export interface GraphSpec {
   };
   workers: Array<{
     name: string;
-    role: Extract<AgentRole, "worker" | "security">;
+    role: AgentRole;
     instructions: string;
     complexity: TaskComplexity;
     tools: string[];
@@ -104,7 +104,7 @@ export function policyFor(complexity: TaskComplexity, role: AgentRole): ModelPol
 }
 
 export type CreateResult =
-  | { ok: true; orchestratorId: string; agentIds: string[]; warnings: string[] }
+  | { ok: true; orchestratorId: string; agentIds: string[]; warnings: string[]; issues: ReturnType<typeof validateGraph> }
   | { ok: false; error: string; issues?: unknown };
 
 export async function createAgentGraph(options: {
@@ -118,6 +118,8 @@ export async function createAgentGraph(options: {
   actor: string;
   auditAction: string;
   auditDetail?: Record<string, unknown>;
+  /** Preserve template provenance and capability notes on every created agent. */
+  template?: { id: string; key: string };
   builderConversation?: BuilderConversation;
   contextUpdatedBy?: string | null;
 }): Promise<CreateResult> {
@@ -132,6 +134,7 @@ export async function createAgentGraph(options: {
   const dataClass = options.dataClass ?? workspace.defaultDataClass;
   const apps = parseConnectorList(spec.apps ?? []);
   const now = new Date();
+  const grantSource = options.template ? "the template capability list" : undefined;
 
   const orgBlocks = await db
     .select({ id: promptBlocks.id })
@@ -168,7 +171,7 @@ export async function createAgentGraph(options: {
     proposeTemplates: options.proposeTemplates ?? false,
     inheritedPromptBlockIds: inherited,
     modelPolicy: policyFor(spec.orchestrator.complexity, "orchestrator"),
-    grants: grantsFor(ORCHESTRATOR_TOOLS),
+    grants: grantsFor(ORCHESTRATOR_TOOLS, grantSource),
     allowedTools: ORCHESTRATOR_TOOLS,
     allowedConnectors: apps,
     complexity: spec.orchestrator.complexity,
@@ -176,7 +179,7 @@ export async function createAgentGraph(options: {
     dataClass,
     status: "draft",
     version: 1,
-    templateId: null,
+    templateId: options.template?.id ?? null,
     createdAt: now,
     updatedAt: now,
   };
@@ -185,7 +188,7 @@ export async function createAgentGraph(options: {
   const workerIds = spec.workers.map(() => newId("agt"));
   const ranks = ["orchestrator", "intermediate", "intermediate_2", "grunt"] as const;
   for (const [index, worker] of spec.workers.entries()) {
-    const known = worker.tools.filter((tool) => TOOL_BY_NAME.has(tool));
+    const known = options.template ? worker.tools : worker.tools.filter((tool) => TOOL_BY_NAME.has(tool));
     const tools = known.length > 0 ? known : ["kb.search", "fs.read"];
     workerRows.push({
       id: workerIds[index]!,
@@ -201,7 +204,7 @@ export async function createAgentGraph(options: {
       instructions: worker.instructions,
       inheritedPromptBlockIds: inherited,
       modelPolicy: policyFor(worker.complexity, worker.role),
-      grants: grantsFor(tools),
+      grants: grantsFor(tools, grantSource),
       allowedTools: tools,
       allowedConnectors: apps,
       complexity: worker.complexity,
@@ -209,7 +212,7 @@ export async function createAgentGraph(options: {
       dataClass,
       status: "draft",
       version: 1,
-      templateId: null,
+      templateId: options.template?.id ?? null,
       createdAt: now,
       updatedAt: now,
     });
@@ -266,7 +269,7 @@ export async function createAgentGraph(options: {
     transaction.insert(auditLog).values({
       id: newId("aud"), workspaceId: workspace.id, actor: options.actor, action: options.auditAction,
       targetType: "agent", targetId: orchestratorId,
-      detail: { ...options.auditDetail, createdAgents: agentIds, status: "draft", dataClass, warnings, builderContextSaved: Boolean(context) }, at: now,
+      detail: { ...options.auditDetail, ...(options.template ? { templateId: options.template.id, templateKey: options.template.key } : {}), createdAgents: agentIds, status: "draft", dataClass, warnings, builderContextSaved: Boolean(context) }, at: now,
     }).run();
     if (context) {
       transaction.insert(workspaceContexts).values({
@@ -288,5 +291,5 @@ export async function createAgentGraph(options: {
       console.warn("[builder] CONTEXT.md cloud sync:", (error as Error).message);
     });
   }
-  return { ok: true, orchestratorId, agentIds, warnings };
+  return { ok: true, orchestratorId, agentIds, warnings, issues };
 }

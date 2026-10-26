@@ -1,11 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
-import { exec } from "node:child_process";
-import { promisify } from "node:util";
-import { resolveInside, toPosixPath, SandboxViolation } from "@agent-os/core";
-
-const execAsync = promisify(exec);
+import { isInside, resolveInside, toPosixPath, SandboxViolation } from "@agent-os/core";
+import { runIsolatedCommand } from "./command-runner";
 
 export interface SandboxNode {
   name: string;
@@ -44,9 +40,8 @@ const FORBIDDEN_PATTERN = /[;&|<>`$]|\$\(/;
  * A real directory on disk, rooted at the agent's own workspace.
  *
  * Every path goes through `resolveInside`, so traversal, absolute paths and
- * null bytes are rejected before any syscall. Shell execution is allowlisted
- * and time-boxed; there is no network sandbox here, which is why egress is a
- * separately gated capability.
+ * null bytes are rejected. File tools check symlink targets. Commands run in
+ * a container with only this workspace mounted and network access disabled.
  */
 export class AgentSandbox {
   readonly root: string;
@@ -56,10 +51,14 @@ export class AgentSandbox {
     workspaceId: string,
     readonly agentId: string,
   ) {
-    this.root = path.join(sandboxRoot, workspaceId, agentId);
+    if (![workspaceId, agentId].every((id) => /^[a-zA-Z0-9_-]+$/.test(id))) {
+      throw new SandboxViolation("Invalid workspace or agent id.", `${workspaceId}/${agentId}`);
+    }
+    this.root = path.resolve(sandboxRoot, workspaceId, agentId);
   }
 
   ensure(): void {
+    this.#checkRoot();
     fs.mkdirSync(this.root, { recursive: true });
   }
 
@@ -68,12 +67,34 @@ export class AgentSandbox {
   }
 
   resolve(relativePath: string): string {
-    return resolveInside(this.root, stripSandboxPrefix(relativePath, this.agentId));
+    this.#checkRoot();
+    const target = resolveInside(this.root, stripSandboxPrefix(relativePath, this.agentId));
+    if (!fs.existsSync(this.root)) return target;
+    const realRoot = fs.realpathSync(this.root);
+    let current = this.root;
+    for (const segment of path.relative(this.root, target).split(path.sep).filter(Boolean)) {
+      current = path.join(current, segment);
+      const stat = fs.lstatSync(current, { throwIfNoEntry: false });
+      if (!stat) break;
+      let real: string;
+      try { real = fs.realpathSync(current); }
+      catch { throw new SandboxViolation("Cannot resolve sandbox path.", relativePath); }
+      if (!isInside(realRoot, real)) throw new SandboxViolation("Symlink escapes the agent sandbox.", relativePath);
+    }
+    return target;
+  }
+
+  #checkRoot(): void {
+    for (const root of [path.dirname(this.root), this.root]) {
+      if (fs.lstatSync(root, { throwIfNoEntry: false })?.isSymbolicLink()) {
+        throw new SandboxViolation("Sandbox roots cannot be symlinks.", root);
+      }
+    }
   }
 
   tree(relative = ".", depth = 0): SandboxNode {
     const cleaned = stripSandboxPrefix(relative, this.agentId);
-    const target = cleaned === "." ? this.root : this.resolve(cleaned);
+    const target = this.resolve(cleaned);
     const stat = fs.statSync(target, { throwIfNoEntry: false });
     if (!stat) {
       throw new SandboxViolation("Path does not exist.", relative);
@@ -133,6 +154,7 @@ export class AgentSandbox {
 
   remove(relativePath: string): void {
     const target = this.resolve(relativePath);
+    if (target === this.root) throw new SandboxViolation("Cannot delete the sandbox root.", relativePath);
     if (!fs.existsSync(target)) return;
     fs.rmSync(target, { recursive: true, force: true });
   }
@@ -153,42 +175,7 @@ export class AgentSandbox {
     }
 
     this.ensure();
-    try {
-      const { stdout, stderr } = await execAsync(trimmed, {
-        cwd: this.root,
-        timeout: timeoutMs,
-        maxBuffer: 1024 * 1024,
-        env: {
-          PATH: process.env.PATH ?? "",
-          NODE_ENV: "test",
-          // Deliberately not inherited: no provider keys, no database URL.
-          HOME: this.root,
-          // Keep package-manager caches and logs out of the agent's sandbox so
-          // the filesystem view only contains work product.
-          npm_config_cache: path.join(os.tmpdir(), "agent-os-npm-cache"),
-          npm_config_update_notifier: "false",
-          NO_UPDATE_NOTIFIER: "1",
-          npm_config_fund: "false",
-          npm_config_audit: "false",
-        },
-        windowsHide: true,
-      });
-      return { code: 0, stdout, stderr, timedOut: false };
-    } catch (error) {
-      const err = error as {
-        code?: number;
-        stdout?: string;
-        stderr?: string;
-        killed?: boolean;
-        message?: string;
-      };
-      return {
-        code: typeof err.code === "number" ? err.code : 1,
-        stdout: err.stdout ?? "",
-        stderr: err.stderr ?? err.message ?? "",
-        timedOut: Boolean(err.killed),
-      };
-    }
+    return runIsolatedCommand(this.root, trimmed, timeoutMs);
   }
 
   /** Create an empty sandbox. Demo checkout files from older builds are removed. */

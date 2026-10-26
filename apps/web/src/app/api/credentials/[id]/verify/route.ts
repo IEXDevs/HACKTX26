@@ -30,7 +30,7 @@ export async function POST(
     return Response.json({ error: "Credential not found." }, { status: 404 });
   }
 
-  let ok = false;
+  let ok: boolean;
   let plaintextBytes = 0;
   try {
     const plaintext = openSecret({

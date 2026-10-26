@@ -2,6 +2,7 @@ export * from "./events";
 export * from "./agent";
 export * from "./permissions";
 export * from "./tools";
+export * from "./tool-parameters";
 export {
   MODEL_CATALOG,
   MODEL_BY_ID,

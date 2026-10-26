@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { treeContaining } from "./agent-tree";
+import { descendantsOf, treeContaining } from "./agent-tree";
 
 const row = (id: string, parentAgentId: string | null) => ({ id, parentAgentId });
 
@@ -15,6 +15,23 @@ const rows = [
 ];
 
 const ids = (list: Array<{ id: string }>) => list.map((r) => r.id).sort();
+
+describe("descendantsOf", () => {
+  it("keeps depth-first order even when children appear before their parents", () => {
+    const unordered = [row("grandchild", "child"), row("child", "lead"), row("sibling", "lead"), row("other", null)];
+    expect(descendantsOf(unordered, "lead").map((agent) => agent.id)).toEqual(["child", "grandchild", "sibling"]);
+  });
+
+  it("visits each descendant once and excludes the root in a cycle", () => {
+    const loop = [row("a", "b"), row("b", "a"), row("child", "b")];
+    expect(descendantsOf(loop, "a").map((agent) => agent.id)).toEqual(["b", "child"]);
+  });
+
+  it("handles deep imported trees without recursive calls", () => {
+    const deep = Array.from({ length: 20_000 }, (_, index) => row(String(index), index === 0 ? "lead" : String(index - 1)));
+    expect(descendantsOf(deep, "lead")).toHaveLength(deep.length);
+  });
+});
 
 describe("treeContaining", () => {
   it("returns the whole team from any member", () => {

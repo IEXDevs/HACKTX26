@@ -190,7 +190,7 @@ export class OpenAiGateway implements ModelGateway {
 
     for (const fragment of fragments.values()) {
       if (!fragment.name) continue;
-      let args: Record<string, unknown> = {};
+      let args: Record<string, unknown>;
       try {
         args = fragment.args ? (JSON.parse(fragment.args) as Record<string, unknown>) : {};
       } catch {

@@ -25,7 +25,6 @@ import {
   type GithubWorkingRepo,
   MAX_GITHUB_FILE_BYTES,
   readRepoField,
-  sandboxPathForGithub,
   selectGithubFiles,
 } from "./github-repo";
 import type { AgentSandbox } from "./runtime/sandbox";

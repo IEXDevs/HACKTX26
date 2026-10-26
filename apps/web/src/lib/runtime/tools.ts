@@ -24,6 +24,7 @@ import { env, newId } from "@/lib/env";
 import { serpSearch } from "@/lib/serpapi";
 import { redactSecrets } from "@/lib/secrets";
 import { countKbDocuments, searchKnowledgeBase } from "./kb";
+import { fetchAllowedText } from "./http";
 import { RED_TEAM_FIXTURE_HOSTS, redTeamFixture } from "./redteam-fixtures";
 import { formatTreeListing, type AgentSandbox } from "./sandbox";
 import {
@@ -262,23 +263,15 @@ async function httpFetch(ctx: ToolContext, args: Record<string, unknown>): Promi
     return { ok: true, preview: `200 OK (red-team test page) · ${url.hostname}\n${clip(page)}` };
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10_000);
   try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: { "user-agent": "astronom-agent-runtime/0.1" },
-    });
-    const text = (await response.text()).slice(0, 256 * 1024);
+    const response = await fetchAllowedText(url.href, { allowedHosts: ALLOWED_HOSTS });
     return {
       ok: response.ok,
-      preview: `${response.status} ${response.statusText} · ${url.hostname}\n${clip(text)}`,
+      preview: `${response.status} ${response.statusText} · ${response.hostname}\n${clip(response.text)}${response.truncated ? "\n(response limited to 256 KB)" : ""}`,
       ...(response.ok ? {} : { error: `HTTP ${response.status}` }),
     };
   } catch (error) {
     return fail(`Fetch failed: ${(error as Error).message}`);
-  } finally {
-    clearTimeout(timer);
   }
 }
 

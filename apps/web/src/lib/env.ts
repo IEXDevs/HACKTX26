@@ -23,7 +23,7 @@ export const env = {
 
   /** Root for per-agent sandboxed filesystems. */
   sandboxRoot:
-    process.env.SANDBOX_ROOT ?? path.resolve(process.cwd(), "../..", ".runtime", "workspaces"),
+    process.env.SANDBOX_ROOT || path.resolve(process.cwd(), "../..", ".runtime", "workspaces"),
 
   modelGateway: (process.env.MODEL_GATEWAY ?? "scripted") as
     | "scripted"

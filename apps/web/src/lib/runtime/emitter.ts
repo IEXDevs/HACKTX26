@@ -56,27 +56,30 @@ export class RunLogger {
     const task = this.#chain.then(async () => {
       const db = getDb();
       const ts = new Date().toISOString();
-      const seq = this.#seq++;
+      const seq = this.#seq;
       const event = appendEvent(this.runId, seq, ts, payload, this.#prevHash);
-      this.#prevHash = event.hash;
 
-      await db.insert(runEvents).values({
-        id: event.id,
-        runId: event.runId,
-        seq: event.seq,
-        ts: new Date(event.ts),
-        type: payload.type,
-        agentId: agentId ?? extractAgentId(payload),
-        hash: event.hash,
-        prevHash: event.prevHash,
-        payload,
+      // Commit both rows before advancing the in-memory chain or notifying readers.
+      db.transaction((tx) => {
+        tx.insert(runEvents).values({
+          id: event.id,
+          runId: event.runId,
+          seq: event.seq,
+          ts: new Date(event.ts),
+          type: payload.type,
+          agentId: agentId ?? extractAgentId(payload),
+          hash: event.hash,
+          prevHash: event.prevHash,
+          payload,
+        }).run();
+        tx.update(runs)
+          .set({ eventCount: this.#count + 1 })
+          .where(eq(runs.id, this.runId)).run();
       });
 
+      this.#seq += 1;
+      this.#prevHash = event.hash;
       this.#count += 1;
-      await db
-        .update(runs)
-        .set({ eventCount: this.#count })
-        .where(eq(runs.id, this.runId));
 
       runBus().emit(this.runId, event);
       return event;

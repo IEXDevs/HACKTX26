@@ -8,6 +8,7 @@
 import { z } from "zod";
 import { RiskSchema } from "./events";
 import { ScopeSchema } from "./permissions";
+import { parametersForTool } from "./tool-parameters";
 
 export const ToolCategorySchema = z.enum([
   "filesystem",
@@ -34,10 +35,12 @@ export const ToolManifestEntrySchema = z.object({
   timeoutMs: z.number().int().positive().optional(),
   /** Human-readable shape of the arguments, for the permission matrix UI. */
   argsHint: z.string().optional(),
+  /** JSON Schema sent to the model for this capability. */
+  parameters: z.record(z.string(), z.unknown()).optional(),
 });
 export type ToolManifestEntry = z.infer<typeof ToolManifestEntrySchema>;
 
-export const TOOL_MANIFEST: readonly ToolManifestEntry[] = [
+export const TOOL_MANIFEST: readonly ToolManifestEntry[] = ([
   {
     name: "fs.list",
     label: "List files",
@@ -247,7 +250,7 @@ export const TOOL_MANIFEST: readonly ToolManifestEntry[] = [
     risk: "critical",
     sandboxedToAgentFs: false,
   },
-];
+] satisfies ToolManifestEntry[]).map((entry) => ({ ...entry, parameters: parametersForTool(entry.name) }));
 
 export const TOOL_BY_NAME: ReadonlyMap<string, ToolManifestEntry> = new Map(
   TOOL_MANIFEST.map((t) => [t.name, t]),

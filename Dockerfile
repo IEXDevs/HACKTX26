@@ -19,14 +19,16 @@ RUN pnpm --filter @agent-os/web build
 FROM node:24-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-COPY --from=builder /app/package.json /app/pnpm-workspace.yaml ./
-COPY --from=builder /app/apps/web ./apps/web
-COPY --from=builder /app/packages/core ./packages/core
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/apps/web/node_modules ./apps/web/node_modules
-COPY --from=builder /app/packages/core/node_modules ./packages/core/node_modules
+ENV HOSTNAME=0.0.0.0
+COPY --from=builder --chown=node:node /app/apps/web/.next/standalone ./
+COPY --from=builder --chown=node:node /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=docker:28-cli /usr/local/bin/docker /usr/local/bin/docker
+RUN mkdir -p /app/.runtime/workspaces /app/apps/web/.data \
+  && chown -R node:node /app/.runtime /app/apps/web/.data
+USER node
+WORKDIR /app/apps/web
 EXPOSE 3000
 # Cloud Run injects $PORT; default to 3000 locally. Run from apps/web so
 # relative paths (SQLite file, sandbox root) resolve exactly like local dev.
-# Uses the workspace's own next binary; no package manager needed at runtime.
-CMD ["sh", "-c", "cd /app/apps/web && ./node_modules/.bin/next start -p ${PORT:-3000}"]
+# Starts the standalone server; no package manager is needed at runtime.
+CMD ["node", "server.js"]

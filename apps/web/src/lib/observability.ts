@@ -94,7 +94,7 @@ export function costForModel(modelId: string, inputTokens: number, outputTokens:
 }
 
 function warn(scope: string, error: unknown): void {
-  // eslint-disable-next-line no-console
+
   console.warn(`[observability] ${scope}:`, error instanceof Error ? error.message : error);
 }
 

@@ -76,7 +76,7 @@ flowchart TB
 
 ## Quick start
 
-Requires Node 22+ and pnpm.
+Requires Node 22.13+ and pnpm. Agent shell commands also require Docker.
 
 ```sh
 pnpm install
@@ -88,8 +88,12 @@ Open <http://localhost:3000>. The first request migrates and seeds the local SQL
 ```sh
 pnpm typecheck   # TypeScript, all packages
 pnpm test        # Vitest, 380+ tests
+pnpm lint        # ESLint and React Hooks checks
 pnpm build       # production build
+pnpm verify:package # start the standalone package and verify migrations
 ```
+
+For shell and CLI tools, run `pnpm sandbox:build` and `pnpm sandbox:verify` first. See [command isolation](docs/command-isolation.md) for the workspace, network, and deployment boundaries.
 
 ### Configuration
 

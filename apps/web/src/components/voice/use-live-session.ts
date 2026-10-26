@@ -497,9 +497,10 @@ export function useLiveSession(opts: LiveSessionOptions): LiveSession {
 
   useEffect(() => {
     mountedRef.current = true;
+    const generation = genRef;
     return () => {
       mountedRef.current = false;
-      genRef.current++;
+      generation.current++;
       const call = callRef.current;
       if (call) {
         const wasLive = call.session !== null;

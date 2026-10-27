@@ -1,0 +1,19 @@
+.page-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 160px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.shell-nav-pending {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  margin-left: auto;
+  opacity: 0;
+  flex-shrink: 0;
+}
+
+.shell-nav-pending.visible { opacity: 1; }

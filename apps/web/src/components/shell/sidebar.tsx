@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Activity,
@@ -11,6 +11,7 @@ import {
   Logo,
   Link2,
   ListTree,
+  LoaderCircle,
   Lock,
   LogOut,
   Plus,
@@ -31,6 +32,14 @@ interface NavItem {
   also?: string[];
   /** A shortcut revealed under the item on hover or focus. */
   shortcut?: { href: string; label: string };
+}
+
+function NavigationHint() {
+  const { pending } = useLinkStatus();
+  return <span className={`shell-nav-pending${pending ? " visible" : ""}`} role={pending ? "status" : undefined}>
+    <LoaderCircle size={14} className={pending ? "animate-spin" : ""} aria-hidden />
+    {pending && <span className="sr-only">Loading page…</span>}
+  </span>;
 }
 
 export function Sidebar({
@@ -95,6 +104,7 @@ export function Sidebar({
       <item.icon size={17} aria-hidden />
       <span>{item.label}</span>
       {item.count ? <span className="shell-count">{item.count}</span> : null}
+      <NavigationHint />
     </Link>
   );
 
@@ -114,6 +124,7 @@ export function Sidebar({
             >
               <Plus size={15} aria-hidden />
               <span>{item.shortcut.label}</span>
+              <NavigationHint />
             </Link>
           </div>
         </div>

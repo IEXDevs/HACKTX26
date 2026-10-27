@@ -8,7 +8,8 @@ import { ScriptedGateway } from "./gateway-scripted";
 
 describe("delegation in a selected static workflow", () => {
   let target = "", turn = 0;
-  beforeEach(() => {
+  let selected: Awaited<ReturnType<typeof fixture>>;
+  beforeEach(async () => {
     delete (globalThis as { __agentOsDb?: unknown }).__agentOsDb;
     turn = 0;
     vi.spyOn(ScriptedGateway.prototype, "complete").mockImplementation(async function* () {
@@ -17,6 +18,8 @@ describe("delegation in a selected static workflow", () => {
       yield { type: "usage", inputTokens: 10, outputTokens: 10 };
       yield { type: "done", stopReason: "end" };
     });
+    // Cold PGlite startup and migrations belong to the setup hook's timeout.
+    selected = await fixture();
   });
   afterEach(() => vi.restoreAllMocks());
 
@@ -40,7 +43,7 @@ describe("delegation in a selected static workflow", () => {
 
   it("runs the connected instance of an existing agent", async () => {
     target = "Reader";
-    const { workflow, reader } = await fixture();
+    const { workflow, reader } = selected;
     await executeRun("run_selected");
     const spawned = (await (await getDb()).select().from(runEvents)).filter((event) => event.type === "agent.spawned").map((event) => event.agentId);
     expect(spawned).toContain(workflow.nodes.find((node) => node.id === "reader")!.agentId);
@@ -49,7 +52,6 @@ describe("delegation in a selected static workflow", () => {
 
   it("rejects delegating outside the selected static tree", async () => {
     target = "Outside";
-    await fixture();
     await executeRun("run_selected");
     expect(JSON.stringify(await (await getDb()).select().from(runEvents))).toContain("connected below it in this workflow");
   });

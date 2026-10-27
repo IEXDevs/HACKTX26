@@ -40,14 +40,14 @@ export function keyOwner(account: AssetAccount) {
 /** Deliberately excludes the ciphertext, IV, tag, hint, value, and value length. */
 export async function listAccountKeys(account: AssetAccount) {
   return (await getDb()).select({ id: credentials.id, name: credentials.name, purpose: credentials.connectorId })
-    .from(credentials).where(and(keyOwner(account), inArray(credentials.connectorId, ["muse", "gemini"])));
+    .from(credentials).where(and(keyOwner(account), inArray(credentials.connectorId, ["muse", "gemini", "composio", "serpapi"])));
 }
 
 export async function addAccountKey(account: AssetAccount, purpose: string, value: string) {
-  if (!["muse", "gemini"].includes(purpose) || value.length < 8 || value.length > 8192 || /\s/.test(value)) {
-    throw new AssetError("Choose Muse or Gemini and enter a valid key.", 400);
+  if (!["muse", "gemini", "composio", "serpapi"].includes(purpose) || value.length < 8 || value.length > 8192 || /\s/.test(value)) {
+    throw new AssetError("Choose a key purpose and enter a valid key.", 400);
   }
-  const name = purpose === "gemini" ? "Gemini (voice)" : "Muse";
+  const name = purpose === "gemini" ? "Gemini (voice)" : purpose === "composio" ? "Composio" : purpose === "serpapi" ? "SerpAPI (web search)" : "Muse";
   const [saved] = await (await getDb()).insert(credentials).values({
     id: newId("cred"), workspaceId: account.workspaceId, connectorId: purpose, name,
     ...sealSecret(value), hint: "Hidden", scopes: [], createdBy: account.accountId, createdAt: new Date(),
@@ -58,7 +58,7 @@ export async function addAccountKey(account: AssetAccount, purpose: string, valu
 
 export async function deleteAccountKey(account: AssetAccount, id: string) {
   const rows = await (await getDb()).delete(credentials)
-    .where(and(keyOwner(account), eq(credentials.id, id), inArray(credentials.connectorId, ["muse", "gemini"])))
+    .where(and(keyOwner(account), eq(credentials.id, id), inArray(credentials.connectorId, ["muse", "gemini", "composio", "serpapi"])))
     .returning({ id: credentials.id });
   return rows.length > 0;
 }

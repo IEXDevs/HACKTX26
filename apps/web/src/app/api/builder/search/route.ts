@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { serpApiEnabled } from "@/lib/env";
-import { requireWorkspace } from "@/lib/queries";
+import { AssetError, assetFailure, requireAssetAccount } from "@/lib/account-assets";
+import { serviceApiKey } from "@/lib/service-keys";
 import { builderSearch } from "@/lib/runtime/builder";
 
 export const dynamic = "force-dynamic";
@@ -15,12 +15,13 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "Expected { query }." }, { status: 400 });
   }
   try {
-    await requireWorkspace();
-    if (!serpApiEnabled()) {
-      return Response.json({ error: "Web search is not configured." }, { status: 503 });
+    const account = await requireAssetAccount();
+    if (!await serviceApiKey("serpapi", account.accountId)) {
+      return Response.json({ error: "Add a SerpAPI key under Saved keys to use web search." }, { status: 503 });
     }
-    return Response.json({ hits: await builderSearch(parsed.data.query) });
+    return Response.json({ hits: await builderSearch(parsed.data.query, account.accountId) });
   } catch (error) {
-    return Response.json({ error: (error as Error).message }, { status: 502 });
+    if (error instanceof AssetError) return assetFailure(error);
+    return Response.json({ error: "Web search failed. Check your SerpAPI key and try again." }, { status: 502 });
   }
 }

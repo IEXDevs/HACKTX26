@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX "credentials_account_composio_idx" ON "astronom"."credentials" USING btree ("created_by") WHERE "astronom"."credentials"."connector_id" = 'composio';--> statement-breakpoint
+CREATE UNIQUE INDEX "credentials_account_serpapi_idx" ON "astronom"."credentials" USING btree ("created_by") WHERE "astronom"."credentials"."connector_id" = 'serpapi';

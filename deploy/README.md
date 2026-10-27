@@ -106,12 +106,17 @@ Optional Gemini, Composio, SerpAPI, and Anthropic keys can use the matching
 `astronom-<provider>-api-key` secrets. Grant the runtime identity access to each
 optional secret before enabling it. The existing local Meta key stays local.
 
-Users can add one Muse key per account in Connectors. The app encrypts it with
+Users can add one key of each type per account in Connectors: Muse, Gemini for
+voice, Composio, and SerpAPI. The app encrypts each key with
 `CREDENTIAL_ENCRYPTION_KEY` in the private database. List responses contain only
 metadata; saved values have no reveal or export endpoint. The blurred UI uses a
-fixed placeholder. Delete a key before adding its replacement. Production model
+fixed placeholder. The searchable purpose field shows unsaved types on focus.
+Delete a key before adding its replacement. Production model
 calls use the initiating account's saved key, never a shared environment key.
-Without an account key, runs keep the scripted fallback. Documents use the same
+Without a Muse account key, runs keep the scripted fallback. Gemini voice requires
+the caller's saved key in production. Composio and SerpAPI use the caller's saved
+key when present; otherwise they retain the configured platform service.
+Documents use the same
 account ownership for listing, deletion, and agent retrieval. Document bodies use
 the same encryption; only their names and metadata are listed. Existing documents
 identified by an author's email move to that verified account when it signs in.

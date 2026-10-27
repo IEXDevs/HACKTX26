@@ -2,7 +2,7 @@ import { z } from "zod";
 import { addAccountKey, assetFailure, listAccountKeys, requireAssetAccount } from "@/lib/account-assets";
 
 export const dynamic = "force-dynamic";
-const Body = z.object({ purpose: z.enum(["muse", "gemini"]), key: z.string().trim().min(8).max(8192).regex(/^\S+$/) }).strict();
+const Body = z.object({ purpose: z.enum(["muse", "gemini", "composio", "serpapi"]), key: z.string().trim().min(8).max(8192).regex(/^\S+$/) }).strict();
 
 export async function GET() {
   try {
@@ -14,7 +14,7 @@ export async function POST(request: Request) {
   try {
     const account = await requireAssetAccount();
     const parsed = Body.safeParse(await request.json().catch(() => null));
-    if (!parsed.success) return Response.json({ error: "Choose Muse or Gemini and enter a valid key." }, { status: 400 });
+    if (!parsed.success) return Response.json({ error: "Choose a key purpose and enter a valid key." }, { status: 400 });
     const saved = await addAccountKey(account, parsed.data.purpose, parsed.data.key);
     return Response.json(saved, { status: 201 });
   } catch (error) { return assetFailure(error); }

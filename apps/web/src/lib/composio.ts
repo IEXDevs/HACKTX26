@@ -3,11 +3,11 @@
  *
  * Catalog, OAuth link, connected-account sync, and action execution all go
  * through here so the rest of the runtime never talks to Composio directly.
- * Missing COMPOSIO_API_KEY is a soft failure: the popular catalog still
- * renders and connect returns a clear error.
+ * Saved account keys override the platform key. Without either key, the
+ * popular catalog still renders and connect returns a clear error.
  */
 import { Composio } from "@composio/core";
-import { composioEnabled, env } from "./env";
+import { serviceApiKey } from "./service-keys";
 
 export const SERPAPI_TOOLKIT = "serpapi";
 
@@ -66,7 +66,7 @@ export const POPULAR_TOOLKITS: ToolkitInfo[] = [
 export const SERPAPI_TOOLKIT_INFO: ToolkitInfo = {
   slug: SERPAPI_TOOLKIT,
   name: "Web search",
-  description: "Public Google search via SerpAPI. Platform-wide; no OAuth.",
+  description: "Search the public web with SerpAPI.",
   logoUrl: null,
   category: "search",
   popular: true,
@@ -75,25 +75,16 @@ export const SERPAPI_TOOLKIT_INFO: ToolkitInfo = {
 
 const POPULAR_BY_SLUG = new Map(POPULAR_TOOLKITS.map((item) => [item.slug, item]));
 
-let client: Composio | null | undefined;
-
-function getClient(): Composio | null {
-  if (!composioEnabled()) return null;
-  if (client !== undefined) return client;
-  try {
-    client = new Composio({ apiKey: env.composio.apiKey });
-  } catch (error) {
-    console.warn("[composio] failed to init:", error instanceof Error ? error.message : error);
-    client = null;
-  }
-  return client;
+async function getClient(userId?: string): Promise<Composio | null> {
+  const apiKey = await serviceApiKey("composio", userId);
+  if (!apiKey) return null;
+  try { return new Composio({ apiKey }); }
+  catch { console.warn("[composio] failed to initialize client"); return null; }
 }
 
-export function requireComposio(): Composio {
-  const instance = getClient();
-  if (!instance) {
-    throw new Error("COMPOSIO_API_KEY is not set. Add it to .env.local, then restart.");
-  }
+export async function requireComposio(userId: string): Promise<Composio> {
+  const instance = await getClient(userId);
+  if (!instance) throw new Error("Add a Composio key under Saved keys to link apps.");
   return instance;
 }
 
@@ -180,7 +171,7 @@ export function resolveActionSlug(toolkit: string, action: string): string {
   return `${prefix}_${upper}`;
 }
 
-export async function searchToolkits(query = ""): Promise<ToolkitInfo[]> {
+export async function searchToolkits(query = "", userId?: string): Promise<ToolkitInfo[]> {
   const needle = query.trim().toLowerCase();
   const local = [SERPAPI_TOOLKIT_INFO, ...POPULAR_TOOLKITS].filter((item) => {
     if (!needle) return item.popular;
@@ -192,7 +183,7 @@ export async function searchToolkits(query = ""): Promise<ToolkitInfo[]> {
     );
   });
 
-  const composio = getClient();
+  const composio = await getClient(userId);
   if (!composio || !needle) return dedupeToolkits(local);
 
   try {
@@ -204,8 +195,8 @@ export async function searchToolkits(query = ""): Promise<ToolkitInfo[]> {
       .map((item) => toolkitFromUnknown(item))
       .filter((item): item is ToolkitInfo => Boolean(item));
     return dedupeToolkits([...remote, ...local]);
-  } catch (error) {
-    console.warn("[composio] toolkit search failed:", error instanceof Error ? error.message : error);
+  } catch {
+    console.warn("[composio] toolkit search failed:");
     return dedupeToolkits(local);
   }
 }
@@ -243,7 +234,7 @@ export function preferConnectedAccounts(rows: ConnectedToolkit[]): ConnectedTool
 export async function listConnectedFromComposio(
   userId: string,
 ): Promise<ConnectedToolkit[] | undefined> {
-  const composio = getClient();
+  const composio = await getClient(userId);
   if (!composio) return undefined;
   try {
     const raw = await composio.connectedAccounts.list({ userIds: [userId] });
@@ -277,8 +268,8 @@ export async function listConnectedFromComposio(
         },
       ];
     }));
-  } catch (error) {
-    console.warn("[composio] list connected failed:", error instanceof Error ? error.message : error);
+  } catch {
+    console.warn("[composio] list connected failed:");
     return undefined;
   }
 }
@@ -292,9 +283,11 @@ export async function startToolkitLink(
   if (!slug || slug === SERPAPI_TOOLKIT) {
     throw new Error("That app cannot be linked through Composio.");
   }
-  const composio = requireComposio();
-  const session = await composio.create(userId);
-  const request = await session.authorize(slug, { callbackUrl });
+  const composio = await requireComposio(userId);
+  const request = await (async () => {
+    try { const session = await composio.create(userId); return await session.authorize(slug, { callbackUrl }); }
+    catch { throw new Error("Could not link this app. Check your Composio key and try again."); }
+  })();
   const record = asRecord(request) ?? {};
   const redirectUrl =
     str(record, "redirectUrl", "redirect_url") ??
@@ -313,17 +306,17 @@ export async function disconnectToolkit(userId: string, toolkit: string): Promis
   if (!accounts) return;
   const match = accounts.find((item) => item.toolkit === slug && item.accountId);
   if (!match?.accountId) return;
-  const composio = requireComposio();
+  const composio = await requireComposio(userId);
   const accountsApi = composio.connectedAccounts as unknown as {
     delete?: (id: string) => Promise<unknown>;
     disable?: (id: string) => Promise<unknown>;
   };
   if (typeof accountsApi.delete === "function") {
-    await accountsApi.delete(match.accountId);
+    await accountsApi.delete(match.accountId).catch(() => { throw new Error("Could not disconnect this app. Check your Composio key and try again."); });
     return;
   }
   if (typeof accountsApi.disable === "function") {
-    await accountsApi.disable(match.accountId);
+    await accountsApi.disable(match.accountId).catch(() => { throw new Error("Could not disconnect this app. Check your Composio key and try again."); });
   }
 }
 
@@ -338,7 +331,7 @@ export async function listToolkitActions(userId: string, toolkit: string): Promi
       },
     ];
   }
-  const composio = getClient();
+  const composio = await getClient(userId);
   if (!composio) return [];
   try {
     const raw = await composio.tools.get(userId, { toolkits: [slug, slug.toUpperCase()], limit: 12 });
@@ -359,8 +352,8 @@ export async function listToolkitActions(userId: string, toolkit: string): Promi
         };
       })
       .filter((item): item is ToolkitAction => Boolean(item));
-  } catch (error) {
-    console.warn("[composio] list actions failed:", error instanceof Error ? error.message : error);
+  } catch {
+    console.warn("[composio] list actions failed:");
     return [];
   }
 }
@@ -372,7 +365,7 @@ export async function executeComposioActionRaw(input: {
   arguments?: Record<string, unknown>;
   connectedAccountId?: string | null;
 }): Promise<{ ok: boolean; data: unknown; error?: string }> {
-  const composio = requireComposio();
+  const composio = await requireComposio(input.userId);
   const slug = resolveActionSlug(input.toolkit, input.action);
   if (!slug) return { ok: false, data: null, error: "connector.call needs an action name." };
   try {
@@ -389,11 +382,11 @@ export async function executeComposioActionRaw(input: {
     const data = record.data ?? record.result ?? result;
     if (error) return { ok: false, data, error };
     return { ok: true, data };
-  } catch (error) {
+  } catch {
     return {
       ok: false,
       data: null,
-      error: error instanceof Error ? error.message : "Composio action failed.",
+      error: "Composio action failed. Check the saved key and app connection.",
     };
   }
 }

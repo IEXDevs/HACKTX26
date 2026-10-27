@@ -27,7 +27,8 @@ import {
   disconnectToolkit as composioDisconnect,
   type ToolkitInfo,
 } from "./composio";
-import { env, newId, serpApiEnabled } from "./env";
+import { env, newId } from "./env";
+import { serviceApiKey } from "./service-keys";
 import { observabilityEnabled } from "./env";
 import { supabaseAdmin } from "./supabase";
 import { parseGithubMetadata, type GithubWorkingRepo } from "./github-repo";
@@ -257,19 +258,20 @@ export async function listConnectorViews(input: {
   await syncConnectedAccounts(input.workspaceId, input.userId).catch(() => undefined);
 
   const [catalog, accounts] = await Promise.all([
-    query ? searchToolkits(query) : Promise.resolve([SERPAPI_TOOLKIT_INFO, ...POPULAR_TOOLKITS]),
+    query ? searchToolkits(query, input.userId) : Promise.resolve([SERPAPI_TOOLKIT_INFO, ...POPULAR_TOOLKITS]),
     (await getDb())
       .select()
       .from(connectedAccounts)
       .where(and(eq(connectedAccounts.workspaceId, input.workspaceId), eq(connectedAccounts.userId, input.userId))),
   ]);
 
+  const [composioKey, searchKey] = await Promise.all([serviceApiKey("composio", input.userId), serviceApiKey("serpapi", input.userId)]);
   const byToolkit = new Map(accounts.map((row) => [row.toolkit, row]));
   const connectors: ConnectorView[] = catalog.map((item) => {
     const builtin = item.slug === SERPAPI_TOOLKIT;
     const account = byToolkit.get(item.slug);
     const status: ConnectorView["status"] = builtin
-      ? serpApiEnabled()
+      ? searchKey
         ? "connected"
         : "disconnected"
       : account?.status ?? "disconnected";
@@ -310,7 +312,7 @@ export async function listConnectorViews(input: {
   }
 
   connectors.sort((a, b) => Number(b.connected) - Number(a.connected) || Number(b.popular) - Number(a.popular) || a.name.localeCompare(b.name));
-  return { connectors, composio: Boolean(env.composio.apiKey), serpapi: serpApiEnabled() };
+  return { connectors, composio: Boolean(composioKey), serpapi: Boolean(searchKey) };
 }
 
 export async function getConnectedComposioAccountId(
@@ -395,7 +397,7 @@ export async function connectedToolkitsFor(workspaceId: string, userId: string):
       ),
     );
   const slugs = rows.map((row) => row.toolkit);
-  if (serpApiEnabled()) slugs.unshift(SERPAPI_TOOLKIT);
+  if (await serviceApiKey("serpapi", userId)) slugs.unshift(SERPAPI_TOOLKIT);
   return [...new Set(slugs)];
 }
 

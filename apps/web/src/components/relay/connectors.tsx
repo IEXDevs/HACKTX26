@@ -51,7 +51,7 @@ function KindIcon({ slug, logoUrl }: { slug: string; logoUrl: string | null }) {
 function initialMessage(composio: boolean, linked?: string): string | null {
   if (linked === "1") return "App linked. Agents on your next run can use it.";
   if (linked === "0") return "Could not finish linking. Try Connect again.";
-  if (!composio) return "App linking is off until a Composio API key is configured. Search still works over the popular catalog.";
+  if (!composio) return "Add a Composio key under Saved keys to link apps.";
   return null;
 }
 
@@ -108,7 +108,7 @@ export function ConnectorsView({
       setMessage(
         serpapi
           ? "Web search is already on for agents in this workspace."
-          : "Set SERPAPI_API_KEY in .env.local to enable web search for agents.",
+          : "Web search is currently unavailable.",
       );
       return;
     }

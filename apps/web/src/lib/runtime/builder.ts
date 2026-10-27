@@ -8,7 +8,7 @@
  */
 import { MODEL_BY_ID, TOOL_MANIFEST } from "@agent-os/core";
 import { POPULAR_TOOLKITS, SERPAPI_TOOLKIT_INFO } from "../composio";
-import { serpApiEnabled } from "../env";
+
 import { recordModelTurn } from "../observability";
 import { serpSearch, type WebSearchHit } from "../serpapi";
 import { createLiveGateway, liveGatewayAvailable } from "./gateway";
@@ -91,9 +91,9 @@ const SEARCH_EXHAUSTED = "Searching is no longer available for this message. Ans
 const FALLBACK_REPLY = "Tell me a little more about the job.";
 
 /** Runs a builder search through SerpAPI. Throws when it is not configured. */
-export async function builderSearch(query: string): Promise<WebSearchHit[]> {
-  if (!serpApiEnabled()) throw new Error("Web search is not configured.");
-  return serpSearch({ query, num: 5 });
+export async function builderSearch(query: string, accountId?: string): Promise<WebSearchHit[]> {
+  const owner = accountId ?? (await (await import("../account-assets")).requireAssetAccount()).accountId;
+  return serpSearch({ query, num: 5, accountId: owner });
 }
 
 function searchResults(query: string, hits: WebSearchHit[], left: number): string {

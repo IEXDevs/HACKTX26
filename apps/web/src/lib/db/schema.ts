@@ -332,6 +332,8 @@ export const credentials = appSchema.table("credentials", {
 }, (t) => [
   uniqueIndex("credentials_account_muse_idx").on(t.createdBy).where(sql`${t.connectorId} = 'muse'`),
   uniqueIndex("credentials_account_gemini_idx").on(t.createdBy).where(sql`${t.connectorId} = 'gemini'`),
+  uniqueIndex("credentials_account_composio_idx").on(t.createdBy).where(sql`${t.connectorId} = 'composio'`),
+  uniqueIndex("credentials_account_serpapi_idx").on(t.createdBy).where(sql`${t.connectorId} = 'serpapi'`),
 ]).enableRLS();
 
 /** Documents people add for agents to search. Nothing is preloaded. */

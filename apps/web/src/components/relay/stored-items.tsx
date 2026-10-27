@@ -3,10 +3,11 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { LoaderCircle, Plus, Trash2 } from "@/components/icons";
+import { KeyPurposeInput } from "./key-purpose-input";
 
 export interface KeyRow { id: string; name: string; purpose: string | null }
 export interface DocRow { id: string; title: string }
-const KEY_OPTIONS = [{ purpose: "muse", name: "Muse" }, { purpose: "gemini", name: "Gemini (voice)" }];
+const KEY_OPTIONS = [{ purpose: "muse", name: "Muse" }, { purpose: "gemini", name: "Gemini (voice)" }, { purpose: "composio", name: "Composio" }, { purpose: "serpapi", name: "SerpAPI (web search)" }];
 
 function StoredTable({ label, headings, entry, children, empty, onAdd, busy, canAdd }: {
   label: string;
@@ -52,7 +53,7 @@ export function StoredItems({ keys, documents }: { keys: KeyRow[]; documents: Do
   const [savedKeys, setSavedKeys] = useState(keys);
   const [savedDocs, setSavedDocs] = useState(documents);
   const [key, setKey] = useState("");
-  const [purpose, setPurpose] = useState("muse");
+  const [purpose, setPurpose] = useState("");
   const [name, setName] = useState("");
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -61,14 +62,14 @@ export function StoredItems({ keys, documents }: { keys: KeyRow[]; documents: Do
   useEffect(() => setSavedKeys(keys), [keys]);
   useEffect(() => setSavedDocs(documents), [documents]);
   const available = KEY_OPTIONS.filter((option) => !savedKeys.some((row) => row.purpose === option.purpose));
-  const selected = available.find((option) => option.purpose === purpose) ?? available[0];
+  const selected = available.find((option) => option.purpose === purpose);
 
   async function addKey() {
     if (busy || !selected) return;
     setBusy("key"); setKeyError("");
     try {
       const result = await change("/api/credentials", "POST", { purpose: selected.purpose, key: key.trim() });
-      if (result.id) setSavedKeys((rows) => [...rows, { id: result.id!, name: selected.name, purpose: selected.purpose }]);
+      if (result.id) { setSavedKeys((rows) => [...rows, { id: result.id!, name: selected.name, purpose: selected.purpose }]); setPurpose(""); }
       router.refresh();
     } catch (error) { setKeyError((error as Error).message); }
     finally { setKey(""); setBusy(null); }
@@ -105,15 +106,12 @@ export function StoredItems({ keys, documents }: { keys: KeyRow[]; documents: Do
       <h2>Saved keys</h2>
       <StoredTable label="Saved keys" headings={["Key purpose / name", "Key"]} empty={!savedKeys.length} busy={busy === "key"} canAdd={!busy && !!selected && key.trim().length >= 8} onAdd={addKey}
         entry={[
-          <select key="purpose" aria-label="Key purpose" value={selected?.purpose ?? ""} disabled={busy !== null || !selected} onChange={(event) => { setPurpose(event.target.value); setKey(""); }}>
-            {!selected && <option value="">All key types saved</option>}
-            {KEY_OPTIONS.map((option) => <option key={option.purpose} value={option.purpose} disabled={savedKeys.some((row) => row.purpose === option.purpose)}>{option.name}{savedKeys.some((row) => row.purpose === option.purpose) ? " (saved)" : ""}</option>)}
-          </select>,
-          <input key="value" aria-label={`New ${selected?.name ?? "API"} key`} type="password" autoComplete="off" spellCheck={false} value={key} maxLength={8192} placeholder={selected ? `Enter ${selected.name} key` : "All key types saved"} disabled={busy !== null || !selected} onChange={(event) => setKey(event.target.value)} />,
+          <KeyPurposeInput key="purpose" options={available} value={selected?.name ?? ""} disabled={busy !== null} onPick={(next) => { setPurpose(next); setKey(""); }} />,
+          <input key="value" aria-label={`New ${selected?.name ?? "API"} key`} type="password" autoComplete="off" spellCheck={false} value={key} maxLength={8192} placeholder={selected ? `Enter ${selected.name} key` : "Choose a key purpose first"} disabled={busy !== null || !selected} onChange={(event) => setKey(event.target.value)} />,
         ]}>
         {savedKeys.map((row) => <tr key={row.id}><td>{row.name}</td><td><HiddenValue label="Saved key. The value cannot be displayed." /></td><td>{deleteButton("key", row, `${row.name} key`)}</td></tr>)}
       </StoredTable>
-      <p className="note">Muse powers agents. Gemini powers voice. Only you can use your saved keys. Delete a key before adding a replacement.</p>
+      <p className="note">Muse powers agents. Gemini powers voice. Composio links apps. SerpAPI powers web search. Delete a key before adding a replacement.</p>
       {keyError && <p className="error-text" role="alert">{keyError}</p>}
     </section>
     <section className="section">

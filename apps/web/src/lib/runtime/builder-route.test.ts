@@ -2,8 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { POST as builderPost } from "@/app/api/builder/route";
 import { POST as searchPost } from "@/app/api/builder/search/route";
+import { builderSearch } from "./builder";
 
-const state = vi.hoisted(() => ({ apps: [] as string[], serp: true }));
+const state = vi.hoisted(() => ({ apps: [] as string[], serp: true, signedIn: true }));
+vi.mock("../account-assets", async (original) => {
+  const actual = await original<typeof import("../account-assets")>();
+  return { ...actual, requireAssetAccount: async () => {
+    if (!state.signedIn) throw new actual.AssetError("Sign in.", 401);
+    return { workspaceId: "ws_test", accountId: "local:user_1" };
+  } };
+});
+vi.mock("../service-keys", () => ({ serviceApiKey: vi.fn(async () => state.serp ? "saved-test-key" : null) }));
 
 vi.mock("./builder", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./builder")>()),
@@ -59,12 +68,13 @@ describe("POST /api/builder", () => {
 });
 
 describe("POST /api/builder/search", () => {
-  beforeEach(() => { state.serp = true; });
+  beforeEach(() => { state.serp = true; state.signedIn = true; });
 
   it("returns hits", async () => {
     const response = await post(searchPost, "http://localhost/api/builder/search", { query: "notion mcp server" });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ hits: [{ title: "notion mcp server", url: "https://example.com", snippet: "" }] });
+    expect(builderSearch).toHaveBeenCalledWith("notion mcp server", "local:user_1");
   });
 
   it("rejects a missing query", async () => {
@@ -76,6 +86,10 @@ describe("POST /api/builder/search", () => {
     state.serp = false;
     const response = await post(searchPost, "http://localhost/api/builder/search", { query: "notion" });
     expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: "Web search is not configured." });
+    expect(await response.json()).toEqual({ error: "Add a SerpAPI key under Saved keys to use web search." });
+  });
+  it("requires a signed-in account", async () => {
+    state.signedIn = false;
+    expect((await post(searchPost, "http://localhost/api/builder/search", { query: "notion" })).status).toBe(401);
   });
 });

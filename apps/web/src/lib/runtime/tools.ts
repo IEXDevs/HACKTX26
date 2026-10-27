@@ -460,6 +460,7 @@ async function webSearch(ctx: ToolContext, args: Record<string, unknown>): Promi
   if (!query) return fail("web.search requires a query.");
   try {
     const hits = await serpSearch({
+      accountId: ctx.operatorUserId,
       query,
       engine: str(args, "engine") ?? undefined,
       num: num(args, "num") ?? undefined,

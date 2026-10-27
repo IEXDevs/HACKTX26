@@ -11,6 +11,7 @@ import { NextRequest } from "next/server";
 import { POST as addDocument } from "@/app/api/kb/route";
 import { DELETE as deleteDocument } from "@/app/api/kb/[id]/route";
 import { listKbDocuments } from "./runtime/kb";
+import { serviceApiKey } from "./service-keys";
 
 vi.mock("./audit", () => ({ writeAudit: vi.fn().mockResolvedValue(undefined) }));
 
@@ -35,6 +36,20 @@ beforeEach(async () => {
 });
 
 describe("account keys", () => {
+  it.each(["composio", "serpapi"] as const)("keeps %s keys private, unique per account, and replaceable", async (purpose) => {
+    const first = await POST(request({ purpose, key: KEY }));
+    expect(first.status).toBe(201);
+    const { id } = await first.json();
+    await addAccountKey(b, purpose, KEY + "-b");
+    expect(await serviceApiKey(purpose, a.accountId)).toBe(KEY);
+    expect(await serviceApiKey(purpose, b.accountId)).toBe(KEY + "-b");
+    expect((await POST(request({ purpose, key: KEY + "-duplicate" }))).status).toBe(409);
+    expect(JSON.stringify(await (await GET()).json())).not.toContain(KEY);
+    expect(await deleteAccountKey(b, id)).toBe(false);
+    expect(await deleteAccountKey(a, id)).toBe(true);
+    await addAccountKey(a, purpose, KEY + "-new");
+    expect(await serviceApiKey(purpose, a.accountId)).toBe(KEY + "-new");
+  });
   it("stores one Gemini key alongside Muse and isolates it by account", async () => {
     await addAccountKey(a, "muse", KEY);
     const response = await POST(request({ purpose: "gemini", key: KEY + "-gemini" }));

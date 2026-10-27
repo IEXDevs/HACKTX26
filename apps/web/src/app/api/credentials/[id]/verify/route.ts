@@ -1,68 +1,20 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import { assetFailure, keyOwner, requireAssetAccount } from "@/lib/account-assets";
 import { getDb } from "@/lib/db/client";
-import { auditLog, credentials } from "@/lib/db/schema";
-import { newId } from "@/lib/env";
-import { getWorkspaceUser, requireWorkspace } from "@/lib/queries";
+import { credentials } from "@/lib/db/schema";
 import { openSecret } from "@/lib/secrets";
 
 export const dynamic = "force-dynamic";
-
-/**
- * Proves the vault is real: decrypts with AES-256-GCM, which fails if the
- * ciphertext or auth tag was tampered with. The plaintext is discarded here —
- * only metadata crosses the wire.
- */
-export async function POST(
-  _request: Request,
-  context: { params: Promise<{ id: string }> },
-) {
-  const { id } = await context.params;
-  const workspace = await requireWorkspace();
-  const db = await getDb();
-
-  const [credential] = await db
-    .select()
-    .from(credentials)
-    .where(eq(credentials.id, id))
-    .limit(1);
-
-  if (!credential || credential.workspaceId !== workspace.id) {
-    return Response.json({ error: "Credential not found." }, { status: 404 });
-  }
-
-  let ok: boolean;
-  let plaintextBytes = 0;
+/** Legacy integrity check. No value, hint, ciphertext, or key length is returned. */
+export async function POST(_request: Request, context: { params: Promise<{ id: string }> }) {
   try {
-    const plaintext = openSecret({
-      ciphertext: credential.ciphertext,
-      iv: credential.iv,
-      authTag: credential.authTag,
-    });
-    plaintextBytes = Buffer.byteLength(plaintext, "utf8");
-    ok = true;
-  } catch {
-    ok = false;
-  }
-
-  const { user } = await getWorkspaceUser();
-  await db.insert(auditLog).values({
-    id: newId("aud"),
-    workspaceId: workspace.id,
-    actor: user?.email ?? "operator@local",
-    action: "credential.verified",
-    targetType: "credential",
-    targetId: id,
-    detail: { ok, algorithm: "aes-256-gcm", plaintextBytes, plaintextReturned: false },
-    at: new Date(),
-  });
-
-  return Response.json({
-    ok,
-    algorithm: "aes-256-gcm",
-    hint: credential.hint,
-    scopes: credential.scopes,
-    plaintextBytes,
-    plaintextReturned: false,
-    checkedAt: new Date().toISOString(),
-  });
+    const account = await requireAssetAccount();
+    const { id } = await context.params;
+    const [row] = await (await getDb()).select().from(credentials)
+      .where(and(keyOwner(account), eq(credentials.id, id))).limit(1);
+    if (!row) return Response.json({ error: "Key not found." }, { status: 404 });
+    let ok = false;
+    try { openSecret(row); ok = true; } catch { /* Do not return decryption errors. */ }
+    return Response.json({ ok }, { headers: { "Cache-Control": "no-store" } });
+  } catch (error) { return assetFailure(error); }
 }

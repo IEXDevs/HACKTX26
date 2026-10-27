@@ -15,7 +15,7 @@ export async function planLibraryWorkflow(options: {
 }): Promise<WorkflowSelection> {
   const library = options.library.filter((agent) => !agent.sourceAgentId && agent.status !== "archived");
   if (!library.length) throw new Error("Add an agent in Agents before arranging a workflow.");
-  if (!liveGatewayAvailable()) throw new Error("No live model is configured for arranging agents.");
+  if (!await liveGatewayAvailable()) throw new Error("Add your Muse key in Connectors before arranging agents.");
   const catalog = library.map((agent) => ({ id: agent.id, name: agent.name, summary: agent.summary, tools: agent.allowedTools }));
   const messages = [
     { role: "system" as const, content: `Arrange existing agents into a workflow. Select only agentId values from this library: ${JSON.stringify(catalog)}.
@@ -27,7 +27,7 @@ Preserve existing choices and the goal in the current graph unless the person as
     { role: "user" as const, content: options.prompt },
   ];
   let text = "", inputTokens = 0, outputTokens = 0;
-  for await (const chunk of createLiveGateway().complete({
+  for await (const chunk of (await createLiveGateway()).complete({
     model: BUILDER_MODEL, messages, tools: [], temperature: 0.2, maxOutputTokens: 2500,
     reasoningEffort: MODEL_BY_ID.get(BUILDER_MODEL)?.provider === "meta" ? "medium" : undefined,
   })) {

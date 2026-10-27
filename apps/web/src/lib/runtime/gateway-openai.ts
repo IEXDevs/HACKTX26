@@ -89,9 +89,9 @@ export class OpenAiGateway implements ModelGateway {
     }
 
     if (!response.ok || !response.body) {
-      const detail = await response.text().catch(() => "");
+      await response.body?.cancel().catch(() => undefined);
       throw new Error(
-        `OpenAI gateway ${response.status}: ${detail.slice(0, 400) || response.statusText}`,
+        `Model provider returned HTTP ${response.status}. Check your saved key and provider access.`,
       );
     }
 

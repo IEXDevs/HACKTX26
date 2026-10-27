@@ -132,10 +132,10 @@ export async function askBuilder(
     search?: (query: string) => Promise<WebSearchHit[]>;
   },
 ) {
-  if (!opts?.gateway && !liveGatewayAvailable()) {
-    throw new Error("No live model is configured. Set MODEL_GATEWAY and a provider key.");
+  if (!opts?.gateway && !await liveGatewayAvailable()) {
+    throw new Error("Add your Muse key in Connectors to use the agent builder.");
   }
-  const gateway = opts?.gateway ?? createLiveGateway();
+  const gateway = opts?.gateway ?? await createLiveGateway();
   const search = opts?.search ?? builderSearch;
   const needsDiscovery = !opts?.draft && history.filter((turn) => turn.role === "user").length < 2;
   const baseSystem = opts?.workflowMode

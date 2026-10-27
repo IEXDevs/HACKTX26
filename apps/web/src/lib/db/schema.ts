@@ -329,7 +329,7 @@ export const credentials = appSchema.table("credentials", {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
   lastUsedAt: timestamp("last_used_at", { withTimezone: true, mode: "date" }),
   rotatedAt: timestamp("rotated_at", { withTimezone: true, mode: "date" }),
-}).enableRLS();
+}, (t) => [uniqueIndex("credentials_account_muse_idx").on(t.createdBy).where(sql`${t.connectorId} = 'muse'`)]).enableRLS();
 
 /** Documents people add for agents to search. Nothing is preloaded. */
 export const kbDocuments = appSchema.table(

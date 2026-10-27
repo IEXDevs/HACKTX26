@@ -15,6 +15,13 @@
       "when": 1793046463354,
       "tag": "0001_distributed_cancellation",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793060172293,
+      "tag": "0002_account_muse_key",
+      "breakpoints": true
     }
   ]
 }

@@ -588,6 +588,36 @@ select:not([multiple]):not([size]):disabled {
   color: var(--green);
   font-weight: 500;
 }
+.permission-mode {
+  display: inline-flex;
+  width: max-content;
+  max-width: 100%;
+}
+.permission-mode button { flex: 1; white-space: nowrap; }
+
+.stored-sections { display: grid; gap: 24px; }
+.stored-table-wrap { overflow: hidden; border: 1px solid var(--glass-edge); border-radius: 16px; background: var(--glass); backdrop-filter: var(--glass-blur); }
+.stored-table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.stored-name-col { width: 36%; }
+.stored-action-col { width: 54px; }
+.stored-table th, .stored-table td { padding: 12px 14px; text-align: left; overflow-wrap: anywhere; }
+.stored-table th { color: var(--muted); font-size: 12px; font-weight: 500; }
+.stored-table tbody tr { border-top: 1px solid var(--hairline); }
+.stored-table td { font-size: 14px; }
+.stored-table th:last-child, .stored-table td:last-child { padding: 10px 8px; }
+.stored-table input, .stored-table select, .stored-table textarea { width: 100%; min-width: 0; margin: 0; }
+.stored-table textarea { resize: vertical; min-height: 44px; max-height: 240px; }
+.stored-action { width: 36px; height: 36px; }
+.stored-delete:hover:not(:disabled) { color: var(--stopped); }
+.stored-hidden { display: block; max-width: 100%; overflow: hidden; }
+.stored-hidden > span[aria-hidden] { display: inline-block; filter: blur(3px); user-select: none; pointer-events: none; color: var(--muted); letter-spacing: 2px; }
+.stored-empty { color: var(--muted); }
+@media (max-width: 560px) {
+  .stored-table th, .stored-table td { padding: 10px 8px; }
+  .stored-name-col { width: 38%; }
+  .stored-action-col { width: 46px; }
+  .stored-table th:last-child, .stored-table td:last-child { padding-inline: 4px; }
+}
 .search {
   display: flex;
   flex: 1 1 280px;

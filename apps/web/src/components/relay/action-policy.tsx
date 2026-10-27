@@ -59,7 +59,7 @@ export function ActionPolicy({
   return (
     <section className="section">
       <h2>AI permissions</h2>
-      <div className="tabs" role="group" aria-label="AI permission approval mode">
+      <div className="tabs permission-mode" role="group" aria-label="AI permission approval mode">
         <button type="button" aria-pressed={approvalMode === "request"} disabled={busy !== null}
           onClick={() => void save({ approvalMode: "request" }, "approval-mode")}>Request permission</button>
         <button type="button" aria-pressed={approvalMode === "motivator"} disabled={busy !== null}

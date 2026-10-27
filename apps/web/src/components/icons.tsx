@@ -188,6 +188,7 @@ export const GitBranch = icon(
 /* ---------- Actions ---------- */
 
 export const Plus = icon("Plus", <path d="M12 5v14M5 12h14" />);
+export const Trash2 = icon("Trash2", <><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6" /></>);
 export const Mic = icon(
   "Mic",
   <>

@@ -198,7 +198,7 @@ export async function createRun(options: RunnerOptions): Promise<string> {
   }
 
   const mode =
-    options.mode === "live" && liveGatewayAvailable() ? "live" : "scripted";
+    options.mode === "live" && await liveGatewayAvailable(options.operatorUserId ?? null) ? "live" : "scripted";
 
   const runId = newId("run");
   const now = new Date();
@@ -345,7 +345,7 @@ class RunEngine {
   #rootResult?: AgentResult;
   #motivator?: MotivatorState;
   readonly #live: boolean;
-  readonly #liveGateway: ModelGateway | null;
+  #liveGateway: ModelGateway | null = null;
   #inputTokens = 0;
   #outputTokens = 0;
   #status: RunStatus = "running";
@@ -363,8 +363,7 @@ class RunEngine {
       { key: this.#runKey, limitUsd: run.budgetUsd, warnAt: 0.8, hardStop: env.defaults.hardStopBudgets },
     ]);
     this.#scenario = detectScenario(run.goal);
-    this.#live = run.mode === "live" && liveGatewayAvailable();
-    this.#liveGateway = this.#live ? createLiveGateway() : null;
+    this.#live = run.mode === "live";
     if (continuation) {
       this.#motivator = continuation.motivator;
       this.#rootResult = continuation.rootResult;
@@ -401,6 +400,7 @@ class RunEngine {
     }
 
     try {
+      if (this.#live) this.#liveGateway = await createLiveGateway(this.run.operatorUserId ?? null);
       if (!this.continuation) await this.logger.emit(
         {
           type: "run.started",

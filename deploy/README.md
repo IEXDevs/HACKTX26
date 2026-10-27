@@ -104,8 +104,17 @@ under `/run/docker`, which is the Docker client's certificate directory.
 The deploy script resolves and pins enabled secret versions for each revision.
 Optional Gemini, Composio, SerpAPI, and Anthropic keys can use the matching
 `astronom-<provider>-api-key` secrets. Grant the runtime identity access to each
-optional secret before enabling it. The gateway stays scripted by default; Meta
-inference remains local.
+optional secret before enabling it. The existing local Meta key stays local.
+
+Users can add one Muse key per account in Connectors. The app encrypts it with
+`CREDENTIAL_ENCRYPTION_KEY` in the private database. List responses contain only
+metadata; saved values have no reveal or export endpoint. The blurred UI uses a
+fixed placeholder. Delete a key before adding its replacement. Production model
+calls use the initiating account's saved key, never a shared environment key.
+Without an account key, runs keep the scripted fallback. Documents use the same
+account ownership for listing, deletion, and agent retrieval. Document bodies use
+the same encryption; only their names and metadata are listed. Existing documents
+identified by an author's email move to that verified account when it signs in.
 
 For local imports:
 

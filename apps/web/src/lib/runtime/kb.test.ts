@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { getDb } from "@/lib/db/client";
 import { seedPlatform } from "@/lib/db/seed";
+import { kbDocuments } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import {
   addKbDocument,
   classAllows,
@@ -13,6 +15,7 @@ import {
 } from "./kb";
 
 const WS = "ws_astronom";
+const ACCOUNT = "ada@example.com";
 
 const docs: KbDocument[] = [
   {
@@ -67,7 +70,7 @@ describe("workspace documents", () => {
   beforeEach(freshPlatform);
 
   it("starts empty: nothing is preloaded", async () => {
-    expect(await countKbDocuments(WS)).toBe(0);
+    expect(await countKbDocuments(WS, ACCOUNT)).toBe(0);
     expect(await searchKnowledgeBase(WS, "runbook policy contract")).toEqual([]);
   });
 
@@ -80,16 +83,19 @@ describe("workspace documents", () => {
       addedBy: "ada@example.com",
     });
 
-    const listed = await listKbDocuments(WS);
+    const listed = await listKbDocuments(WS, ACCOUNT);
     expect(listed.map((d) => d.id)).toEqual([id]);
-    expect(Number(listed[0]?.characters)).toBe("Refunds over 500 dollars need a manager.".length);
+    expect(listed[0]).not.toHaveProperty("body");
+    const [stored] = await (await getDb()).select().from(kbDocuments).where(eq(kbDocuments.id, id));
+    expect(stored!.body).toMatch(/^sealed-document:v1:/);
+    expect(stored!.body).not.toContain("Refunds over 500 dollars need a manager.");
 
-    const hits = await searchKnowledgeBase(WS, "refund manager");
+    const hits = await searchKnowledgeBase(WS, "refund manager", { accountId: ACCOUNT });
     expect(hits.map((h) => h.id)).toEqual([id]);
 
-    expect(await removeKbDocument(WS, id)).toBe(true);
-    expect(await removeKbDocument(WS, id)).toBe(false);
-    expect(await searchKnowledgeBase(WS, "refund manager")).toEqual([]);
+    expect(await removeKbDocument(WS, id, ACCOUNT)).toBe(true);
+    expect(await removeKbDocument(WS, id, ACCOUNT)).toBe(false);
+    expect(await searchKnowledgeBase(WS, "refund manager", { accountId: ACCOUNT })).toEqual([]);
   });
 
   it("hides documents above the reader's data class", async () => {
@@ -101,7 +107,19 @@ describe("workspace documents", () => {
       addedBy: "ada@example.com",
     });
 
-    expect(await searchKnowledgeBase(WS, "salary bands", { dataClass: "internal" })).toEqual([]);
-    expect(await searchKnowledgeBase(WS, "salary bands", { dataClass: "confidential" })).toHaveLength(1);
+    expect(await searchKnowledgeBase(WS, "salary bands", { accountId: ACCOUNT, dataClass: "internal" })).toEqual([]);
+    expect(await searchKnowledgeBase(WS, "salary bands", { accountId: ACCOUNT, dataClass: "confidential" })).toHaveLength(1);
+  });
+
+  it("isolates listing, search, counts, and deletion by account", async () => {
+    const mine = await addKbDocument({ workspaceId: WS, title: "A", body: "Private lunar launch instructions", dataClass: "internal", addedBy: ACCOUNT });
+    const theirs = await addKbDocument({ workspaceId: WS, title: "A", body: "Private lunar launch instructions", dataClass: "internal", addedBy: "other-account" });
+    expect((await listKbDocuments(WS, ACCOUNT)).map((row) => row.id)).toEqual([mine]);
+    expect(await countKbDocuments(WS, ACCOUNT)).toBe(1);
+    expect((await searchKnowledgeBase(WS, "lunar launch", { accountId: ACCOUNT })).map((row) => row.id)).toEqual([mine]);
+    expect(await searchKnowledgeBase(WS, "lunar launch")).toEqual([]);
+    expect(await removeKbDocument(WS, theirs, ACCOUNT)).toBe(false);
+    expect(await countKbDocuments(WS, "other-account")).toBe(1);
+    expect(await removeKbDocument(WS, mine, ACCOUNT)).toBe(true);
   });
 });

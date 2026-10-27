@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState, type ComponentType } from "react";
 import { useRouter } from "next/navigation";
+import { StoredItems, type KeyRow, type DocRow } from "./stored-items";
 import {
   Check,
   Globe,
-  KeyRound,
   LoaderCircle,
   Plug,
   Search,
@@ -27,33 +27,6 @@ export interface ConnectorView {
   repo?: string | null;
   branch?: string | null;
 }
-export interface KeyRow {
-  id: string;
-  name: string;
-  hint: string;
-  connector: string | null;
-  used: string | null;
-}
-export interface DocHit {
-  id: string;
-  title: string;
-  snippet: string;
-}
-export interface DocRow {
-  id: string;
-  title: string;
-  dataClass: string;
-  added: string;
-  characters: number;
-}
-
-const classWord: Record<string, string> = {
-  public: "Public",
-  internal: "Internal",
-  confidential: "Confidential",
-  restricted: "Restricted",
-};
-
 const statusWord: Record<ConnectorView["status"], string> = {
   connected: "Connected",
   pending: "Waiting on you",
@@ -89,8 +62,6 @@ export function ConnectorsView({
   serpapi,
   linked,
   keys,
-  docQuery,
-  hits,
   documents,
 }: {
   initial: ConnectorView[];
@@ -99,23 +70,13 @@ export function ConnectorsView({
   serpapi: boolean;
   linked?: string;
   keys: KeyRow[];
-  docQuery: string;
-  hits: DocHit[];
   documents: DocRow[];
 }) {
   const router = useRouter();
   const [search, setSearch] = useState(query);
-  const [docSearch, setDocSearch] = useState(docQuery);
   const [rows, setRows] = useState(initial);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(initialMessage(composio, linked));
-  const [checked, setChecked] = useState<Record<string, "ok" | "failed">>({});
-  const [title, setTitle] = useState("");
-  const [text, setText] = useState("");
-  const [dataClass, setDataClass] = useState("internal");
-  const [saving, setSaving] = useState(false);
-  const [docError, setDocError] = useState<string | null>(null);
-
   const connected = useMemo(() => rows.filter((row) => row.connected), [rows]);
   const popular = useMemo(
     () => rows.filter((row) => row.popular && !row.connected),
@@ -126,10 +87,9 @@ export function ConnectorsView({
     [rows],
   );
 
-  function pushQuery(nextApp: string, nextDoc: string) {
+  function pushQuery(nextApp: string) {
     const params = new URLSearchParams();
     if (nextApp) params.set("q", nextApp);
-    if (nextDoc) params.set("doc", nextDoc);
     const qs = params.toString();
     router.push(qs ? `/connectors?${qs}` : "/connectors");
   }
@@ -188,53 +148,6 @@ export function ConnectorsView({
     }
   }
 
-  async function addDocument() {
-    setSaving(true);
-    setDocError(null);
-    try {
-      const response = await fetch("/api/kb", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title, body: text, dataClass }),
-      });
-      if (!response.ok) {
-        const value = await response.json().catch(() => ({}));
-        setDocError(typeof value.error === "string" ? value.error : "Could not save the document.");
-        return;
-      }
-      setTitle("");
-      setText("");
-      router.refresh();
-    } catch {
-      setDocError("Could not save the document.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function removeDocument(id: string) {
-    setBusy(id);
-    try {
-      await fetch(`/api/kb/${id}`, { method: "DELETE" });
-      router.refresh();
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function verify(id: string) {
-    setBusy(id);
-    try {
-      const response = await fetch(`/api/credentials/${id}/verify`, { method: "POST" });
-      const value = await response.json().catch(() => ({}));
-      setChecked((c) => ({ ...c, [id]: response.ok && value.ok ? "ok" : "failed" }));
-    } catch {
-      setChecked((c) => ({ ...c, [id]: "failed" }));
-    } finally {
-      setBusy(null);
-    }
-  }
-
   function card(connector: ConnectorView) {
     return (
       <ConnectorCard
@@ -263,7 +176,7 @@ export function ConnectorsView({
         onSubmit={(event) => {
           event.preventDefault();
           const next = search.trim();
-          pushQuery(next, docSearch.trim());
+          pushQuery(next);
           void refresh(next);
         }}
       >
@@ -302,166 +215,7 @@ export function ConnectorsView({
         )}
       </section>
 
-      <div className="page-split">
-      <section className="section">
-        <h2>Saved keys</h2>
-        {keys.length ? (
-          <ul className="list">
-            {keys.map((k) => (
-              <li key={k.id}>
-                <span className="tile-icon" style={{ margin: 0 }} aria-hidden>
-                  <KeyRound size={16} />
-                </span>
-                <div>
-                  <b>{k.name}</b>
-                  <small>
-                    {k.connector ? `${k.connector} · ` : ""}
-                    {k.used ? `Used ${k.used}` : "Not used yet"}
-                  </small>
-                </div>
-                {checked[k.id] === "ok" ? (
-                  <span className="conn-state connected">
-                    <Check size={13} strokeWidth={2.2} /> Works
-                  </span>
-                ) : checked[k.id] === "failed" ? (
-                  <span className="conn-state degraded">Check failed</span>
-                ) : null}
-                <button className="btn small" disabled={busy === k.id} onClick={() => void verify(k.id)}>
-                  {busy === k.id && <LoaderCircle size={14} className="animate-spin" />}
-                  Check
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="empty">No saved keys.</p>
-        )}
-      </section>
-
-      <section className="section">
-        <div className="toolbar">
-          <h2>Your documents</h2>
-          <span className="detail" style={{ color: "var(--muted)" }}>
-            {documents.length} {documents.length === 1 ? "document" : "documents"}
-          </span>
-        </div>
-        <form
-          className="search"
-          onSubmit={(e) => {
-            e.preventDefault();
-            pushQuery(search.trim(), docSearch.trim());
-          }}
-        >
-          <Search size={16} />
-          <label className="sr-only" htmlFor="doc-search">
-            Search documents
-          </label>
-          <input
-            id="doc-search"
-            type="search"
-            placeholder="What do agents know about…"
-            value={docSearch}
-            onChange={(e) => setDocSearch(e.target.value)}
-          />
-        </form>
-        {docQuery && (
-          <ul className="list" style={{ marginTop: 12 }}>
-            {hits.length ? (
-              hits.map((h) => (
-                <li key={h.id}>
-                  <div>
-                    <b>{h.title}</b>
-                    <small>{h.snippet}</small>
-                  </div>
-                </li>
-              ))
-            ) : (
-              <li>
-                <div>
-                  <small>Nothing matches “{docQuery}”.</small>
-                </div>
-              </li>
-            )}
-          </ul>
-        )}
-
-        {documents.length ? (
-          <ul className="list" style={{ marginTop: 12 }}>
-            {documents.map((d) => (
-              <li key={d.id}>
-                <div>
-                  <b>{d.title}</b>
-                  <small>
-                    {classWord[d.dataClass] ?? d.dataClass} · {d.characters.toLocaleString()} characters ·
-                    Added {d.added}
-                  </small>
-                </div>
-                <button
-                  className="btn small"
-                  disabled={busy === d.id}
-                  onClick={() => void removeDocument(d.id)}
-                >
-                  {busy === d.id && <LoaderCircle size={14} className="animate-spin" />}
-                  Remove
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="empty" style={{ marginTop: 12 }}>
-            No documents yet.
-          </p>
-        )}
-
-        <form
-          style={{ marginTop: 16, display: "grid", gap: 10 }}
-          onSubmit={(e) => {
-            e.preventDefault();
-            void addDocument();
-          }}
-        >
-          <label className="field">
-            Title
-            <input
-              value={title}
-              maxLength={120}
-              placeholder="What is this document?"
-              onChange={(e) => setTitle(e.target.value)}
-            />
-          </label>
-          <label className="field">
-            Who may read it
-            <select value={dataClass} onChange={(e) => setDataClass(e.target.value)}>
-              <option value="public">Public</option>
-              <option value="internal">Internal</option>
-              <option value="confidential">Confidential</option>
-              <option value="restricted">Restricted</option>
-            </select>
-          </label>
-          <label className="field">
-            Text
-            <textarea
-              value={text}
-              maxLength={60000}
-              rows={6}
-              placeholder="Paste the document here."
-              onChange={(e) => setText(e.target.value)}
-            />
-          </label>
-          {docError && <p className="error-text">{docError}</p>}
-          <div>
-            <button
-              type="submit"
-              className="btn primary"
-              disabled={saving || title.trim().length < 2 || !text.trim()}
-            >
-              {saving && <LoaderCircle size={15} className="animate-spin" aria-hidden />}
-              Add document
-            </button>
-          </div>
-        </form>
-      </section>
-      </div>
+      <StoredItems keys={keys} documents={documents} />
     </div>
   );
 }
@@ -661,7 +415,7 @@ function GitHubSettings({
   useEffect(() => {
     void loadRepos();
     // Load once when the GitHub settings modal opens.
-
+     
   }, []);
 
   async function save() {

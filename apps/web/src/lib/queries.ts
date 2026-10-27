@@ -291,7 +291,7 @@ export async function listEvalSuites(workspaceId: string) {
   }));
 }
 
-export async function listConnectors(workspaceId: string) {
+export async function listConnectors(workspaceId: string, accountId: string) {
   const db = await getDb();
   const [connectorRows, credentialRows] = await Promise.all([
     db.select().from(connectors).where(eq(connectors.workspaceId, workspaceId)),
@@ -308,7 +308,7 @@ export async function listConnectors(workspaceId: string) {
         createdAt: credentials.createdAt,
       })
       .from(credentials)
-      .where(eq(credentials.workspaceId, workspaceId)),
+      .where(and(eq(credentials.workspaceId, workspaceId), eq(credentials.createdBy, accountId))),
   ]);
   return { connectors: connectorRows, credentials: credentialRows };
 }

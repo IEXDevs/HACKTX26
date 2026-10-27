@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "credentials_account_muse_idx" ON "astronom"."credentials" USING btree ("created_by") WHERE "astronom"."credentials"."connector_id" = 'muse';

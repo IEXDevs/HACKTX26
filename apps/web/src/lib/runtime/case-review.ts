@@ -71,7 +71,7 @@ export async function askCaseReview(
   row: FindingCaseRow,
   finding: SecurityFindingRow,
 ): Promise<CaseReviewReply> {
-  if (!liveGatewayAvailable()) {
+  if (!await liveGatewayAvailable()) {
     return {
       reply: "No live model is set up, so here is the built-in suggestion for this kind of problem.",
       change: suggestedChange(target, finding),
@@ -92,7 +92,7 @@ export async function askCaseReview(
   ];
   let text = "";
   for (let attempt = 1; attempt <= 2 && !text.trim(); attempt++) {
-    for await (const chunk of createLiveGateway().complete({
+    for await (const chunk of (await createLiveGateway()).complete({
       model: BUILDER_MODEL,
       messages,
       tools: [],

@@ -1,40 +1,31 @@
-import { getSessionUser } from "@/lib/auth";
+import { listAccountKeys, requireAssetAccount } from "@/lib/account-assets";
 import { ConnectorsView } from "@/components/relay/connectors";
-import { listConnectorViews, operatorIdFor } from "@/lib/connectors";
-import { relativeTime } from "@/lib/format";
-import { getWorkspaceUser, listConnectors } from "@/lib/queries";
-import { listKbDocuments, searchKnowledgeBase } from "@/lib/runtime/kb";
+import { listConnectorViews } from "@/lib/connectors";
+import { listKbDocuments } from "@/lib/runtime/kb";
 
 export const dynamic = "force-dynamic";
 
 export default async function ConnectorsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; linked?: string; doc?: string }>;
+  searchParams: Promise<{ q?: string; linked?: string }>;
 }) {
-  const { q, linked, doc } = await searchParams;
+  const { q, linked } = await searchParams;
   const query = q?.trim() ?? "";
-  const docQuery = doc?.trim() ?? "";
-  const { workspace, user } = await getWorkspaceUser();
-  const session = await getSessionUser();
+  const account = await requireAssetAccount();
   const [
     { connectors, composio, serpapi },
-    { connectors: registered, credentials },
+    keys,
     documents,
-    hits,
   ] = await Promise.all([
     listConnectorViews({
-      workspaceId: workspace.id,
-      userId: operatorIdFor(session?.id, user?.id),
+      workspaceId: account.workspaceId,
+      userId: account.accountId,
       query,
     }),
-    listConnectors(workspace.id),
-    listKbDocuments(workspace.id),
-    docQuery.length > 1
-      ? searchKnowledgeBase(workspace.id, docQuery, { topK: 5 })
-      : Promise.resolve([]),
+    listAccountKeys(account),
+    listKbDocuments(account.workspaceId, account.accountId),
   ]);
-  const name = new Map(registered.map((c) => [c.id, c.name]));
 
   return (
     <ConnectorsView
@@ -43,25 +34,13 @@ export default async function ConnectorsPage({
       composio={composio}
       serpapi={serpapi}
       linked={linked}
-      keys={credentials.map((k) => ({
+      keys={keys.map((k) => ({
         id: k.id,
         name: k.name,
-        hint: k.hint,
-        connector: k.connectorId ? (name.get(k.connectorId) ?? null) : null,
-        used: k.lastUsedAt ? relativeTime(k.lastUsedAt) : null,
-      }))}
-      docQuery={docQuery}
-      hits={hits.map((h) => ({
-        id: h.id,
-        title: h.title,
-        snippet: h.snippet,
       }))}
       documents={documents.map((d) => ({
         id: d.id,
         title: d.title,
-        dataClass: d.dataClass,
-        added: relativeTime(d.createdAt),
-        characters: Number(d.characters),
       }))}
     />
   );

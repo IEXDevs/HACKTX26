@@ -286,9 +286,10 @@ async function kbSearch(ctx: ToolContext, args: Record<string, unknown>): Promis
   const hits = await searchKnowledgeBase(ctx.workspaceId, query, {
     topK: num(args, "topK") ?? 4,
     dataClass: ctx.dataClass,
+    accountId: ctx.operatorUserId,
   });
   if (hits.length === 0) {
-    const total = await countKbDocuments(ctx.workspaceId);
+    const total = ctx.operatorUserId ? await countKbDocuments(ctx.workspaceId, ctx.operatorUserId) : 0;
     return {
       ok: true,
       preview:
@@ -375,7 +376,7 @@ async function secretUse(ctx: ToolContext, args: Record<string, unknown>): Promi
   const rows = await db
     .select()
     .from(credentials)
-    .where(eq(credentials.workspaceId, ctx.workspaceId));
+    .where(and(eq(credentials.workspaceId, ctx.workspaceId), eq(credentials.createdBy, ctx.operatorUserId ?? "")));
   const match = rows.find(
     (row) =>
       row.id === name || row.name.toLowerCase() === name.toLowerCase(),
@@ -385,7 +386,7 @@ async function secretUse(ctx: ToolContext, args: Record<string, unknown>): Promi
   // The lease is minted and immediately dropped: no caller can retrieve the
   // plaintext through the event stream, the run summary, or the UI.
   const { openSecret } = await import("@/lib/secrets");
-  const value = openSecret({
+  openSecret({
     ciphertext: match.ciphertext,
     iv: match.iv,
     authTag: match.authTag,
@@ -400,8 +401,7 @@ async function secretUse(ctx: ToolContext, args: Record<string, unknown>): Promi
   return {
     ok: true,
     preview:
-      `lease ${match.id} minted for 60s · credential ${match.hint} · ` +
-      `${value.length} bytes decrypted in-process · plaintext withheld from the transcript`,
+      `lease ${match.id} minted for 60s · stored credential used · plaintext withheld from the transcript`,
   };
 }
 

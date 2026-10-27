@@ -5,11 +5,23 @@
  * lexical ranking, and every hit is labeled untrusted: retrieved text is where
  * prompt injection arrives, so it is never treated as an instruction.
  */
-import { and, count, desc, eq, sql } from "drizzle-orm";
+import { and, count, desc, eq } from "drizzle-orm";
 import type { DataClass } from "@agent-os/core";
 import { getDb } from "../db/client";
 import { kbDocuments } from "../db/schema";
 import { newId } from "../env";
+import { openSecret, sealSecret } from "../secrets";
+
+const ENCRYPTED_DOCUMENT = "sealed-document:v1:";
+
+export function sealDocument(body: string): string {
+  return ENCRYPTED_DOCUMENT + JSON.stringify(sealSecret(body));
+}
+
+function documentText(body: string): string {
+  // Old imports can contain plaintext; all new documents use the sealed envelope.
+  return body.startsWith(ENCRYPTED_DOCUMENT) ? openSecret(JSON.parse(body.slice(ENCRYPTED_DOCUMENT.length))) : body;
+}
 
 export interface KbDocument {
   id: string;
@@ -81,7 +93,7 @@ export function rankDocuments(docs: readonly KbDocument[], query: string, topK =
     .slice(0, topK);
 }
 
-export async function listKbDocuments(workspaceId: string) {
+export async function listKbDocuments(workspaceId: string, accountId: string) {
   return (await getDb())
     .select({
       id: kbDocuments.id,
@@ -89,18 +101,17 @@ export async function listKbDocuments(workspaceId: string) {
       dataClass: kbDocuments.dataClass,
       addedBy: kbDocuments.addedBy,
       createdAt: kbDocuments.createdAt,
-      characters: sql<number>`length(${kbDocuments.body})`,
     })
     .from(kbDocuments)
-    .where(eq(kbDocuments.workspaceId, workspaceId))
+    .where(and(eq(kbDocuments.workspaceId, workspaceId), eq(kbDocuments.addedBy, accountId)))
     .orderBy(desc(kbDocuments.createdAt));
 }
 
-export async function countKbDocuments(workspaceId: string): Promise<number> {
+export async function countKbDocuments(workspaceId: string, accountId: string): Promise<number> {
   const [row] = await (await getDb())
     .select({ total: count() })
     .from(kbDocuments)
-    .where(eq(kbDocuments.workspaceId, workspaceId));
+    .where(and(eq(kbDocuments.workspaceId, workspaceId), eq(kbDocuments.addedBy, accountId)));
   return row?.total ?? 0;
 }
 
@@ -111,13 +122,15 @@ export async function countKbDocuments(workspaceId: string): Promise<number> {
 export async function searchKnowledgeBase(
   workspaceId: string,
   query: string,
-  options: { topK?: number; dataClass?: DataClass } = {},
+  options: { topK?: number; dataClass?: DataClass; accountId?: string } = {},
 ): Promise<KbHit[]> {
-  const rows = await (await getDb()).select().from(kbDocuments).where(eq(kbDocuments.workspaceId, workspaceId));
+  if (!options.accountId) return [];
+  const rows = await (await getDb()).select().from(kbDocuments)
+    .where(and(eq(kbDocuments.workspaceId, workspaceId), eq(kbDocuments.addedBy, options.accountId)));
   const visible = options.dataClass
     ? rows.filter((row) => classAllows(options.dataClass!, row.dataClass))
     : rows;
-  return rankDocuments(visible, query, options.topK ?? 4);
+  return rankDocuments(visible.map((row) => ({ ...row, body: documentText(row.body) })), query, options.topK ?? 4);
 }
 
 export async function addKbDocument(input: {
@@ -132,7 +145,7 @@ export async function addKbDocument(input: {
     id,
     workspaceId: input.workspaceId,
     title: input.title,
-    body: input.body,
+    body: sealDocument(input.body),
     dataClass: input.dataClass,
     addedBy: input.addedBy,
     createdAt: new Date(),
@@ -140,10 +153,10 @@ export async function addKbDocument(input: {
   return id;
 }
 
-export async function removeKbDocument(workspaceId: string, id: string): Promise<boolean> {
+export async function removeKbDocument(workspaceId: string, id: string, accountId: string): Promise<boolean> {
   const removed = await (await getDb())
     .delete(kbDocuments)
-    .where(and(eq(kbDocuments.workspaceId, workspaceId), eq(kbDocuments.id, id)))
+    .where(and(eq(kbDocuments.workspaceId, workspaceId), eq(kbDocuments.id, id), eq(kbDocuments.addedBy, accountId)))
     .returning({ id: kbDocuments.id });
   return removed.length > 0;
 }

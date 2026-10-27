@@ -3,7 +3,8 @@ import { LiveRefresh } from "@/components/relay/live-refresh";
 import { observabilityEnabled } from "@/lib/env";
 import { clockTime, relativeTime } from "@/lib/format";
 import { listPromptLogs } from "@/lib/observability";
-import { listAgents, requireWorkspace } from "@/lib/queries";
+import { listAgents, listRuns, requireWorkspace } from "@/lib/queries";
+import { groupPromptLogs } from "@/lib/prompt-groups";
 import { plainText } from "@/lib/plain-text";
 
 export const dynamic = "force-dynamic";
@@ -17,11 +18,14 @@ const sourceLabel: Record<string, string> = {
 export default async function ObservabilityPage() {
   const workspace = await requireWorkspace();
   const configured = observabilityEnabled();
-  const [prompts, agents] = await Promise.all([
+  const [prompts, agents, runs] = await Promise.all([
     configured ? listPromptLogs(workspace.id, 80) : Promise.resolve(null),
     listAgents(workspace.id),
+    listRuns(workspace.id, { limit: 200 }),
   ]);
   const names = new Map(agents.map((agent) => [agent.id, agent.name]));
+  const runNames = new Map(runs.map((run) => [run.id, run.goal || run.agentName]));
+  const groups = groupPromptLogs(prompts ?? []);
 
   return (
     <div className="page">
@@ -40,8 +44,11 @@ export default async function ObservabilityPage() {
       <section className="section">
         <h2>Prompt traces{prompts && prompts.length > 0 ? ` · ${prompts.length}` : ""}</h2>
         {prompts?.length ? (
-          <ol className="log-stream">
-            {prompts.map((row) => {
+          <div>{groups.map((group) => <details key={group.id} className="prompt-run-group">
+            <summary><b>{group.runId ? runNames.get(group.runId) ?? `Run ${group.runId}` : group.source === "builder" ? "Builder chats" : "Agent composition"}</b><small>{group.rows.length} traces · {group.tokens.toLocaleString()} tokens · {relativeTime(group.latestAt)}</small></summary>
+            {group.runId && <p className="note"><Link href={`/runs/${group.runId}`}>Open run</Link></p>}
+            <ol className="log-stream">
+            {group.rows.map((row) => {
               const thinking = row.messages.find((message) => message.role === "thinking")?.content;
               const preview = plainText(
                 row.completion ||
@@ -84,7 +91,7 @@ export default async function ObservabilityPage() {
                 </li>
               );
             })}
-          </ol>
+          </ol></details>)}</div>
         ) : (
           <p className="empty">
             {configured

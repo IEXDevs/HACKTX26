@@ -121,6 +121,20 @@ account ownership for listing, deletion, and agent retrieval. Document bodies us
 the same encryption; only their names and metadata are listed. Existing documents
 identified by an author's email move to that verified account when it signs in.
 
+Signed-in accounts now resolve to separate private workspaces. Agent and workflow
+lists, direct pages, edits, runs, and saved custom templates use that workspace.
+On first access, a transaction recovers legacy agents only from creation audit
+records matching the verified account email. Related records follow those agents;
+account-owned keys, documents, and app links also follow the account. Agent files
+are copied into the private workspace, leaving the original files intact. Records
+without reliable ownership stay in the legacy workspace and are not assigned to
+an arbitrary account. Local development without auth keeps its local workspace.
+
+The create-agent chat, draft, options, attachments, and unsent text autosave in
+account-scoped browser storage until publish. This is browser-local persistence,
+not cross-device sync. A successful publish clears the saved builder state.
+Observability groups recent prompt traces by run, with turns in time order.
+
 For local imports:
 
 ```sh

@@ -1,9 +1,12 @@
 import { and, asc, desc, eq, gt, gte, inArray, ne, sql } from "drizzle-orm";
+import { cache } from "react";
 import type { RunEvent, RunEventPayload } from "@agent-os/core";
 import { getSessionUser } from "./auth";
 import { ensureBootstrapped } from "./bootstrap";
 import { getDb } from "@/lib/db/client";
-import { supabaseAuthEnabled } from "./env";
+import { env, supabaseAuthEnabled } from "./env";
+import { ensureAccountWorkspace } from "./account-workspace";
+import { visibleTemplates } from "./template-visibility";
 import { spendSince } from "./observability";
 import {
   agents,
@@ -30,6 +33,9 @@ import {
 export const DEFAULT_WORKSPACE_SLUG = "astronom-platform";
 
 export async function getWorkspace(slug = DEFAULT_WORKSPACE_SLUG) {
+  const session = await getSessionUser();
+  if (session) return ensureAccountWorkspace(session.id, session.email);
+  if (supabaseAuthEnabled() || env.isProduction) throw new Error("Sign in required.");
   const db = await getDb();
   const [workspace] = await db
     .select()
@@ -39,7 +45,7 @@ export async function getWorkspace(slug = DEFAULT_WORKSPACE_SLUG) {
   return workspace ?? null;
 }
 
-export async function requireWorkspace(slug = DEFAULT_WORKSPACE_SLUG) {
+export const requireWorkspace = cache(async (slug = DEFAULT_WORKSPACE_SLUG) => {
   // Pages and layouts render concurrently in the App Router, so a page's
   // first query can run before the layout's bootstrap seed finishes. Gate
   // here (shared, idempotent) so a cold database never 500s the first hit.
@@ -51,13 +57,13 @@ export async function requireWorkspace(slug = DEFAULT_WORKSPACE_SLUG) {
     );
   }
   return workspace;
-}
+});
 
 export async function getCurrentUser(workspaceId: string) {
   const db = await getDb();
   const session = await getSessionUser();
   if (session?.email) {
-    const [matched] = await db.select().from(users).where(eq(users.email, session.email)).limit(1);
+    const [matched] = await db.select().from(users).where(and(eq(users.email, session.email), eq(users.workspaceId, workspaceId))).limit(1);
     if (matched) return matched;
   }
   if (supabaseAuthEnabled()) return null;
@@ -125,7 +131,8 @@ export async function listAgents(workspaceId: string): Promise<AgentRow[]> {
 }
 
 export async function getAgent(agentId: string): Promise<AgentRow | null> {
-  const [row] = await (await getDb()).select().from(agents).where(eq(agents.id, agentId)).limit(1);
+  const workspace = await requireWorkspace();
+  const [row] = await (await getDb()).select().from(agents).where(and(eq(agents.id, agentId), eq(agents.workspaceId, workspace.id))).limit(1);
   return row ?? null;
 }
 
@@ -136,7 +143,7 @@ export async function getAgentDetail(agentId: string) {
 
   const [parent, children, blocks, proposals] = await Promise.all([
     agent.parentAgentId ? getAgent(agent.parentAgentId) : Promise.resolve(null),
-    db.select().from(agents).where(eq(agents.parentAgentId, agent.id)),
+    db.select().from(agents).where(and(eq(agents.parentAgentId, agent.id), eq(agents.workspaceId, agent.workspaceId))),
     db.select().from(promptBlocks).where(eq(promptBlocks.workspaceId, agent.workspaceId)),
     db
       .select()
@@ -174,7 +181,7 @@ export async function listRuns(
       agentRole: agents.role,
     })
     .from(runs)
-    .leftJoin(agents, eq(agents.id, runs.agentId))
+    .leftJoin(agents, and(eq(agents.id, runs.agentId), eq(agents.workspaceId, runs.workspaceId)))
     .where(
       and(
         eq(runs.workspaceId, workspaceId),
@@ -193,12 +200,13 @@ export async function listRuns(
 }
 
 export async function getRun(runId: string) {
+  const workspace = await requireWorkspace();
   const db = await getDb();
   const [row] = await db
     .select({ run: runs, agent: agents })
     .from(runs)
-    .leftJoin(agents, eq(agents.id, runs.agentId))
-    .where(eq(runs.id, runId))
+    .leftJoin(agents, and(eq(agents.id, runs.agentId), eq(agents.workspaceId, runs.workspaceId)))
+    .where(and(eq(runs.id, runId), eq(runs.workspaceId, workspace.id)))
     .limit(1);
   return row ? { ...row.run, agent: row.agent ?? null } : null;
 }
@@ -314,7 +322,8 @@ export async function listConnectors(workspaceId: string, accountId: string) {
 }
 
 export async function listTemplates() {
-  return (await getDb()).select().from(templates).orderBy(asc(templates.name));
+  const workspace = await requireWorkspace();
+  return (await getDb()).select().from(templates).where(visibleTemplates(workspace.id)).orderBy(asc(templates.name));
 }
 
 export async function listBudgetPolicies(workspaceId: string) {

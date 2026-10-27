@@ -1,10 +1,11 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { createAgentGraph } from "@/lib/agent-factory";
 import { getDb } from "@/lib/db/client";
 import { templates } from "@/lib/db/schema";
 import { getWorkspaceUser, requireWorkspace } from "@/lib/queries";
+import { visibleTemplates } from "@/lib/template-visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "Expected { templateId, name?, dataClass? }." }, { status: 400 });
   }
   const workspace = await requireWorkspace();
-  const [template] = await (await getDb()).select().from(templates).where(eq(templates.id, parsed.data.templateId)).limit(1);
+  const [template] = await (await getDb()).select().from(templates).where(and(eq(templates.id, parsed.data.templateId), visibleTemplates(workspace.id))).limit(1);
   if (!template) return Response.json({ error: "Template not found." }, { status: 404 });
   const { user } = await getWorkspaceUser();
   const result = await createAgentGraph({

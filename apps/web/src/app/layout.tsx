@@ -14,6 +14,7 @@ import "./globals.css";
 import "@/styles/relay.css";
 import "@/styles/composer.css";
 import "@/styles/navigation.css";
+import "@/styles/builder-updates.css";
 
 const ui = Inter({ variable: "--font-ui", subsets: ["latin"] });
 const display = Inter_Tight({ variable: "--font-display-face", subsets: ["latin"] });

@@ -3,15 +3,15 @@ import { eq } from "drizzle-orm";
 import { cache } from "react";
 import { ensureBootstrapped } from "./bootstrap";
 import { getDb } from "./db/client";
-import { users, workspaces, type User } from "./db/schema";
+import { users, type User } from "./db/schema";
 import { DEMO_LOGIN, emailFromLogin } from "./auth-identity";
 import { newId, now, observabilityEnabled } from "./env";
+import { ensureAccountWorkspace } from "./account-workspace";
 import { touchProfile } from "./observability";
 import { createSupabaseServerClient, supabaseAdmin } from "./supabase";
 
 export { DEMO_LOGIN, emailFromLogin } from "./auth-identity";
 
-const DEFAULT_WORKSPACE_SLUG = "astronom-platform";
 
 export interface SessionUser {
   id: string;
@@ -51,7 +51,6 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
 
 export async function upsertLocalUser(
   authUser: AuthUser | SessionUser,
-  workspaceId?: string,
 ): Promise<User> {
   await ensureBootstrapped();
   const email =
@@ -65,17 +64,13 @@ export async function upsertLocalUser(
     ("name" in authUser && typeof authUser.name === "string" ? authUser.name : email.split("@")[0]!) ||
     "Operator";
   const db = await getDb();
+  const privateWorkspace = await ensureAccountWorkspace(authUser.id, email);
   const [existing] = await db.select().from(users).where(eq(users.email, email)).limit(1);
   if (existing) return existing;
 
-  const [workspace] = await db
-    .select({ id: workspaces.id })
-    .from(workspaces)
-    .where(eq(workspaces.slug, DEFAULT_WORKSPACE_SLUG))
-    .limit(1);
   const row = {
     id: newId("usr"),
-    workspaceId: workspaceId ?? workspace?.id ?? "ws_astronom",
+    workspaceId: privateWorkspace.id,
     name,
     email,
     role: "engineer" as const,

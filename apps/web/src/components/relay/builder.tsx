@@ -22,6 +22,7 @@ import { CATEGORY_LABELS, CHECK_MAX_USD, RED_TEAM_CATEGORIES } from "@/lib/loop/
 import { DraftSchema, type BuilderDraft } from "@/lib/runtime/builder-parse";
 import { plainText } from "@/lib/plain-text";
 import { useTabDraft } from "@/lib/use-tab-draft";
+import { builderStorageKey, readBuilderAutosave } from "@/lib/builder-autosave";
 import { RichText } from "./rich-text";
 import { ComposerAttach, ComposerChips } from "./composer-attach";
 import { WORKFLOW_MODES, type WorkflowMode } from "@/lib/workflow-mode";
@@ -78,15 +79,16 @@ type Check =
  * a workflow video becomes the first message. Publish creates exactly the
  * drafted team through POST /api/agents/custom and activates it.
  */
-export function Builder({ templates, workflowMode, onBack }: {
+export function Builder({ templates, accountScope, workflowMode, onBack }: {
   templates: BuilderTemplate[];
+  accountScope: string;
   workflowMode?: Exclude<WorkflowMode, "manual">;
   onBack?: () => void;
 }) {
   const router = useRouter();
   const workflow = Boolean(workflowMode);
   const mode = WORKFLOW_MODES.find((option) => option.id === workflowMode);
-  const [input, setInput, clearInput] = useTabDraft(`astronom.builder-input.${workflowMode ?? "agent"}`),
+  const [input, setInput, clearInput] = useTabDraft(`astronom.builder-input.${accountScope}.${workflowMode ?? "agent"}`),
     [messages, setMessages] = useState<Message[]>([]),
     [draft, setDraft] = useState<BuilderDraft | null>(null),
     [canSpawnSubagents, setCanSpawnSubagents] = useState(true),
@@ -109,6 +111,28 @@ export function Builder({ templates, workflowMode, onBack }: {
   const latest = useRef({ messages, draft });
   latest.current = { messages, draft };
   const linkedApps = useRef<Map<string, string> | null>(null);
+  const storageKey = builderStorageKey(accountScope, workflowMode);
+  const [restored, setRestored] = useState(false);
+  const [autosaveFailed, setAutosaveFailed] = useState(false);
+  useEffect(() => {
+    try {
+      const saved = readBuilderAutosave(localStorage.getItem(storageKey));
+      if (saved) {
+        setInput(saved.input); setMessages(saved.messages); setDraft(saved.draft);
+        setCanSpawnSubagents(saved.canSpawnSubagents); setProposeTemplates(saved.proposeTemplates); setAttachments(saved.attachments);
+        nextId.current = saved.messages.reduce((next, message) => Math.max(next, Number(message.id.replace(/^m/, "")) + 1 || 0), 0);
+      }
+    } catch { setAutosaveFailed(true); }
+    setRestored(true);
+  }, [storageKey, setInput]);
+  useEffect(() => {
+    if (!restored) return;
+    try {
+      if (published || (!input && !messages.length && !draft && !attachments.length)) localStorage.removeItem(storageKey);
+      else localStorage.setItem(storageKey, JSON.stringify({ version: 1, input, messages, draft, canSpawnSubagents, proposeTemplates, attachments }));
+      if (autosaveFailed) setAutosaveFailed(false);
+    } catch { if (!autosaveFailed) setAutosaveFailed(true); }
+  }, [restored, storageKey, input, messages, draft, canSpawnSubagents, proposeTemplates, attachments, published, autosaveFailed]);
 
   const id = () => `m${nextId.current++}`;
   const append = useCallback((message: Omit<Message, "id">) => {
@@ -300,6 +324,8 @@ export function Builder({ templates, workflowMode, onBack }: {
           }
         }
         const agent = { id: value.orchestratorId as string, name: current.name };
+        clearInput();
+        try { localStorage.removeItem(storageKey); } catch { /* Publishing still succeeds when storage is unavailable. */ }
         setPublished(agent);
         if (options.checkNow && !workflow) await startCheck(agent.id);
         return true;
@@ -447,9 +473,7 @@ export function Builder({ templates, workflowMode, onBack }: {
           <Link href="/agents/library" className="glass-pill"><Users size={16} aria-hidden />View agents</Link>
         )}
         <div className="composer-bar-end">
-          <button className="glass-pill" disabled={busy || Boolean(thinking) || !draft} onClick={() => void create(false)}>
-            Save draft
-          </button>
+          {!published && <span className="note" role="status">{autosaveFailed ? "Autosave unavailable in this browser" : "Saved automatically in this browser"}</span>}
         </div>
       </div>
 

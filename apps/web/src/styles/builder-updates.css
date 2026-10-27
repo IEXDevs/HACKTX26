@@ -1,0 +1,19 @@
+.wf-studio-command-row {
+  position: absolute;
+  z-index: 3;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(550px, calc(100% - 32px));
+}
+.wf-studio-command-row .wf-studio-command { position: static; transform: none; width: auto; flex: 1; min-width: 0; }
+.wf-studio-save { flex-shrink: 0; }
+.prompt-run-group { border: 1px solid var(--glass-edge); border-radius: 12px; margin-top: 12px; padding: 12px 16px; }
+.prompt-run-group summary { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; cursor: pointer; }
+.prompt-run-group summary::before { content: "▸"; color: var(--muted); }
+.prompt-run-group[open] summary::before { content: "▾"; }
+.prompt-run-group summary small { color: var(--muted); }
+.prompt-run-group .log-stream { margin-top: 12px; }

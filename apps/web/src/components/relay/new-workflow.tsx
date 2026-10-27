@@ -7,9 +7,9 @@ import { WORKFLOW_MODES, type WorkflowMode } from "@/lib/workflow-mode";
 import type { LibraryAgent } from "@/lib/workflow-selection";
 import { WorkflowBuilder } from "./workflow-builder";
 
-export function NewWorkflow({ library }: { library: LibraryAgent[] }) {
+export function NewWorkflow({ library, accountScope }: { library: LibraryAgent[]; accountScope: string }) {
   const [mode, setMode] = useState<WorkflowMode | null>(null);
-  if (mode) return <WorkflowBuilder key={mode} mode={mode} library={library} onBack={() => setMode(null)} />;
+  if (mode) return <WorkflowBuilder key={mode} accountScope={accountScope} mode={mode} library={library} onBack={() => setMode(null)} />;
 
   return (
     <div className="page">

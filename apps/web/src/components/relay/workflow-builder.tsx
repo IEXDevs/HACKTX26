@@ -15,18 +15,19 @@ import { useTabDraft } from "@/lib/use-tab-draft";
 const NO_TASKS: [] = [];
 const FIRST_SLOT: WorkflowSlot = { id: "lead", parentId: null, agentId: null };
 
-export function WorkflowBuilder({ mode, library, onBack }: {
+export function WorkflowBuilder({ mode, library, onBack, accountScope }: {
+  accountScope: string;
   mode: WorkflowMode;
   library: LibraryAgent[];
   onBack: () => void;
 }) {
   const router = useRouter();
   const [slots, setSlots] = useState<WorkflowSlot[]>([FIRST_SLOT]);
-  const [name, setName, clearName] = useTabDraft(`astronom.workflow-builder-name.${mode}`);
+  const [name, setName, clearName] = useTabDraft(`astronom.workflow-builder-name.${accountScope}.${mode}`);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [pickerId, setPickerId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [prompt, setPrompt, clearPrompt] = useTabDraft(`astronom.workflow-builder-prompt.${mode}`);
+  const [prompt, setPrompt, clearPrompt] = useTabDraft(`astronom.workflow-builder-prompt.${accountScope}.${mode}`);
   const [goal, setGoal] = useState("");
   const [busy, setBusy] = useState(false);
   const [thinking, setThinking] = useState(false);
@@ -129,20 +130,22 @@ export function WorkflowBuilder({ mode, library, onBack }: {
         <button className="icon-btn" aria-label="Workflow modes" title="Workflow modes" onClick={onBack} disabled={locked}><ArrowLeft size={17} aria-hidden /></button>
         <span className="wf-studio-mode">{WORKFLOW_MODES.find((item) => item.id === mode)?.name}</span>
         <input className="wf-studio-name" aria-label="Workflow name" placeholder="Untitled workflow" value={name} maxLength={64} onChange={(event) => setName(event.target.value)} disabled={locked} />
-        <button className="btn primary" onClick={() => void save()} disabled={!ready || locked}>
+        {mode === "manual" && <button className="btn primary" onClick={() => void save()} disabled={!ready || locked}>
           {busy && <LoaderCircle size={14} className="animate-spin" aria-hidden />}Save
-        </button>
+        </button>}
       </header>
       <div className="wf-studio-canvas">
         <GraphSpace agents={graph} tasks={NO_TASKS} flows={headFlows}
           onLayoutChange={(next) => { positions.current = next; }}
           editor={{ selectedId, onSelect: openPicker, onAdd: mode === "dynamic" ? undefined : addChild, canAddChild, disabled: locked }} />
-        {mode !== "manual" && <form className="wf-studio-command" onSubmit={(event) => { event.preventDefault(); void arrange(); }}>
+        {mode !== "manual" && <div className="wf-studio-command-row"><form className="wf-studio-command" onSubmit={(event) => { event.preventDefault(); void arrange(); }}>
           <ComposerAttach attachments={attachments} onChange={setAttachments} />
           <input aria-label="Describe the workflow" placeholder={mode === "automatic" ? "Describe a tree for your agents…" : "Describe the task for the lead agent…"} value={prompt} maxLength={3000} onChange={(event) => setPrompt(event.target.value)} disabled={locked} />
           <button type="submit" className="wf-studio-send" aria-label="Arrange agents" disabled={!prompt.trim() || locked}>{thinking ? <LoaderCircle size={16} className="animate-spin" /> : <ArrowUp size={16} />}</button>
           <ComposerChips attachments={attachments} onRemove={(item) => setAttachments(attachments.filter((row) => row !== item))} />
-        </form>}
+        </form><button type="button" className="btn primary wf-studio-save" onClick={() => void save()} disabled={!ready || locked}>
+          {busy && <LoaderCircle size={14} className="animate-spin" aria-hidden />}Save
+        </button></div>}
         {(error || thinking) && <div className="wf-studio-status" role={error ? "alert" : "status"}>
           <span>{error || "Choosing agents…"}</span>{error && <button className="icon-btn" aria-label="Dismiss error" onClick={() => setError("")}><X size={13} /></button>}
         </div>}

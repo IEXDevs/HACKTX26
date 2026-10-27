@@ -15,5 +15,5 @@ export default async function NewWorkflowPage() {
         model, modelId: catalog?.id ?? null, provider: catalog?.provider ?? "", complexity: agent.complexity,
         dataClass: agent.dataClass, tools: agent.allowedTools };
     });
-  return <NewWorkflow library={library} />;
+  return <NewWorkflow key={workspace.id} accountScope={workspace.id} library={library} />;
 }

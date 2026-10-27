@@ -1,5 +1,5 @@
 import { cache } from "react";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getSessionUser } from "./auth";
 import { operatorIdFor } from "./connectors";
 import { getDb } from "./db/client";
@@ -40,32 +40,41 @@ export function keyOwner(account: AssetAccount) {
 /** Deliberately excludes the ciphertext, IV, tag, hint, value, and value length. */
 export async function listAccountKeys(account: AssetAccount) {
   return (await getDb()).select({ id: credentials.id, name: credentials.name, purpose: credentials.connectorId })
-    .from(credentials).where(and(keyOwner(account), eq(credentials.connectorId, "muse")));
+    .from(credentials).where(and(keyOwner(account), inArray(credentials.connectorId, ["muse", "gemini"])));
 }
 
 export async function addAccountKey(account: AssetAccount, purpose: string, value: string) {
-  if (purpose !== "muse" || value.length < 8 || value.length > 8192 || /\s/.test(value)) {
-    throw new AssetError("Enter a valid Muse key.", 400);
+  if (!["muse", "gemini"].includes(purpose) || value.length < 8 || value.length > 8192 || /\s/.test(value)) {
+    throw new AssetError("Choose Muse or Gemini and enter a valid key.", 400);
   }
+  const name = purpose === "gemini" ? "Gemini (voice)" : "Muse";
   const [saved] = await (await getDb()).insert(credentials).values({
-    id: newId("cred"), workspaceId: account.workspaceId, connectorId: "muse", name: "Muse",
+    id: newId("cred"), workspaceId: account.workspaceId, connectorId: purpose, name,
     ...sealSecret(value), hint: "Hidden", scopes: [], createdBy: account.accountId, createdAt: new Date(),
   }).onConflictDoNothing().returning({ id: credentials.id });
-  if (!saved) throw new AssetError("A Muse key is already saved. Delete it before adding a replacement.", 409);
+  if (!saved) throw new AssetError(`A ${name} key is already saved. Delete it before adding a replacement.`, 409);
   return saved;
 }
 
 export async function deleteAccountKey(account: AssetAccount, id: string) {
   const rows = await (await getDb()).delete(credentials)
-    .where(and(keyOwner(account), eq(credentials.id, id), eq(credentials.connectorId, "muse")))
+    .where(and(keyOwner(account), eq(credentials.id, id), inArray(credentials.connectorId, ["muse", "gemini"])))
     .returning({ id: credentials.id });
   return rows.length > 0;
 }
 
 /** Server-only model use. There is no HTTP read or reveal endpoint for this value. */
 export async function accountMuseKey(accountId: string): Promise<string | null> {
+  return accountKey(accountId, "muse");
+}
+
+export async function accountGeminiKey(accountId: string): Promise<string | null> {
+  return accountKey(accountId, "gemini");
+}
+
+async function accountKey(accountId: string, purpose: "muse" | "gemini"): Promise<string | null> {
   const [row] = await (await getDb()).select().from(credentials)
-    .where(and(eq(credentials.createdBy, accountId), eq(credentials.connectorId, "muse"))).limit(1);
+    .where(and(eq(credentials.createdBy, accountId), eq(credentials.connectorId, purpose))).limit(1);
   return row ? openSecret(row) : null;
 }
 

@@ -329,7 +329,10 @@ export const credentials = appSchema.table("credentials", {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
   lastUsedAt: timestamp("last_used_at", { withTimezone: true, mode: "date" }),
   rotatedAt: timestamp("rotated_at", { withTimezone: true, mode: "date" }),
-}, (t) => [uniqueIndex("credentials_account_muse_idx").on(t.createdBy).where(sql`${t.connectorId} = 'muse'`)]).enableRLS();
+}, (t) => [
+  uniqueIndex("credentials_account_muse_idx").on(t.createdBy).where(sql`${t.connectorId} = 'muse'`),
+  uniqueIndex("credentials_account_gemini_idx").on(t.createdBy).where(sql`${t.connectorId} = 'gemini'`),
+]).enableRLS();
 
 /** Documents people add for agents to search. Nothing is preloaded. */
 export const kbDocuments = appSchema.table(

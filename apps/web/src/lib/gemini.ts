@@ -80,6 +80,8 @@ export interface GeminiUsage {
 
 export interface GeminiDeps {
   client?: GeminiClient;
+  /** Server-only account key. Never cached across accounts. */
+  apiKey?: string;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   /** Called once a description is generated, for the usage ledger. */
@@ -90,6 +92,7 @@ let cached: GeminiClient | undefined;
 
 function clientFor(deps: GeminiDeps): GeminiClient {
   if (deps.client) return deps.client;
+  if (deps.apiKey) return new GoogleGenAI({ apiKey: deps.apiKey });
   if (!geminiEnabled()) {
     throw new Error("Voice and video are not set up. Add GEMINI_API_KEY on the server.");
   }

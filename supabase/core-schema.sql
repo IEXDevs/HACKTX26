@@ -480,10 +480,12 @@ REVOKE ALL ON ALL SEQUENCES IN SCHEMA "astronom" FROM PUBLIC;
 
 ALTER TABLE "astronom"."runs" ADD COLUMN "cancel_requested" boolean DEFAULT false NOT NULL;
 CREATE UNIQUE INDEX "credentials_account_muse_idx" ON "astronom"."credentials" USING btree ("created_by") WHERE "astronom"."credentials"."connector_id" = 'muse';
+CREATE UNIQUE INDEX "credentials_account_gemini_idx" ON "astronom"."credentials" USING btree ("created_by") WHERE "astronom"."credentials"."connector_id" = 'gemini';
 CREATE TABLE astronom.__drizzle_migrations (id serial PRIMARY KEY, hash text NOT NULL, created_at bigint NOT NULL);
 ALTER TABLE astronom.__drizzle_migrations ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON astronom.__drizzle_migrations FROM PUBLIC;
 INSERT INTO astronom.__drizzle_migrations (hash, created_at) VALUES
 ('23ad3223f0dc433836d75f506a3a1080f65f7224950499d75e2771dd57222c0e', 1793045582888),
 ('8a7fcbec0adc977546c3683641fd9a84757cd0d9168150951ccc9c38bccbbc97', 1793046463354),
-('f0a85ca940081f34c515b0c1ec17ab1e9d30fbb8d5c8efc98a5e9ec99648ca3d', 1793060172293);
+('f0a85ca940081f34c515b0c1ec17ab1e9d30fbb8d5c8efc98a5e9ec99648ca3d', 1793060172293),
+('812f4cf61e316516ff13fed31590ee873ed7a9b5bda7b08887e8e55a3c58428c', 1793062288438);

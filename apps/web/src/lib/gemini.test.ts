@@ -181,6 +181,8 @@ describe("describeWorkflowVideo", () => {
 });
 
 vi.mock("./queries", () => ({ requireWorkspace: vi.fn(async () => ({ id: "ws_test" })) }));
+vi.mock("./account-assets", () => ({ requireAssetAccount: vi.fn(async () => ({ workspaceId: "ws_test", accountId: "test-account" })), AssetError: class extends Error {}, assetFailure: vi.fn() }));
+vi.mock("./gemini-account", () => ({ voiceApiKey: vi.fn(async () => null) }));
 // Never reach the real API from tests, even when a key is set locally.
 vi.mock("./env", async (original) => ({ ...(await original<typeof import("./env")>()), geminiEnabled: () => false }));
 

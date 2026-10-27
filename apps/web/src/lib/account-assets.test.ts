@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { credentials } from "./db/schema";
 import { seedPlatform } from "./db/seed";
-import { addAccountKey, accountMuseKey, AssetError, deleteAccountKey, listAccountKeys } from "./account-assets";
+import { addAccountKey, accountMuseKey, accountGeminiKey, AssetError, deleteAccountKey, listAccountKeys } from "./account-assets";
 import { GET, POST } from "@/app/api/credentials/route";
 import { DELETE } from "@/app/api/credentials/[id]/route";
 import { POST as verify } from "@/app/api/credentials/[id]/verify/route";
@@ -35,6 +35,23 @@ beforeEach(async () => {
 });
 
 describe("account keys", () => {
+  it("stores one Gemini key alongside Muse and isolates it by account", async () => {
+    await addAccountKey(a, "muse", KEY);
+    const response = await POST(request({ purpose: "gemini", key: KEY + "-gemini" }));
+    expect(response.status).toBe(201);
+    const { id } = await response.json();
+    expect(await accountGeminiKey(a.accountId)).toBe(KEY + "-gemini");
+    expect(await accountGeminiKey(b.accountId)).toBeNull();
+    expect(await listAccountKeys(a)).toHaveLength(2);
+    const attempts = await Promise.all([POST(request({ purpose: "gemini", key: KEY })), POST(request({ purpose: "gemini", key: KEY }))]);
+    expect(attempts.map((result) => result.status)).toEqual([409, 409]);
+    expect(JSON.stringify(await (await GET()).json())).not.toContain(KEY);
+    expect(await deleteAccountKey(b, id)).toBe(false);
+    expect(await deleteAccountKey(a, id)).toBe(true);
+    expect(await accountMuseKey(a.accountId)).toBe(KEY);
+    await addAccountKey(a, "gemini", KEY + "-replacement");
+    expect(await accountGeminiKey(a.accountId)).toBe(KEY + "-replacement");
+  });
   it("encrypts keys and never returns values, hints, or ciphertext through the API", async () => {
     const saved = await POST(request({ purpose: "muse", key: KEY }));
     expect(saved.status).toBe(201);

@@ -37,6 +37,7 @@ export default async function ConnectorsPage({
       keys={keys.map((k) => ({
         id: k.id,
         name: k.name,
+        purpose: k.purpose,
       }))}
       documents={documents.map((d) => ({
         id: d.id,

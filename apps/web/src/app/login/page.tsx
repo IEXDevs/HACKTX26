@@ -1,9 +1,15 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { Logo } from "@/components/icons";
 import { ensureDemoUser, getSessionUser } from "@/lib/auth";
 import { supabaseAuthEnabled } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
+
+// Login errors and return destinations all represent the same public page.
+export const metadata: Metadata = {
+  alternates: { canonical: "https://astronom.tech/login" },
+};
 
 export default async function LoginPage({
   searchParams,
